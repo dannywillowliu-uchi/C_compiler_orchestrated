@@ -60,6 +60,15 @@ class ASTVisitor:
 	def visit_for_stmt(self, node: ForStmt) -> Any:
 		return None
 
+	def visit_do_while_stmt(self, node: DoWhileStmt) -> Any:
+		return None
+
+	def visit_break_stmt(self, node: BreakStmt) -> Any:
+		return None
+
+	def visit_continue_stmt(self, node: ContinueStmt) -> Any:
+		return None
+
 	def visit_expr_stmt(self, node: ExprStmt) -> Any:
 		return None
 
@@ -82,6 +91,9 @@ class ASTVisitor:
 		return None
 
 	def visit_assignment(self, node: Assignment) -> Any:
+		return None
+
+	def visit_compound_assignment(self, node: CompoundAssignment) -> Any:
 		return None
 
 	def visit_function_call(self, node: FunctionCall) -> Any:
@@ -187,6 +199,18 @@ class Assignment(ASTNode):
 
 
 @dataclass
+class CompoundAssignment(ASTNode):
+	"""Compound assignment: target op= value (e.g. x += 1)."""
+
+	target: ASTNode = field(default_factory=ASTNode)
+	op: str = ""
+	value: ASTNode = field(default_factory=ASTNode)
+
+	def accept(self, visitor: ASTVisitor) -> Any:
+		return visitor.visit_compound_assignment(self)
+
+
+@dataclass
 class FunctionCall(ASTNode):
 	"""Function call: name(arguments)."""
 
@@ -275,6 +299,33 @@ class ForStmt(ASTNode):
 
 	def accept(self, visitor: ASTVisitor) -> Any:
 		return visitor.visit_for_stmt(self)
+
+
+@dataclass
+class DoWhileStmt(ASTNode):
+	"""Do-while loop: do body while (condition);"""
+
+	body: ASTNode = field(default_factory=ASTNode)
+	condition: ASTNode = field(default_factory=ASTNode)
+
+	def accept(self, visitor: ASTVisitor) -> Any:
+		return visitor.visit_do_while_stmt(self)
+
+
+@dataclass
+class BreakStmt(ASTNode):
+	"""Break statement."""
+
+	def accept(self, visitor: ASTVisitor) -> Any:
+		return visitor.visit_break_stmt(self)
+
+
+@dataclass
+class ContinueStmt(ASTNode):
+	"""Continue statement."""
+
+	def accept(self, visitor: ASTVisitor) -> Any:
+		return visitor.visit_continue_stmt(self)
 
 
 # --- Declaration nodes ---
