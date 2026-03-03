@@ -1034,6 +1034,182 @@ class TestCompoundAssignment:
 		assert any(b.right == IRConst(5) for b in add_ops)
 
 
+class TestShortCircuit:
+	def test_logical_and(self) -> None:
+		"""1 && 2 should emit conditional jumps, not IRBinOp with '&&'."""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_int_type(),
+				name="f",
+				body=CompoundStmt(
+					statements=[
+						ReturnStmt(
+							expression=BinaryOp(
+								left=IntLiteral(value=1), op="&&", right=IntLiteral(value=2)
+							)
+						)
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		body = ir.functions[0].body
+		# Should NOT contain IRBinOp with '&&'
+		binops = [i for i in body if isinstance(i, IRBinOp) and i.op == "&&"]
+		assert len(binops) == 0
+		# Should contain conditional jumps
+		cond_jumps = [i for i in body if isinstance(i, IRCondJump)]
+		assert len(cond_jumps) >= 1
+		labels = [i for i in body if isinstance(i, IRLabelInstr)]
+		assert len(labels) >= 2
+
+	def test_logical_or(self) -> None:
+		"""1 || 0 should emit conditional jumps, not IRBinOp with '||'."""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_int_type(),
+				name="f",
+				body=CompoundStmt(
+					statements=[
+						ReturnStmt(
+							expression=BinaryOp(
+								left=IntLiteral(value=1), op="||", right=IntLiteral(value=0)
+							)
+						)
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		body = ir.functions[0].body
+		binops = [i for i in body if isinstance(i, IRBinOp) and i.op == "||"]
+		assert len(binops) == 0
+		cond_jumps = [i for i in body if isinstance(i, IRCondJump)]
+		assert len(cond_jumps) >= 1
+
+
+class TestPointerOps:
+	def test_deref_emits_load(self) -> None:
+		"""*p should emit IRLoad, not IRUnaryOp."""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_int_type(),
+				name="f",
+				params=[ParamDecl(type_spec=TypeSpec(base_type="int", pointer_count=1), name="p")],
+				body=CompoundStmt(
+					statements=[
+						ReturnStmt(
+							expression=UnaryOp(op="*", operand=Identifier(name="p"))
+						)
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		body = ir.functions[0].body
+		loads = [i for i in body if isinstance(i, IRLoad)]
+		assert len(loads) == 1
+		unary_stars = [i for i in body if isinstance(i, IRUnaryOp) and i.op == "*"]
+		assert len(unary_stars) == 0
+
+	def test_address_of_returns_local(self) -> None:
+		"""&x should return the temp for x directly (its stack address)."""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_int_type(),
+				name="f",
+				body=CompoundStmt(
+					statements=[
+						VarDecl(type_spec=_int_type(), name="x"),
+						ReturnStmt(
+							expression=UnaryOp(op="&", operand=Identifier(name="x"))
+						),
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		body = ir.functions[0].body
+		# Should not emit IRUnaryOp with '&'
+		unary_amps = [i for i in body if isinstance(i, IRUnaryOp) and i.op == "&"]
+		assert len(unary_amps) == 0
+
+	def test_deref_write_emits_store(self) -> None:
+		"""*p = 42 should emit IRStore."""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_void_type(),
+				name="f",
+				params=[ParamDecl(type_spec=TypeSpec(base_type="int", pointer_count=1), name="p")],
+				body=CompoundStmt(
+					statements=[
+						ExprStmt(
+							expression=Assignment(
+								target=UnaryOp(op="*", operand=Identifier(name="p")),
+								value=IntLiteral(value=42),
+							)
+						)
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		body = ir.functions[0].body
+		stores = [i for i in body if isinstance(i, IRStore)]
+		assert len(stores) == 1
+		assert stores[0].value == IRConst(42)
+
+
+class TestPrefixIncDec:
+	def test_prefix_increment(self) -> None:
+		"""++x should emit load + add 1 + store, not IRUnaryOp."""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_void_type(),
+				name="f",
+				body=CompoundStmt(
+					statements=[
+						VarDecl(type_spec=_int_type(), name="x", initializer=IntLiteral(value=5)),
+						ExprStmt(
+							expression=UnaryOp(op="++", operand=Identifier(name="x"))
+						),
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		body = ir.functions[0].body
+		# Should not have IRUnaryOp with '++'
+		unary_inc = [i for i in body if isinstance(i, IRUnaryOp) and i.op == "++"]
+		assert len(unary_inc) == 0
+		# Should have a binop with '+'
+		binops = [i for i in body if isinstance(i, IRBinOp)]
+		assert any(b.op == "+" and b.right == IRConst(1) for b in binops)
+
+	def test_prefix_decrement(self) -> None:
+		"""--x should emit load + sub 1 + store, not IRUnaryOp."""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_void_type(),
+				name="f",
+				body=CompoundStmt(
+					statements=[
+						VarDecl(type_spec=_int_type(), name="x", initializer=IntLiteral(value=10)),
+						ExprStmt(
+							expression=UnaryOp(op="--", operand=Identifier(name="x"))
+						),
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		body = ir.functions[0].body
+		unary_dec = [i for i in body if isinstance(i, IRUnaryOp) and i.op == "--"]
+		assert len(unary_dec) == 0
+		binops = [i for i in body if isinstance(i, IRBinOp)]
+		assert any(b.op == "-" and b.right == IRConst(1) for b in binops)
+
+
 class TestIntegration:
 	def test_return_param_plus_literal(self) -> None:
 		"""int f(int x) { return x + 1; }"""

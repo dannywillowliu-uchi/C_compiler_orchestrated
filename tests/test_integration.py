@@ -5,8 +5,6 @@ Preprocessor -> Lexer -> Parser -> SemanticAnalyzer -> IRGenerator -> CodeGenera
 and asserts the assembly output contains expected patterns.
 """
 
-import pytest
-
 from compiler.codegen import CodeGenerator
 from compiler.ir_gen import IRGenerator
 from compiler.lexer import Lexer
@@ -280,7 +278,6 @@ class TestForLoop:
 class TestPointerDereference:
 	"""(7) Pointer dereference."""
 
-	@pytest.mark.xfail(reason="codegen does not yet handle unary '*' (pointer deref)")
 	def test_pointer_deref_read(self) -> None:
 		source = """
 		int deref(int *p) {
@@ -292,7 +289,6 @@ class TestPointerDereference:
 		assert "(%r" in asm
 		assert "ret" in asm
 
-	@pytest.mark.xfail(reason="codegen does not yet handle unary '*' (pointer deref)")
 	def test_pointer_deref_write(self) -> None:
 		source = """
 		void set_val(int *p, int v) {
@@ -486,4 +482,168 @@ class TestPipelineStructure:
 		asm = compile_source(source)
 		assert "main:" in asm
 		assert "$5" in asm
+		assert "ret" in asm
+
+
+class TestLogicalShortCircuit:
+	"""(11) Logical && and || with short-circuit evaluation."""
+
+	def test_and_both_true(self) -> None:
+		source = """
+		int f() {
+			return 1 && 2;
+		}
+		"""
+		asm = compile_source(source)
+		assert "f:" in asm
+		assert "jne" in asm
+		assert "ret" in asm
+
+	def test_and_left_false(self) -> None:
+		source = """
+		int f() {
+			return 0 && 1;
+		}
+		"""
+		asm = compile_source(source)
+		assert "f:" in asm
+		assert "jne" in asm
+		assert "$0" in asm
+
+	def test_or_left_true(self) -> None:
+		source = """
+		int f() {
+			return 1 || 0;
+		}
+		"""
+		asm = compile_source(source)
+		assert "f:" in asm
+		assert "jne" in asm
+
+	def test_or_both_false(self) -> None:
+		source = """
+		int f() {
+			return 0 || 0;
+		}
+		"""
+		asm = compile_source(source)
+		assert "f:" in asm
+		assert "$0" in asm
+
+	def test_and_in_if(self) -> None:
+		source = """
+		int f(int a, int b) {
+			if (a > 0 && b > 0) {
+				return 1;
+			}
+			return 0;
+		}
+		"""
+		asm = compile_source(source)
+		assert "f:" in asm
+		assert "cmpq" in asm
+		assert "ret" in asm
+
+	def test_or_in_if(self) -> None:
+		source = """
+		int f(int a, int b) {
+			if (a > 0 || b > 0) {
+				return 1;
+			}
+			return 0;
+		}
+		"""
+		asm = compile_source(source)
+		assert "f:" in asm
+		assert "cmpq" in asm
+		assert "ret" in asm
+
+
+class TestPointerReadWrite:
+	"""(12) Pointer read and write through dereference."""
+
+	def test_address_of_and_deref(self) -> None:
+		source = """
+		int f() {
+			int x;
+			int *p;
+			x = 42;
+			p = &x;
+			return *p;
+		}
+		"""
+		asm = compile_source(source)
+		assert "f:" in asm
+		assert "movq (%rax), %rax" in asm
+		assert "ret" in asm
+
+	def test_write_through_pointer(self) -> None:
+		source = """
+		void set(int *p, int v) {
+			*p = v;
+		}
+		"""
+		asm = compile_source(source)
+		assert "set:" in asm
+		assert "(%rax)" in asm
+
+	def test_pointer_read_param(self) -> None:
+		source = """
+		int deref(int *p) {
+			return *p;
+		}
+		"""
+		asm = compile_source(source)
+		assert "deref:" in asm
+		assert "movq (%rax), %rax" in asm
+		assert "ret" in asm
+
+
+class TestPrefixIncrementDecrement:
+	"""(13) Prefix ++ and -- operators."""
+
+	def test_prefix_increment(self) -> None:
+		source = """
+		int f() {
+			int x;
+			x = 5;
+			++x;
+			return x;
+		}
+		"""
+		asm = compile_source(source)
+		assert "f:" in asm
+		assert "addq" in asm
+		assert "ret" in asm
+
+	def test_prefix_decrement(self) -> None:
+		source = """
+		int f() {
+			int x;
+			x = 10;
+			--x;
+			return x;
+		}
+		"""
+		asm = compile_source(source)
+		assert "f:" in asm
+		assert "subq" in asm
+		assert "ret" in asm
+
+	def test_prefix_increment_in_loop(self) -> None:
+		source = """
+		int f() {
+			int i;
+			int s;
+			s = 0;
+			for (i = 0; i < 5; ++i) {
+				s = s + i;
+			}
+			return s;
+		}
+		"""
+		asm = compile_source(source)
+		assert "f:" in asm
+		assert "addq" in asm
+		assert "jmp" in asm
 		assert "ret" in asm
