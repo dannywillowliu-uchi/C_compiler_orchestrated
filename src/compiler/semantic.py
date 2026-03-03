@@ -31,6 +31,8 @@ from compiler.ast_nodes import (
 	ReturnStmt,
 	SizeofExpr,
 	StringLiteral,
+	StructDecl,
+	StructMember,
 	SwitchStmt,
 	TernaryExpr,
 	TypeSpec,
@@ -165,6 +167,7 @@ class SemanticAnalyzer(ASTVisitor):
 		self._current_function: FunctionDecl | None = None
 		self._loop_depth: int = 0
 		self._switch_depth: int = 0
+		self._struct_types: dict[str, StructDecl] = {}
 
 	def analyze(self, node: ASTNode) -> list[SemanticError]:
 		self.visit(node)
@@ -553,6 +556,51 @@ class SemanticAnalyzer(ASTVisitor):
 		if isinstance(node, UnaryOp) and node.op == "*":
 			return True
 		return False
+
+	def visit_struct_decl(self, node: StructDecl) -> None:
+		if node.name in self._struct_types:
+			self._error(f"redefinition of struct '{node.name}'", node)
+			return
+		seen: set[str] = set()
+		for member in node.members:
+			if member.name in seen:
+				self._error(f"duplicate member '{member.name}' in struct '{node.name}'", member)
+			else:
+				seen.add(member.name)
+		self._struct_types[node.name] = node
+
+	def visit_struct_member(self, node: StructMember) -> TypeSpec:
+		return node.type_spec
+
+	def visit_member_access(self, node: MemberAccess) -> TypeSpec | None:
+		obj_type = self.visit(node.object)
+		if obj_type is None:
+			return None
+		if node.is_arrow:
+			if obj_type.pointer_count < 1:
+				self._error("member access with '->' requires pointer to struct", node)
+				return None
+			struct_name = obj_type.base_type
+		else:
+			if obj_type.pointer_count > 0:
+				self._error("member access with '.' requires non-pointer struct (use '->' instead)", node)
+				return None
+			struct_name = obj_type.base_type
+		# Strip "struct " prefix if present
+		if struct_name.startswith("struct "):
+			struct_name = struct_name[len("struct "):]
+		if struct_name not in self._struct_types:
+			self._error(f"member access on non-struct type '{obj_type.base_type}'", node)
+			return None
+		struct_decl = self._struct_types[struct_name]
+		for member in struct_decl.members:
+			if member.name == node.member:
+				return member.type_spec
+		self._error(
+			f"no member named '{node.member}' in struct '{struct_name}'",
+			node,
+		)
+		return None
 
 	def visit_type_spec(self, node: TypeSpec) -> TypeSpec:
 		return node

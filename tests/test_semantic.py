@@ -20,6 +20,7 @@ from compiler.ast_nodes import (
 	Identifier,
 	IfStmt,
 	IntLiteral,
+	MemberAccess,
 	ParamDecl,
 	PostfixExpr,
 	Program,
@@ -27,6 +28,8 @@ from compiler.ast_nodes import (
 	SizeofExpr,
 	SourceLocation,
 	StringLiteral,
+	StructDecl,
+	StructMember,
 	SwitchStmt,
 	TernaryExpr,
 	TypeSpec,
@@ -1628,6 +1631,261 @@ class TestFunctionPrototypeSemantic:
 				params=[ParamDecl(type_spec=int_type(), name="x")],
 				body=CompoundStmt(statements=[
 					ReturnStmt(expression=Identifier(name="x")),
+				]),
+			),
+		])
+		SemanticAnalyzer().analyze(prog)
+
+
+# ---------------------------------------------------------------------------
+# Struct declaration and member access semantic tests
+# ---------------------------------------------------------------------------
+
+
+def _make_point_struct() -> StructDecl:
+	"""Helper: struct point { int x; int y; }."""
+	return StructDecl(
+		name="point",
+		members=[
+			StructMember(type_spec=int_type(), name="x"),
+			StructMember(type_spec=int_type(), name="y"),
+		],
+	)
+
+
+class TestStructDeclSemantic:
+	def test_valid_struct_decl(self) -> None:
+		"""struct point { int x; int y; }; -- valid."""
+		prog = Program(declarations=[_make_point_struct()])
+		SemanticAnalyzer().analyze(prog)
+
+	def test_duplicate_member(self) -> None:
+		"""struct bad { int x; int x; }; -- duplicate member error."""
+		prog = Program(declarations=[
+			StructDecl(
+				name="bad",
+				members=[
+					StructMember(type_spec=int_type(), name="x"),
+					StructMember(type_spec=int_type(), name="x", loc=loc(3, 5)),
+				],
+			),
+		])
+		with pytest.raises(SemanticError, match="duplicate member 'x' in struct 'bad'"):
+			SemanticAnalyzer().analyze(prog)
+
+	def test_redefinition_of_struct(self) -> None:
+		"""Two structs with the same name is an error."""
+		prog = Program(declarations=[
+			_make_point_struct(),
+			StructDecl(name="point", members=[
+				StructMember(type_spec=int_type(), name="a"),
+			], loc=loc(5, 1)),
+		])
+		with pytest.raises(SemanticError, match="redefinition of struct 'point'"):
+			SemanticAnalyzer().analyze(prog)
+
+
+class TestMemberAccessSemantic:
+	def test_valid_dot_access(self) -> None:
+		"""struct point p; p.x -- valid."""
+		prog = Program(declarations=[
+			_make_point_struct(),
+			FunctionDecl(
+				return_type=int_type(),
+				name="f",
+				params=[],
+				body=CompoundStmt(statements=[
+					VarDecl(type_spec=TypeSpec(base_type="point"), name="p"),
+					ReturnStmt(expression=MemberAccess(
+						object=Identifier(name="p"),
+						member="x",
+						is_arrow=False,
+					)),
+				]),
+			),
+		])
+		SemanticAnalyzer().analyze(prog)
+
+	def test_valid_arrow_access(self) -> None:
+		"""struct point *pp; pp->y -- valid."""
+		prog = Program(declarations=[
+			_make_point_struct(),
+			FunctionDecl(
+				return_type=int_type(),
+				name="f",
+				params=[],
+				body=CompoundStmt(statements=[
+					VarDecl(type_spec=TypeSpec(base_type="point", pointer_count=1), name="pp"),
+					ReturnStmt(expression=MemberAccess(
+						object=Identifier(name="pp"),
+						member="y",
+						is_arrow=True,
+					)),
+				]),
+			),
+		])
+		SemanticAnalyzer().analyze(prog)
+
+	def test_invalid_member_name(self) -> None:
+		"""p.z where z is not a member of struct point -- error."""
+		prog = Program(declarations=[
+			_make_point_struct(),
+			FunctionDecl(
+				return_type=void_type(),
+				name="f",
+				params=[],
+				body=CompoundStmt(statements=[
+					VarDecl(type_spec=TypeSpec(base_type="point"), name="p"),
+					ExprStmt(expression=MemberAccess(
+						object=Identifier(name="p"),
+						member="z",
+						is_arrow=False,
+						loc=loc(3, 5),
+					)),
+				]),
+			),
+		])
+		with pytest.raises(SemanticError, match="no member named 'z' in struct 'point'"):
+			SemanticAnalyzer().analyze(prog)
+
+	def test_arrow_on_non_pointer(self) -> None:
+		"""struct point p; p->x -- error: arrow requires pointer."""
+		prog = Program(declarations=[
+			_make_point_struct(),
+			FunctionDecl(
+				return_type=void_type(),
+				name="f",
+				params=[],
+				body=CompoundStmt(statements=[
+					VarDecl(type_spec=TypeSpec(base_type="point"), name="p"),
+					ExprStmt(expression=MemberAccess(
+						object=Identifier(name="p"),
+						member="x",
+						is_arrow=True,
+						loc=loc(3, 5),
+					)),
+				]),
+			),
+		])
+		with pytest.raises(SemanticError, match="requires pointer to struct"):
+			SemanticAnalyzer().analyze(prog)
+
+	def test_dot_on_pointer(self) -> None:
+		"""struct point *pp; pp.x -- error: use -> instead."""
+		prog = Program(declarations=[
+			_make_point_struct(),
+			FunctionDecl(
+				return_type=void_type(),
+				name="f",
+				params=[],
+				body=CompoundStmt(statements=[
+					VarDecl(type_spec=TypeSpec(base_type="point", pointer_count=1), name="pp"),
+					ExprStmt(expression=MemberAccess(
+						object=Identifier(name="pp"),
+						member="x",
+						is_arrow=False,
+						loc=loc(3, 5),
+					)),
+				]),
+			),
+		])
+		with pytest.raises(SemanticError, match="requires non-pointer struct"):
+			SemanticAnalyzer().analyze(prog)
+
+	def test_member_access_on_non_struct(self) -> None:
+		"""int x; x.y -- error: not a struct."""
+		prog = Program(declarations=[
+			FunctionDecl(
+				return_type=void_type(),
+				name="f",
+				params=[],
+				body=CompoundStmt(statements=[
+					VarDecl(type_spec=int_type(), name="x"),
+					ExprStmt(expression=MemberAccess(
+						object=Identifier(name="x"),
+						member="y",
+						is_arrow=False,
+						loc=loc(3, 5),
+					)),
+				]),
+			),
+		])
+		with pytest.raises(SemanticError, match="member access on non-struct type"):
+			SemanticAnalyzer().analyze(prog)
+
+	def test_nested_struct_access(self) -> None:
+		"""struct inner { int val; }; struct outer { inner in; }; o.in.val -- valid."""
+		inner = StructDecl(
+			name="inner",
+			members=[StructMember(type_spec=int_type(), name="val")],
+		)
+		outer = StructDecl(
+			name="outer",
+			members=[StructMember(type_spec=TypeSpec(base_type="inner"), name="in_")],
+		)
+		prog = Program(declarations=[
+			inner,
+			outer,
+			FunctionDecl(
+				return_type=int_type(),
+				name="f",
+				params=[],
+				body=CompoundStmt(statements=[
+					VarDecl(type_spec=TypeSpec(base_type="outer"), name="o"),
+					ReturnStmt(expression=MemberAccess(
+						object=MemberAccess(
+							object=Identifier(name="o"),
+							member="in_",
+							is_arrow=False,
+						),
+						member="val",
+						is_arrow=False,
+					)),
+				]),
+			),
+		])
+		SemanticAnalyzer().analyze(prog)
+
+	def test_member_access_result_type(self) -> None:
+		"""Dot access returns the member's type."""
+		prog = Program(declarations=[
+			StructDecl(
+				name="s",
+				members=[
+					StructMember(type_spec=TypeSpec(base_type="char", pointer_count=1), name="name"),
+				],
+			),
+			FunctionDecl(
+				return_type=TypeSpec(base_type="char", pointer_count=1),
+				name="f",
+				params=[],
+				body=CompoundStmt(statements=[
+					VarDecl(type_spec=TypeSpec(base_type="s"), name="obj"),
+					ReturnStmt(expression=MemberAccess(
+						object=Identifier(name="obj"),
+						member="name",
+						is_arrow=False,
+					)),
+				]),
+			),
+		])
+		SemanticAnalyzer().analyze(prog)
+
+	def test_struct_prefix_in_base_type(self) -> None:
+		"""TypeSpec with base_type='struct point' should also work."""
+		prog = Program(declarations=[
+			_make_point_struct(),
+			FunctionDecl(
+				return_type=int_type(),
+				name="f",
+				params=[],
+				body=CompoundStmt(statements=[
+					VarDecl(type_spec=TypeSpec(base_type="struct point"), name="p"),
+					ReturnStmt(expression=MemberAccess(
+						object=Identifier(name="p"),
+						member="x",
+						is_arrow=False,
+					)),
 				]),
 			),
 		])
