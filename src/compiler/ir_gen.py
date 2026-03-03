@@ -21,6 +21,7 @@ from compiler.ast_nodes import (
 	ForStmt,
 	FunctionCall,
 	FunctionDecl,
+	TypedefDecl,
 	Identifier,
 	IfStmt,
 	IntLiteral,
@@ -801,6 +802,12 @@ class IRGenerator(ASTVisitor):
 				next_value = const.value.value
 			self._enum_constants[const.name] = next_value
 			next_value += 1
+
+	def visit_typedef_decl(self, node: TypedefDecl) -> None:
+		if node.struct_decl is not None:
+			self.visit_struct_decl(node.struct_decl)
+		if node.enum_decl is not None:
+			self.visit_enum_decl(node.enum_decl)
 
 	def visit_struct_decl(self, node: StructDecl) -> None:
 		self._structs[node.name] = list(node.members)

@@ -141,6 +141,9 @@ class ASTVisitor:
 	def visit_cast_expr(self, node: CastExpr) -> Any:
 		return None
 
+	def visit_typedef_decl(self, node: TypedefDecl) -> Any:
+		return None
+
 
 # --- Type node ---
 
@@ -499,6 +502,19 @@ class EnumDecl(ASTNode):
 
 	def accept(self, visitor: ASTVisitor) -> Any:
 		return visitor.visit_enum_decl(self)
+
+
+@dataclass
+class TypedefDecl(ASTNode):
+	"""Typedef declaration: typedef <type_spec> <name>;"""
+
+	type_spec: TypeSpec = field(default_factory=TypeSpec)
+	name: str = ""
+	struct_decl: StructDecl | None = None
+	enum_decl: EnumDecl | None = None
+
+	def accept(self, visitor: ASTVisitor) -> Any:
+		return visitor.visit_typedef_decl(self)
 
 
 @dataclass

@@ -41,6 +41,7 @@ from compiler.ast_nodes import (
 	StructMember,
 	SwitchStmt,
 	TernaryExpr,
+	TypedefDecl,
 	TypeSpec,
 	UnaryOp,
 	VarDecl,
@@ -122,6 +123,7 @@ class Parser:
 	def __init__(self, tokens: list[Token]) -> None:
 		self.tokens = tokens
 		self.pos = 0
+		self._typedef_names: set[str] = set()
 
 	@classmethod
 	def from_source(cls, source: str) -> Parser:
@@ -171,6 +173,13 @@ class Parser:
 		tok = self._current()
 		return ParseError(message, tok.line, tok.column)
 
+	def _is_type_start(self, offset: int = 0) -> bool:
+		"""Check if the token at the given offset starts a type specifier."""
+		tok = self._peek(offset)
+		if tok.type in _TYPE_KEYWORDS:
+			return True
+		return tok.type == TokenType.IDENTIFIER and tok.value in self._typedef_names
+
 	# -- Top-level parsing ---------------------------------------------------
 
 	def parse(self) -> Program:
@@ -181,7 +190,11 @@ class Parser:
 		return Program(declarations=declarations, loc=SourceLocation(1, 1))
 
 	def _parse_top_level_decl(self) -> ASTNode:
-		"""Parse a top-level declaration (function, global variable, struct, or enum)."""
+		"""Parse a top-level declaration (function, global variable, struct, enum, or typedef)."""
+		# Check for typedef
+		if self._check(TokenType.TYPEDEF):
+			return self._parse_typedef_decl()
+
 		# Check for enum definition: enum name { ... };
 		if self._check(TokenType.ENUM) and self._peek(1).type == TokenType.IDENTIFIER and self._peek(2).type == TokenType.LBRACE:
 			return self._parse_enum_decl()
@@ -219,19 +232,23 @@ class Parser:
 	# -- Type specifier ------------------------------------------------------
 
 	def _parse_type_spec(self) -> TypeSpec:
-		"""Parse a type specifier: int, char, void, struct name with optional pointer '*'s."""
+		"""Parse a type specifier: int, char, void, struct name, typedef name with optional pointer '*'s."""
 		tok = self._current()
-		if tok.type not in _TYPE_KEYWORDS:
-			raise self._error(f"Expected type specifier, got {tok.type.name} ({tok.value!r})")
-		self._advance()
-		if tok.type == TokenType.STRUCT:
-			name_tok = self._expect(TokenType.IDENTIFIER, "Expected struct name")
-			base_type = f"struct {name_tok.value}"
-		elif tok.type == TokenType.ENUM:
-			name_tok = self._expect(TokenType.IDENTIFIER, "Expected enum name")
-			base_type = f"enum {name_tok.value}"
-		else:
+		if tok.type == TokenType.IDENTIFIER and tok.value in self._typedef_names:
+			self._advance()
 			base_type = tok.value
+		elif tok.type not in _TYPE_KEYWORDS:
+			raise self._error(f"Expected type specifier, got {tok.type.name} ({tok.value!r})")
+		else:
+			self._advance()
+			if tok.type == TokenType.STRUCT:
+				name_tok = self._expect(TokenType.IDENTIFIER, "Expected struct name")
+				base_type = f"struct {name_tok.value}"
+			elif tok.type == TokenType.ENUM:
+				name_tok = self._expect(TokenType.IDENTIFIER, "Expected enum name")
+				base_type = f"enum {name_tok.value}"
+			else:
+				base_type = tok.value
 		pointer_count = 0
 		while self._match(TokenType.STAR):
 			pointer_count += 1
@@ -281,6 +298,103 @@ class Parser:
 		self._expect(TokenType.RBRACE, "Expected '}' after enum constants")
 		self._expect(TokenType.SEMICOLON, "Expected ';' after enum definition")
 		return EnumDecl(name=name_tok.value, constants=constants, loc=self._loc(tok))
+
+	# -- Typedef declaration -------------------------------------------------
+
+	def _parse_typedef_decl(self) -> TypedefDecl:
+		"""Parse 'typedef <type> <name>;' including struct/enum inline definitions."""
+		tok = self._advance()  # consume 'typedef'
+		struct_decl: StructDecl | None = None
+		enum_decl: EnumDecl | None = None
+
+		if self._check(TokenType.STRUCT):
+			# Check for inline struct definition: typedef struct [name] { ... } alias;
+			if self._peek(1).type == TokenType.LBRACE or (
+				self._peek(1).type == TokenType.IDENTIFIER and self._peek(2).type == TokenType.LBRACE
+			):
+				self._advance()  # consume 'struct'
+				struct_name = ""
+				if self._check(TokenType.IDENTIFIER):
+					struct_name = self._advance().value
+				self._expect(TokenType.LBRACE, "Expected '{' in struct definition")
+				members: list[StructMember] = []
+				while not self._check(TokenType.RBRACE) and not self._at_end():
+					member_type = self._parse_type_spec()
+					member_name_tok = self._expect(TokenType.IDENTIFIER, "Expected member name")
+					self._expect(TokenType.SEMICOLON, "Expected ';' after struct member")
+					members.append(StructMember(
+						type_spec=member_type,
+						name=member_name_tok.value,
+						loc=self._loc(member_name_tok),
+					))
+				self._expect(TokenType.RBRACE, "Expected '}' after struct members")
+				alias_tok = self._expect(TokenType.IDENTIFIER, "Expected typedef name")
+				# Use alias as struct name if anonymous
+				if not struct_name:
+					struct_name = alias_tok.value
+				struct_decl = StructDecl(name=struct_name, members=members, loc=self._loc(tok))
+				type_spec = TypeSpec(base_type=f"struct {struct_name}", pointer_count=0, loc=self._loc(tok))
+				self._expect(TokenType.SEMICOLON, "Expected ';' after typedef declaration")
+				self._typedef_names.add(alias_tok.value)
+				return TypedefDecl(
+					type_spec=type_spec,
+					name=alias_tok.value,
+					struct_decl=struct_decl,
+					loc=self._loc(tok),
+				)
+			# Otherwise: typedef struct Name alias; (reference to existing struct)
+			type_spec = self._parse_type_spec()
+		elif self._check(TokenType.ENUM):
+			# Check for inline enum definition: typedef enum [name] { ... } alias;
+			if self._peek(1).type == TokenType.LBRACE or (
+				self._peek(1).type == TokenType.IDENTIFIER and self._peek(2).type == TokenType.LBRACE
+			):
+				self._advance()  # consume 'enum'
+				enum_name = ""
+				if self._check(TokenType.IDENTIFIER):
+					enum_name = self._advance().value
+				self._expect(TokenType.LBRACE, "Expected '{' in enum definition")
+				constants: list[EnumConstant] = []
+				while not self._check(TokenType.RBRACE) and not self._at_end():
+					const_name_tok = self._expect(TokenType.IDENTIFIER, "Expected enumerator name")
+					value: ASTNode | None = None
+					if self._match(TokenType.ASSIGN):
+						value = self._parse_expression()
+					constants.append(EnumConstant(
+						name=const_name_tok.value,
+						value=value,
+						loc=self._loc(const_name_tok),
+					))
+					if not self._check(TokenType.RBRACE):
+						self._expect(TokenType.COMMA, "Expected ',' or '}' in enum body")
+				self._expect(TokenType.RBRACE, "Expected '}' after enum constants")
+				alias_tok = self._expect(TokenType.IDENTIFIER, "Expected typedef name")
+				if not enum_name:
+					enum_name = alias_tok.value
+				enum_decl = EnumDecl(name=enum_name, constants=constants, loc=self._loc(tok))
+				type_spec = TypeSpec(base_type=f"enum {enum_name}", pointer_count=0, loc=self._loc(tok))
+				self._expect(TokenType.SEMICOLON, "Expected ';' after typedef declaration")
+				self._typedef_names.add(alias_tok.value)
+				return TypedefDecl(
+					type_spec=type_spec,
+					name=alias_tok.value,
+					enum_decl=enum_decl,
+					loc=self._loc(tok),
+				)
+			type_spec = self._parse_type_spec()
+		else:
+			type_spec = self._parse_type_spec()
+
+		# Count additional pointer stars after the base type spec
+		# (already handled in _parse_type_spec)
+		alias_tok = self._expect(TokenType.IDENTIFIER, "Expected typedef name")
+		self._expect(TokenType.SEMICOLON, "Expected ';' after typedef declaration")
+		self._typedef_names.add(alias_tok.value)
+		return TypedefDecl(
+			type_spec=type_spec,
+			name=alias_tok.value,
+			loc=self._loc(tok),
+		)
 
 	# -- Function declaration ------------------------------------------------
 
@@ -348,6 +462,9 @@ class Parser:
 			return self._parse_break_stmt()
 		if self._check(TokenType.CONTINUE):
 			return self._parse_continue_stmt()
+		# typedef in local scope
+		if self._check(TokenType.TYPEDEF):
+			return self._parse_typedef_decl()
 		# enum keyword: enum definition
 		if self._check(TokenType.ENUM) and self._peek(1).type == TokenType.IDENTIFIER and self._peek(2).type == TokenType.LBRACE:
 			return self._parse_enum_decl()
@@ -357,6 +474,9 @@ class Parser:
 				return self._parse_struct_decl()
 			return self._parse_var_decl_stmt()
 		if self._check(*_TYPE_KEYWORDS):
+			return self._parse_var_decl_stmt()
+		# Typedef name used as type for variable declaration
+		if self._check(TokenType.IDENTIFIER) and self._current().value in self._typedef_names:
 			return self._parse_var_decl_stmt()
 		return self._parse_expr_stmt()
 
@@ -414,7 +534,7 @@ class Parser:
 
 		# init
 		init: ASTNode | None = None
-		if self._check(*_TYPE_KEYWORDS):
+		if self._is_type_start():
 			init = self._parse_var_decl_stmt()  # includes semicolon
 		elif not self._check(TokenType.SEMICOLON):
 			init = self._parse_expression()
@@ -584,7 +704,7 @@ class Parser:
 		"""Parse unary prefix operators: - ! ~ * & ++ -- sizeof, and cast expressions."""
 		tok = self._current()
 		# Cast expression: (type)expr
-		if tok.type == TokenType.LPAREN and self._peek(1).type in _TYPE_KEYWORDS:
+		if tok.type == TokenType.LPAREN and self._is_type_start(1):
 			self._advance()  # consume '('
 			cast_type = self._parse_type_spec()
 			self._expect(TokenType.RPAREN, "Expected ')' after cast type")
@@ -592,7 +712,7 @@ class Parser:
 			return CastExpr(target_type=cast_type, operand=operand, loc=self._loc(tok))
 		if tok.type == TokenType.SIZEOF:
 			self._advance()
-			if self._check(TokenType.LPAREN) and self._peek(1).type in _TYPE_KEYWORDS:
+			if self._check(TokenType.LPAREN) and self._is_type_start(1):
 				self._advance()  # consume '('
 				type_spec = self._parse_type_spec()
 				self._expect(TokenType.RPAREN, "Expected ')' after sizeof type")
