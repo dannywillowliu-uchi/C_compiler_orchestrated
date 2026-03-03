@@ -1,0 +1,595 @@
+"""Comprehensive tests for the recursive descent parser."""
+
+import pytest
+
+from compiler.ast_nodes import (
+	Assignment,
+	BinaryOp,
+	CharLiteral,
+	CompoundStmt,
+	ExprStmt,
+	ForStmt,
+	FunctionCall,
+	FunctionDecl,
+	Identifier,
+	IfStmt,
+	IntLiteral,
+	Program,
+	ReturnStmt,
+	StringLiteral,
+	UnaryOp,
+	VarDecl,
+	WhileStmt,
+)
+from compiler.lexer import Lexer
+from compiler.parser import ParseError, Parser
+
+
+def parse(source: str) -> Program:
+	"""Helper: lex + parse source into a Program node."""
+	tokens = Lexer(source).tokenize()
+	return Parser(tokens).parse()
+
+
+def parse_single_func(source: str) -> FunctionDecl:
+	"""Helper: parse source expecting a single function declaration."""
+	prog = parse(source)
+	assert len(prog.declarations) == 1
+	decl = prog.declarations[0]
+	assert isinstance(decl, FunctionDecl)
+	return decl
+
+
+def body_stmts(func: FunctionDecl) -> list:
+	"""Helper: extract statements from a function's body."""
+	return func.body.statements
+
+
+# -- Simple return -----------------------------------------------------------
+
+
+class TestSimpleReturn:
+	def test_return_zero(self) -> None:
+		func = parse_single_func("int main() { return 0; }")
+		assert func.name == "main"
+		assert func.return_type.base_type == "int"
+		assert len(func.params) == 0
+		stmts = body_stmts(func)
+		assert len(stmts) == 1
+		ret = stmts[0]
+		assert isinstance(ret, ReturnStmt)
+		assert isinstance(ret.expression, IntLiteral)
+		assert ret.expression.value == 0
+
+	def test_return_integer(self) -> None:
+		func = parse_single_func("int foo() { return 42; }")
+		ret = body_stmts(func)[0]
+		assert isinstance(ret, ReturnStmt)
+		assert isinstance(ret.expression, IntLiteral)
+		assert ret.expression.value == 42
+
+	def test_return_expression(self) -> None:
+		func = parse_single_func("int f() { return 1 + 2; }")
+		ret = body_stmts(func)[0]
+		assert isinstance(ret, ReturnStmt)
+		assert isinstance(ret.expression, BinaryOp)
+
+	def test_void_function_bare_return(self) -> None:
+		func = parse_single_func("void f() { return; }")
+		ret = body_stmts(func)[0]
+		assert isinstance(ret, ReturnStmt)
+
+
+# -- Arithmetic expressions with precedence ----------------------------------
+
+
+class TestArithmeticPrecedence:
+	def test_addition(self) -> None:
+		func = parse_single_func("int f() { return 1 + 2; }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, BinaryOp)
+		assert expr.op == "+"
+		assert isinstance(expr.left, IntLiteral)
+		assert expr.left.value == 1
+		assert isinstance(expr.right, IntLiteral)
+		assert expr.right.value == 2
+
+	def test_mul_before_add(self) -> None:
+		# 1 + 2 * 3 should parse as 1 + (2 * 3)
+		func = parse_single_func("int f() { return 1 + 2 * 3; }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, BinaryOp)
+		assert expr.op == "+"
+		assert isinstance(expr.left, IntLiteral)
+		assert expr.left.value == 1
+		assert isinstance(expr.right, BinaryOp)
+		assert expr.right.op == "*"
+
+	def test_left_associativity(self) -> None:
+		# 1 - 2 - 3 should parse as (1 - 2) - 3
+		func = parse_single_func("int f() { return 1 - 2 - 3; }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, BinaryOp)
+		assert expr.op == "-"
+		assert isinstance(expr.left, BinaryOp)
+		assert expr.left.op == "-"
+		assert isinstance(expr.right, IntLiteral)
+		assert expr.right.value == 3
+
+	def test_parenthesized_override(self) -> None:
+		# (1 + 2) * 3 => (* (+ 1 2) 3)
+		func = parse_single_func("int f() { return (1 + 2) * 3; }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, BinaryOp)
+		assert expr.op == "*"
+		assert isinstance(expr.left, BinaryOp)
+		assert expr.left.op == "+"
+
+	def test_modulo(self) -> None:
+		func = parse_single_func("int f() { return 10 % 3; }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, BinaryOp)
+		assert expr.op == "%"
+
+	def test_comparison_operators(self) -> None:
+		func = parse_single_func("int f() { return 1 < 2; }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, BinaryOp)
+		assert expr.op == "<"
+
+	def test_equality_operators(self) -> None:
+		func = parse_single_func("int f() { return 1 == 2; }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, BinaryOp)
+		assert expr.op == "=="
+
+	def test_logical_and_or(self) -> None:
+		# a && b || c should parse as (a && b) || c
+		func = parse_single_func("int f() { return 1 && 2 || 3; }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, BinaryOp)
+		assert expr.op == "||"
+		assert isinstance(expr.left, BinaryOp)
+		assert expr.left.op == "&&"
+
+	def test_complex_precedence(self) -> None:
+		# 1 + 2 * 3 == 7 && 4 < 5
+		func = parse_single_func("int f() { return 1 + 2 * 3 == 7 && 4 < 5; }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, BinaryOp)
+		assert expr.op == "&&"
+
+
+# -- Variable declarations ---------------------------------------------------
+
+
+class TestVarDecl:
+	def test_simple_decl(self) -> None:
+		func = parse_single_func("int f() { int x; return 0; }")
+		decl = body_stmts(func)[0]
+		assert isinstance(decl, VarDecl)
+		assert decl.name == "x"
+		assert decl.type_spec.base_type == "int"
+		assert decl.initializer is None
+
+	def test_decl_with_init(self) -> None:
+		func = parse_single_func("int f() { int x = 5; return x; }")
+		decl = body_stmts(func)[0]
+		assert isinstance(decl, VarDecl)
+		assert decl.name == "x"
+		assert isinstance(decl.initializer, IntLiteral)
+		assert decl.initializer.value == 5
+
+	def test_pointer_decl(self) -> None:
+		func = parse_single_func("int f() { int *p; return 0; }")
+		decl = body_stmts(func)[0]
+		assert isinstance(decl, VarDecl)
+		assert decl.type_spec.pointer_count == 1
+
+	def test_double_pointer(self) -> None:
+		func = parse_single_func("int f() { char **pp; return 0; }")
+		decl = body_stmts(func)[0]
+		assert isinstance(decl, VarDecl)
+		assert decl.type_spec.base_type == "char"
+		assert decl.type_spec.pointer_count == 2
+
+	def test_decl_with_expression_init(self) -> None:
+		func = parse_single_func("int f() { int x = 1 + 2; return x; }")
+		decl = body_stmts(func)[0]
+		assert isinstance(decl, VarDecl)
+		assert isinstance(decl.initializer, BinaryOp)
+
+	def test_global_var_decl(self) -> None:
+		prog = parse("int x = 10;")
+		assert len(prog.declarations) == 1
+		decl = prog.declarations[0]
+		assert isinstance(decl, VarDecl)
+		assert decl.name == "x"
+		assert isinstance(decl.initializer, IntLiteral)
+
+
+# -- If/else -----------------------------------------------------------------
+
+
+class TestIfElse:
+	def test_simple_if(self) -> None:
+		func = parse_single_func("int f() { if (1) return 0; }")
+		stmt = body_stmts(func)[0]
+		assert isinstance(stmt, IfStmt)
+		assert isinstance(stmt.condition, IntLiteral)
+		assert isinstance(stmt.then_branch, ReturnStmt)
+		assert stmt.else_branch is None
+
+	def test_if_else(self) -> None:
+		src = "int f() { if (x) return 1; else return 0; }"
+		func = parse_single_func(src)
+		stmt = body_stmts(func)[0]
+		assert isinstance(stmt, IfStmt)
+		assert isinstance(stmt.then_branch, ReturnStmt)
+		assert isinstance(stmt.else_branch, ReturnStmt)
+
+	def test_if_with_block(self) -> None:
+		src = "int f() { if (x) { return 1; } }"
+		func = parse_single_func(src)
+		stmt = body_stmts(func)[0]
+		assert isinstance(stmt, IfStmt)
+		assert isinstance(stmt.then_branch, CompoundStmt)
+
+	def test_if_else_if(self) -> None:
+		src = "int f() { if (a) return 1; else if (b) return 2; else return 3; }"
+		func = parse_single_func(src)
+		stmt = body_stmts(func)[0]
+		assert isinstance(stmt, IfStmt)
+		assert isinstance(stmt.else_branch, IfStmt)
+		assert isinstance(stmt.else_branch.else_branch, ReturnStmt)
+
+	def test_if_with_comparison(self) -> None:
+		func = parse_single_func("int f() { if (x > 0) return 1; }")
+		stmt = body_stmts(func)[0]
+		assert isinstance(stmt, IfStmt)
+		assert isinstance(stmt.condition, BinaryOp)
+		assert stmt.condition.op == ">"
+
+
+# -- While -------------------------------------------------------------------
+
+
+class TestWhile:
+	def test_simple_while(self) -> None:
+		src = "int f() { while (1) { return 0; } }"
+		func = parse_single_func(src)
+		stmt = body_stmts(func)[0]
+		assert isinstance(stmt, WhileStmt)
+		assert isinstance(stmt.condition, IntLiteral)
+		assert isinstance(stmt.body, CompoundStmt)
+
+	def test_while_with_expression(self) -> None:
+		src = "int f() { while (x < 10) { x = x + 1; } }"
+		func = parse_single_func(src)
+		stmt = body_stmts(func)[0]
+		assert isinstance(stmt, WhileStmt)
+		assert isinstance(stmt.condition, BinaryOp)
+
+
+# -- For loop ----------------------------------------------------------------
+
+
+class TestForLoop:
+	def test_full_for(self) -> None:
+		src = "int f() { for (int i = 0; i < 10; i = i + 1) { return i; } }"
+		func = parse_single_func(src)
+		stmt = body_stmts(func)[0]
+		assert isinstance(stmt, ForStmt)
+		assert isinstance(stmt.init, VarDecl)
+		assert isinstance(stmt.condition, BinaryOp)
+		assert isinstance(stmt.update, Assignment)
+		assert isinstance(stmt.body, CompoundStmt)
+
+	def test_for_empty_init(self) -> None:
+		src = "int f() { int i; for (; i < 10; i = i + 1) { return 0; } }"
+		func = parse_single_func(src)
+		stmt = body_stmts(func)[1]
+		assert isinstance(stmt, ForStmt)
+		assert stmt.init is None
+
+	def test_for_empty_condition(self) -> None:
+		src = "int f() { for (int i = 0; ; i = i + 1) { return 0; } }"
+		func = parse_single_func(src)
+		stmt = body_stmts(func)[0]
+		assert isinstance(stmt, ForStmt)
+		assert stmt.condition is None
+
+	def test_for_empty_update(self) -> None:
+		src = "int f() { for (int i = 0; i < 10; ) { return 0; } }"
+		func = parse_single_func(src)
+		stmt = body_stmts(func)[0]
+		assert isinstance(stmt, ForStmt)
+		assert stmt.update is None
+
+	def test_for_expr_init(self) -> None:
+		src = "int f() { int i; for (i = 0; i < 10; i = i + 1) { return 0; } }"
+		func = parse_single_func(src)
+		stmt = body_stmts(func)[1]
+		assert isinstance(stmt, ForStmt)
+		assert isinstance(stmt.init, Assignment)
+
+
+# -- Function calls ----------------------------------------------------------
+
+
+class TestFunctionCall:
+	def test_no_args(self) -> None:
+		func = parse_single_func("int f() { foo(); }")
+		stmt = body_stmts(func)[0]
+		assert isinstance(stmt, ExprStmt)
+		call = stmt.expression
+		assert isinstance(call, FunctionCall)
+		assert call.name == "foo"
+		assert len(call.arguments) == 0
+
+	def test_one_arg(self) -> None:
+		func = parse_single_func("int f() { foo(42); }")
+		call = body_stmts(func)[0].expression
+		assert isinstance(call, FunctionCall)
+		assert len(call.arguments) == 1
+		assert isinstance(call.arguments[0], IntLiteral)
+
+	def test_multiple_args(self) -> None:
+		func = parse_single_func("int f() { bar(1, 2, 3); }")
+		call = body_stmts(func)[0].expression
+		assert isinstance(call, FunctionCall)
+		assert len(call.arguments) == 3
+
+	def test_nested_call(self) -> None:
+		func = parse_single_func("int f() { foo(bar(1)); }")
+		call = body_stmts(func)[0].expression
+		assert isinstance(call, FunctionCall)
+		assert isinstance(call.arguments[0], FunctionCall)
+
+	def test_call_with_expression_arg(self) -> None:
+		func = parse_single_func("int f() { foo(1 + 2); }")
+		call = body_stmts(func)[0].expression
+		assert isinstance(call, FunctionCall)
+		assert isinstance(call.arguments[0], BinaryOp)
+
+	def test_call_in_return(self) -> None:
+		func = parse_single_func("int f() { return foo(1); }")
+		ret = body_stmts(func)[0]
+		assert isinstance(ret, ReturnStmt)
+		assert isinstance(ret.expression, FunctionCall)
+
+
+# -- Nested expressions ------------------------------------------------------
+
+
+class TestNestedExpressions:
+	def test_deeply_nested_parens(self) -> None:
+		func = parse_single_func("int f() { return ((((1)))); }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, IntLiteral)
+		assert expr.value == 1
+
+	def test_unary_negation(self) -> None:
+		func = parse_single_func("int f() { return -1; }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, UnaryOp)
+		assert expr.op == "-"
+		assert isinstance(expr.operand, IntLiteral)
+
+	def test_logical_not(self) -> None:
+		func = parse_single_func("int f() { return !x; }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, UnaryOp)
+		assert expr.op == "!"
+
+	def test_bitwise_not(self) -> None:
+		func = parse_single_func("int f() { return ~x; }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, UnaryOp)
+		assert expr.op == "~"
+
+	def test_dereference(self) -> None:
+		func = parse_single_func("int f() { return *p; }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, UnaryOp)
+		assert expr.op == "*"
+
+	def test_address_of(self) -> None:
+		func = parse_single_func("int f() { return &x; }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, UnaryOp)
+		assert expr.op == "&"
+
+	def test_double_negation(self) -> None:
+		func = parse_single_func("int f() { return - -1; }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, UnaryOp)
+		assert expr.op == "-"
+		assert isinstance(expr.operand, UnaryOp)
+		assert expr.operand.op == "-"
+
+	def test_assignment(self) -> None:
+		func = parse_single_func("int f() { x = 5; }")
+		stmt = body_stmts(func)[0]
+		assert isinstance(stmt, ExprStmt)
+		expr = stmt.expression
+		assert isinstance(expr, Assignment)
+		assert isinstance(expr.target, Identifier)
+		assert expr.target.name == "x"
+		assert isinstance(expr.value, IntLiteral)
+
+	def test_chained_assignment(self) -> None:
+		func = parse_single_func("int f() { x = y = 5; }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, Assignment)
+		assert isinstance(expr.value, Assignment)
+
+	def test_string_literal(self) -> None:
+		func = parse_single_func('int f() { return "hello"; }')
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, StringLiteral)
+		assert expr.value == "hello"
+
+	def test_char_literal(self) -> None:
+		func = parse_single_func("int f() { return 'a'; }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, CharLiteral)
+		assert expr.value == "a"
+
+
+# -- Function parameters ----------------------------------------------------
+
+
+class TestFunctionParams:
+	def test_single_param(self) -> None:
+		func = parse_single_func("int f(int x) { return x; }")
+		assert len(func.params) == 1
+		assert func.params[0].name == "x"
+		assert func.params[0].type_spec.base_type == "int"
+
+	def test_multiple_params(self) -> None:
+		func = parse_single_func("int add(int a, int b) { return a + b; }")
+		assert len(func.params) == 2
+		assert func.params[0].name == "a"
+		assert func.params[1].name == "b"
+
+	def test_pointer_param(self) -> None:
+		func = parse_single_func("void f(int *p) { return; }")
+		assert func.params[0].type_spec.pointer_count == 1
+
+	def test_void_params(self) -> None:
+		func = parse_single_func("int f(void) { return 0; }")
+		assert len(func.params) == 0
+
+	def test_mixed_types(self) -> None:
+		func = parse_single_func("int f(int x, char *s, void *p) { return 0; }")
+		assert len(func.params) == 3
+		assert func.params[0].type_spec.base_type == "int"
+		assert func.params[1].type_spec.base_type == "char"
+		assert func.params[1].type_spec.pointer_count == 1
+		assert func.params[2].type_spec.base_type == "void"
+		assert func.params[2].type_spec.pointer_count == 1
+
+
+# -- Multiple declarations --------------------------------------------------
+
+
+class TestMultipleDeclarations:
+	def test_two_functions(self) -> None:
+		src = "int foo() { return 1; } int bar() { return 2; }"
+		prog = parse(src)
+		assert len(prog.declarations) == 2
+		assert isinstance(prog.declarations[0], FunctionDecl)
+		assert isinstance(prog.declarations[1], FunctionDecl)
+		assert prog.declarations[0].name == "foo"
+		assert prog.declarations[1].name == "bar"
+
+	def test_global_var_and_function(self) -> None:
+		src = "int x = 10; int main() { return x; }"
+		prog = parse(src)
+		assert len(prog.declarations) == 2
+		assert isinstance(prog.declarations[0], VarDecl)
+		assert isinstance(prog.declarations[1], FunctionDecl)
+
+
+# -- Source location tracking ------------------------------------------------
+
+
+class TestSourceLocations:
+	def test_function_location(self) -> None:
+		func = parse_single_func("int main() { return 0; }")
+		assert func.loc.line == 1
+		assert func.loc.col == 5  # 'main' starts at col 5
+
+	def test_error_location(self) -> None:
+		with pytest.raises(ParseError) as exc_info:
+			parse("int f() { return 0 }")
+		err = exc_info.value
+		assert err.line > 0
+		assert err.column > 0
+
+
+# -- Error cases -------------------------------------------------------------
+
+
+class TestErrorCases:
+	def test_missing_semicolon(self) -> None:
+		with pytest.raises(ParseError, match="Expected ';'"):
+			parse("int f() { return 0 }")
+
+	def test_missing_closing_paren(self) -> None:
+		with pytest.raises(ParseError, match="Expected '\\)'"):
+			parse("int f() { if (1 { return 0; } }")
+
+	def test_missing_closing_brace(self) -> None:
+		with pytest.raises(ParseError, match="Expected '}'"):
+			parse("int f() { return 0;")
+
+	def test_unexpected_token(self) -> None:
+		with pytest.raises(ParseError):
+			parse("int f() { return +; }")
+
+	def test_missing_type_specifier(self) -> None:
+		with pytest.raises(ParseError, match="Expected type specifier"):
+			parse("f() { return 0; }")
+
+	def test_missing_function_name(self) -> None:
+		with pytest.raises(ParseError, match="Expected declaration name"):
+			parse("int () { return 0; }")
+
+	def test_missing_param_name(self) -> None:
+		with pytest.raises(ParseError, match="Expected parameter name"):
+			parse("int f(int) { return 0; }")
+
+	def test_error_has_line_col(self) -> None:
+		with pytest.raises(ParseError) as exc_info:
+			parse("int f() { return 0 }")
+		err = exc_info.value
+		assert hasattr(err, "line")
+		assert hasattr(err, "column")
+		assert "at" in str(err)
+
+
+# -- Parser.from_source convenience -----------------------------------------
+
+
+class TestFromSource:
+	def test_from_source(self) -> None:
+		parser = Parser.from_source("int main() { return 0; }")
+		prog = parser.parse()
+		assert isinstance(prog, Program)
+		assert len(prog.declarations) == 1
+
+
+# -- Expression statements ---------------------------------------------------
+
+
+class TestExpressionStatements:
+	def test_identifier_stmt(self) -> None:
+		func = parse_single_func("int f() { x; }")
+		stmt = body_stmts(func)[0]
+		assert isinstance(stmt, ExprStmt)
+		assert isinstance(stmt.expression, Identifier)
+
+	def test_call_stmt(self) -> None:
+		func = parse_single_func("int f() { printf(42); }")
+		stmt = body_stmts(func)[0]
+		assert isinstance(stmt, ExprStmt)
+		assert isinstance(stmt.expression, FunctionCall)
+
+
+# -- Compound statements -----------------------------------------------------
+
+
+class TestCompoundStmt:
+	def test_empty_block(self) -> None:
+		func = parse_single_func("int f() { }")
+		assert len(body_stmts(func)) == 0
+
+	def test_nested_blocks(self) -> None:
+		func = parse_single_func("int f() { { { return 0; } } }")
+		outer = body_stmts(func)[0]
+		assert isinstance(outer, CompoundStmt)
+		inner = outer.statements[0]
+		assert isinstance(inner, CompoundStmt)
+		assert isinstance(inner.statements[0], ReturnStmt)
