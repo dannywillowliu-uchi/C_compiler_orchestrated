@@ -13,6 +13,8 @@ class IRType(Enum):
 	CHAR = auto()
 	VOID = auto()
 	POINTER = auto()
+	FLOAT = auto()
+	DOUBLE = auto()
 
 
 # ---------------------------------------------------------------------------
@@ -31,6 +33,16 @@ class IRValue:
 class IRConst(IRValue):
 	"""A constant integer or character value."""
 	value: int
+
+	def __str__(self) -> str:
+		return str(self.value)
+
+
+@dataclass(frozen=True)
+class IRFloatConst(IRValue):
+	"""A constant floating-point value."""
+	value: float
+	ir_type: IRType = IRType.FLOAT
 
 	def __str__(self) -> str:
 		return str(self.value)
@@ -82,6 +94,7 @@ class IRBinOp(IRInstruction):
 	left: IRValue
 	op: str
 	right: IRValue
+	ir_type: IRType = IRType.INT
 
 	def __str__(self) -> str:
 		return f"{self.dest} = {self.left} {self.op} {self.right}"
@@ -93,6 +106,7 @@ class IRUnaryOp(IRInstruction):
 	dest: IRTemp
 	op: str
 	operand: IRValue
+	ir_type: IRType = IRType.INT
 
 	def __str__(self) -> str:
 		return f"{self.dest} = {self.op} {self.operand}"
@@ -103,6 +117,7 @@ class IRCopy(IRInstruction):
 	"""dest = source"""
 	dest: IRTemp
 	source: IRValue
+	ir_type: IRType = IRType.INT
 
 	def __str__(self) -> str:
 		return f"{self.dest} = {self.source}"
@@ -113,6 +128,7 @@ class IRLoad(IRInstruction):
 	"""dest = *address"""
 	dest: IRTemp
 	address: IRValue
+	ir_type: IRType = IRType.INT
 
 	def __str__(self) -> str:
 		return f"{self.dest} = *{self.address}"
@@ -123,6 +139,7 @@ class IRStore(IRInstruction):
 	"""*address = value"""
 	address: IRValue
 	value: IRValue
+	ir_type: IRType = IRType.INT
 
 	def __str__(self) -> str:
 		return f"*{self.address} = {self.value}"
@@ -163,6 +180,8 @@ class IRCall(IRInstruction):
 	dest: Optional[IRTemp]
 	function_name: str
 	args: list[IRValue] = field(default_factory=list)
+	arg_types: list[IRType] = field(default_factory=list)
+	return_type: IRType = IRType.INT
 
 	def __str__(self) -> str:
 		args_str = ", ".join(str(a) for a in self.args)
@@ -175,6 +194,7 @@ class IRCall(IRInstruction):
 class IRReturn(IRInstruction):
 	"""Return from function with optional value."""
 	value: Optional[IRValue] = None
+	ir_type: IRType = IRType.INT
 
 	def __str__(self) -> str:
 		if self.value is not None:
@@ -189,6 +209,18 @@ class IRParam(IRInstruction):
 
 	def __str__(self) -> str:
 		return f"param {self.value}"
+
+
+@dataclass
+class IRConvert(IRInstruction):
+	"""Type conversion: dest = convert source from from_type to to_type."""
+	dest: IRTemp
+	source: IRValue
+	from_type: IRType = IRType.INT
+	to_type: IRType = IRType.FLOAT
+
+	def __str__(self) -> str:
+		return f"{self.dest} = convert {self.source} {self.from_type.name}->{self.to_type.name}"
 
 
 @dataclass
@@ -234,6 +266,7 @@ class IRFunction:
 	params: list[IRTemp]
 	body: list[IRInstruction]
 	return_type: IRType
+	param_types: list[IRType] = field(default_factory=list)
 
 	def __str__(self) -> str:
 		params_str = ", ".join(str(p) for p in self.params)

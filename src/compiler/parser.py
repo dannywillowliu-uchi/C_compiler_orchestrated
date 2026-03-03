@@ -22,6 +22,7 @@ from compiler.ast_nodes import (
 	EnumConstant,
 	EnumDecl,
 	ExprStmt,
+	FloatLiteral,
 	ForStmt,
 	FunctionCall,
 	FunctionDecl,
@@ -109,7 +110,10 @@ _COMPOUND_ASSIGN: dict[TokenType, str] = {
 	TokenType.PERCENT_ASSIGN: "%",
 }
 
-_TYPE_KEYWORDS: set[TokenType] = {TokenType.INT, TokenType.CHAR, TokenType.VOID, TokenType.STRUCT, TokenType.ENUM}
+_TYPE_KEYWORDS: set[TokenType] = {
+	TokenType.INT, TokenType.CHAR, TokenType.VOID, TokenType.STRUCT, TokenType.ENUM,
+	TokenType.FLOAT, TokenType.DOUBLE,
+}
 
 
 class Parser:
@@ -666,6 +670,17 @@ class Parser:
 		if tok.type == TokenType.INTEGER_LITERAL:
 			self._advance()
 			return IntLiteral(value=int(tok.value, 0), loc=self._loc(tok))
+
+		if tok.type == TokenType.FLOAT_LITERAL:
+			self._advance()
+			raw = tok.value
+			suffix = ""
+			if raw.endswith(("f", "F")):
+				suffix = "f"
+				raw = raw[:-1]
+			elif raw.endswith(("l", "L")):
+				raw = raw[:-1]
+			return FloatLiteral(value=float(raw), suffix=suffix, loc=self._loc(tok))
 
 		if tok.type == TokenType.CHAR_LITERAL:
 			self._advance()

@@ -17,6 +17,7 @@ from compiler.ast_nodes import (
 	DoWhileStmt,
 	EnumDecl,
 	ExprStmt,
+	FloatLiteral,
 	ForStmt,
 	FunctionCall,
 	FunctionDecl,
@@ -45,7 +46,9 @@ from compiler.ir import (
 	IRCall,
 	IRCondJump,
 	IRConst,
+	IRConvert,
 	IRCopy,
+	IRFloatConst,
 	IRFunction,
 	IRGlobalRef,
 	IRGlobalVar,
@@ -61,19 +64,26 @@ from compiler.ir import (
 	IRTemp,
 	IRType,
 	IRUnaryOp,
+	IRValue,
 )
 
 _TYPE_MAP: dict[str, IRType] = {
 	"int": IRType.INT,
 	"char": IRType.CHAR,
 	"void": IRType.VOID,
+	"float": IRType.FLOAT,
+	"double": IRType.DOUBLE,
 }
 
 _SIZE_MAP: dict[str, int] = {
 	"int": 4,
 	"char": 1,
 	"void": 0,
+	"float": 4,
+	"double": 8,
 }
+
+_FLOAT_TYPES = {IRType.FLOAT, IRType.DOUBLE}
 
 
 def _resolve_ir_type(ts: TypeSpec) -> IRType:
@@ -98,6 +108,7 @@ class IRGenerator(ASTVisitor):
 		self._locals: dict[str, IRTemp] = {}
 		self._local_types: dict[str, TypeSpec] = {}
 		self._local_array: dict[str, list[int]] = {}
+		self._temp_types: dict[str, IRType] = {}
 		self._functions: list[IRFunction] = []
 		self._globals: list[IRGlobalVar] = []
 		self._global_names: set[str] = set()
@@ -124,6 +135,27 @@ class IRGenerator(ASTVisitor):
 
 	def _emit(self, instr: IRInstruction) -> None:
 		self._instructions.append(instr)
+
+	def _value_ir_type(self, val: IRValue) -> IRType:
+		"""Determine the IR type of a value."""
+		if isinstance(val, IRFloatConst):
+			return val.ir_type
+		if isinstance(val, IRTemp):
+			return self._temp_types.get(val.name, IRType.INT)
+		return IRType.INT
+
+	def _set_temp_type(self, temp: IRTemp, ir_type: IRType) -> None:
+		self._temp_types[temp.name] = ir_type
+
+	def _is_float_type(self, ir_type: IRType) -> bool:
+		return ir_type in _FLOAT_TYPES
+
+	def _resolve_local_ir_type(self, name: str) -> IRType:
+		"""Get the IRType for a local variable by name."""
+		ts = self._local_types.get(name)
+		if ts is not None:
+			return _resolve_ir_type(ts)
+		return IRType.INT
 
 	# ------------------------------------------------------------------
 	# Public entry point
@@ -155,19 +187,25 @@ class IRGenerator(ASTVisitor):
 		old_locals = self._locals
 		old_types = self._local_types
 		old_arrays = self._local_array
+		old_temp_types = self._temp_types
 		old_in_function = self._in_function
 		self._instructions = []
 		self._locals = {}
 		self._local_types = {}
 		self._local_array = {}
+		self._temp_types = {}
 		self._in_function = True
 
 		params: list[IRTemp] = []
+		param_types: list[IRType] = []
 		for param in node.params:
 			p_temp = self._new_temp()
 			params.append(p_temp)
 			self._locals[param.name] = p_temp
 			self._local_types[param.name] = param.type_spec
+			p_ir_type = _resolve_ir_type(param.type_spec)
+			param_types.append(p_ir_type)
+			self._set_temp_type(p_temp, p_ir_type)
 
 		self.visit(node.body)
 
@@ -177,6 +215,7 @@ class IRGenerator(ASTVisitor):
 				params=params,
 				body=self._instructions,
 				return_type=_resolve_ir_type(node.return_type),
+				param_types=param_types,
 			)
 		)
 
@@ -184,6 +223,7 @@ class IRGenerator(ASTVisitor):
 		self._locals = old_locals
 		self._local_types = old_types
 		self._local_array = old_arrays
+		self._temp_types = old_temp_types
 		self._in_function = old_in_function
 
 	def visit_var_decl(self, node: VarDecl) -> None:
@@ -199,8 +239,9 @@ class IRGenerator(ASTVisitor):
 		dest = self._new_temp()
 		self._locals[node.name] = dest
 		self._local_types[node.name] = node.type_spec
+		var_ir_type = _resolve_ir_type(node.type_spec)
+		self._set_temp_type(dest, var_ir_type)
 		if node.array_sizes is not None and len(node.array_sizes) > 0:
-			# Compute total array size: product of all dimensions * element_size
 			element_size = _resolve_size(node.type_spec)
 			total_elements = 1
 			size_vals: list[int] = []
@@ -214,7 +255,18 @@ class IRGenerator(ASTVisitor):
 			self._emit(IRAlloc(dest=dest, size=_resolve_size(node.type_spec)))
 		if node.initializer is not None:
 			val = self.visit(node.initializer)
-			self._emit(IRCopy(dest=dest, source=val))
+			val_type = self._value_ir_type(val)
+			if self._is_float_type(var_ir_type) and not self._is_float_type(val_type):
+				converted = self._new_temp()
+				self._set_temp_type(converted, var_ir_type)
+				self._emit(IRConvert(dest=converted, source=val, from_type=val_type, to_type=var_ir_type))
+				val = converted
+			elif not self._is_float_type(var_ir_type) and self._is_float_type(val_type):
+				converted = self._new_temp()
+				self._set_temp_type(converted, var_ir_type)
+				self._emit(IRConvert(dest=converted, source=val, from_type=val_type, to_type=var_ir_type))
+				val = converted
+			self._emit(IRCopy(dest=dest, source=val, ir_type=var_ir_type))
 
 	def visit_param_decl(self, node: ParamDecl) -> IRTemp:
 		temp = self._new_temp()
@@ -227,6 +279,10 @@ class IRGenerator(ASTVisitor):
 
 	def visit_int_literal(self, node: IntLiteral) -> IRConst:
 		return IRConst(node.value)
+
+	def visit_float_literal(self, node: FloatLiteral) -> IRFloatConst:
+		ir_type = IRType.FLOAT if node.suffix == "f" else IRType.DOUBLE
+		return IRFloatConst(value=node.value, ir_type=ir_type)
 
 	def visit_char_literal(self, node: CharLiteral) -> IRConst:
 		return IRConst(ord(node.value))
@@ -243,7 +299,9 @@ class IRGenerator(ASTVisitor):
 		src = self._locals.get(node.name)
 		if src is not None:
 			dest = self._new_temp()
-			self._emit(IRCopy(dest=dest, source=src))
+			src_type = self._resolve_local_ir_type(node.name)
+			self._set_temp_type(dest, src_type)
+			self._emit(IRCopy(dest=dest, source=src, ir_type=src_type))
 			return dest
 		if node.name in self._global_names:
 			dest = self._new_temp()
@@ -258,6 +316,44 @@ class IRGenerator(ASTVisitor):
 			return self._emit_short_circuit_or(node)
 		left = self.visit(node.left)
 		right = self.visit(node.right)
+		left_type = self._value_ir_type(left)
+		right_type = self._value_ir_type(right)
+		# Determine result type: promote to float/double if either operand is float
+		if self._is_float_type(left_type) or self._is_float_type(right_type):
+			# Promote to the wider float type (double > float)
+			if left_type == IRType.DOUBLE or right_type == IRType.DOUBLE:
+				result_type = IRType.DOUBLE
+			else:
+				result_type = IRType.FLOAT
+			# Convert int operand to float if needed
+			if not self._is_float_type(left_type):
+				conv = self._new_temp()
+				self._set_temp_type(conv, result_type)
+				self._emit(IRConvert(dest=conv, source=left, from_type=left_type, to_type=result_type))
+				left = conv
+			elif left_type != result_type and self._is_float_type(left_type):
+				conv = self._new_temp()
+				self._set_temp_type(conv, result_type)
+				self._emit(IRConvert(dest=conv, source=left, from_type=left_type, to_type=result_type))
+				left = conv
+			if not self._is_float_type(right_type):
+				conv = self._new_temp()
+				self._set_temp_type(conv, result_type)
+				self._emit(IRConvert(dest=conv, source=right, from_type=right_type, to_type=result_type))
+				right = conv
+			elif right_type != result_type and self._is_float_type(right_type):
+				conv = self._new_temp()
+				self._set_temp_type(conv, result_type)
+				self._emit(IRConvert(dest=conv, source=right, from_type=right_type, to_type=result_type))
+				right = conv
+			dest = self._new_temp()
+			# Comparison ops return int even for float operands
+			if node.op in ("<", ">", "<=", ">=", "==", "!="):
+				self._set_temp_type(dest, IRType.INT)
+			else:
+				self._set_temp_type(dest, result_type)
+			self._emit(IRBinOp(dest=dest, left=left, op=node.op, right=right, ir_type=result_type))
+			return dest
 		dest = self._new_temp()
 		self._emit(IRBinOp(dest=dest, left=left, op=node.op, right=right))
 		return dest
@@ -347,25 +443,43 @@ class IRGenerator(ASTVisitor):
 			self._emit(IRBinOp(dest=result, left=operand, op=delta_op, right=IRConst(1)))
 			return result
 		operand = self.visit(node.operand)
+		op_type = self._value_ir_type(operand)
 		dest = self._new_temp()
-		self._emit(IRUnaryOp(dest=dest, op=node.op, operand=operand))
+		if self._is_float_type(op_type):
+			self._set_temp_type(dest, op_type)
+			self._emit(IRUnaryOp(dest=dest, op=node.op, operand=operand, ir_type=op_type))
+		else:
+			self._emit(IRUnaryOp(dest=dest, op=node.op, operand=operand))
 		return dest
 
 	def visit_assignment(self, node: Assignment) -> IRTemp:
 		val = self.visit(node.value)
 		if isinstance(node.target, ArraySubscript):
 			addr = self._compute_array_addr(node.target)
-			self._emit(IRStore(address=addr, value=val))
+			val_type = self._value_ir_type(val)
+			self._emit(IRStore(address=addr, value=val, ir_type=val_type))
 			return val if isinstance(val, IRTemp) else self._new_temp()
 		if isinstance(node.target, UnaryOp) and node.target.op == "*":
-			# *p = v -> store through pointer
 			addr = self.visit(node.target.operand)
-			self._emit(IRStore(address=addr, value=val))
+			val_type = self._value_ir_type(val)
+			self._emit(IRStore(address=addr, value=val, ir_type=val_type))
 			return val if isinstance(val, IRTemp) else self._new_temp()
 		if isinstance(node.target, Identifier):
 			target_temp = self._locals.get(node.target.name)
 			if target_temp is not None:
-				self._emit(IRCopy(dest=target_temp, source=val))
+				target_type = self._resolve_local_ir_type(node.target.name)
+				val_type = self._value_ir_type(val)
+				if self._is_float_type(target_type) and not self._is_float_type(val_type):
+					conv = self._new_temp()
+					self._set_temp_type(conv, target_type)
+					self._emit(IRConvert(dest=conv, source=val, from_type=val_type, to_type=target_type))
+					val = conv
+				elif not self._is_float_type(target_type) and self._is_float_type(val_type):
+					conv = self._new_temp()
+					self._set_temp_type(conv, target_type)
+					self._emit(IRConvert(dest=conv, source=val, from_type=val_type, to_type=target_type))
+					val = conv
+				self._emit(IRCopy(dest=target_temp, source=val, ir_type=target_type))
 				return target_temp
 			if node.target.name in self._global_names:
 				self._emit(IRStore(address=IRGlobalRef(node.target.name), value=val))
@@ -380,10 +494,14 @@ class IRGenerator(ASTVisitor):
 
 	def visit_function_call(self, node: FunctionCall) -> IRTemp:
 		arg_vals = [self.visit(arg) for arg in node.arguments]
+		arg_types = [self._value_ir_type(av) for av in arg_vals]
 		for av in arg_vals:
 			self._emit(IRParam(value=av))
 		dest = self._new_temp()
-		self._emit(IRCall(dest=dest, function_name=node.name, args=arg_vals))
+		self._emit(IRCall(
+			dest=dest, function_name=node.name, args=arg_vals,
+			arg_types=arg_types,
+		))
 		return dest
 
 	def _compute_array_addr(self, node: ArraySubscript) -> IRTemp:
@@ -418,7 +536,8 @@ class IRGenerator(ASTVisitor):
 
 	def visit_return_stmt(self, node: ReturnStmt) -> None:
 		val = self.visit(node.expression)
-		self._emit(IRReturn(value=val))
+		val_type = self._value_ir_type(val)
+		self._emit(IRReturn(value=val, ir_type=val_type))
 
 	def visit_compound_stmt(self, node: CompoundStmt) -> None:
 		for stmt in node.statements:
@@ -702,10 +821,18 @@ class IRGenerator(ASTVisitor):
 		return dest
 
 	def visit_cast_expr(self, node: CastExpr) -> IRTemp:
-		"""Cast is a no-op copy since codegen treats all values as 64-bit."""
+		"""Handle casts, including int<->float conversions."""
 		val = self.visit(node.operand)
+		val_type = self._value_ir_type(val)
+		target_ir_type = _resolve_ir_type(node.target_type)
 		dest = self._new_temp()
-		self._emit(IRCopy(dest=dest, source=val))
+		self._set_temp_type(dest, target_ir_type)
+		if self._is_float_type(target_ir_type) != self._is_float_type(val_type):
+			self._emit(IRConvert(dest=dest, source=val, from_type=val_type, to_type=target_ir_type))
+		elif self._is_float_type(target_ir_type) and self._is_float_type(val_type) and target_ir_type != val_type:
+			self._emit(IRConvert(dest=dest, source=val, from_type=val_type, to_type=target_ir_type))
+		else:
+			self._emit(IRCopy(dest=dest, source=val, ir_type=target_ir_type))
 		return dest
 
 	def _resolve_struct_name(self, node: object) -> str:
