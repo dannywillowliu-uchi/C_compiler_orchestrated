@@ -38,6 +38,7 @@ from compiler.ast_nodes import (
 	StructMember,
 	SwitchStmt,
 	TernaryExpr,
+	TypedefDecl,
 	TypeSpec,
 	UnaryOp,
 	VarDecl,
@@ -171,6 +172,7 @@ class SemanticAnalyzer(ASTVisitor):
 		self._loop_depth: int = 0
 		self._switch_depth: int = 0
 		self._struct_types: dict[str, StructDecl] = {}
+		self._typedef_types: dict[str, TypeSpec] = {}
 
 	def analyze(self, node: ASTNode) -> list[SemanticError]:
 		self.visit(node)
@@ -203,6 +205,16 @@ class SemanticAnalyzer(ASTVisitor):
 			return
 		self.symbols.define(sym)
 
+	def _resolve_type(self, ts: TypeSpec) -> TypeSpec:
+		"""Resolve a type spec, following typedef chains to the underlying type."""
+		if ts.base_type in self._typedef_types:
+			resolved = self._typedef_types[ts.base_type]
+			return TypeSpec(
+				base_type=resolved.base_type,
+				pointer_count=resolved.pointer_count + ts.pointer_count,
+			)
+		return ts
+
 	# --- Visitor methods ---
 
 	def visit_program(self, node: Program) -> None:
@@ -210,6 +222,9 @@ class SemanticAnalyzer(ASTVisitor):
 			self.visit(decl)
 
 	def visit_function_decl(self, node: FunctionDecl) -> TypeSpec:
+		node.return_type = self._resolve_type(node.return_type)
+		for p in node.params:
+			p.type_spec = self._resolve_type(p.type_spec)
 		param_types = [p.type_spec for p in node.params]
 		existing = self.symbols.lookup_current_scope(node.name)
 		if existing is not None and existing.is_function and existing.is_prototype and node.body is not None:
@@ -246,10 +261,12 @@ class SemanticAnalyzer(ASTVisitor):
 		return node.return_type
 
 	def visit_param_decl(self, node: ParamDecl) -> TypeSpec:
+		node.type_spec = self._resolve_type(node.type_spec)
 		self._define_symbol(node.name, node.type_spec, node)
 		return node.type_spec
 
 	def visit_var_decl(self, node: VarDecl) -> TypeSpec:
+		node.type_spec = self._resolve_type(node.type_spec)
 		if node.initializer is not None:
 			init_type = self.visit(node.initializer)
 			if init_type is not None and not _types_compatible(node.type_spec, init_type):
@@ -556,6 +573,7 @@ class SemanticAnalyzer(ASTVisitor):
 
 	def visit_cast_expr(self, node: CastExpr) -> TypeSpec:
 		operand_type = self.visit(node.operand)
+		node.target_type = self._resolve_type(node.target_type)
 		target = node.target_type
 		if operand_type is not None:
 			# Allow: numeric-to-numeric, pointer-to-pointer, numeric-to-pointer, pointer-to-numeric
@@ -607,6 +625,17 @@ class SemanticAnalyzer(ASTVisitor):
 				seen.add(member.name)
 		self._struct_types[node.name] = node
 
+	def visit_typedef_decl(self, node: TypedefDecl) -> None:
+		if node.struct_decl is not None:
+			self.visit_struct_decl(node.struct_decl)
+		if node.enum_decl is not None:
+			self.visit_enum_decl(node.enum_decl)
+		resolved = self._resolve_type(node.type_spec)
+		if node.name in self._typedef_types:
+			self._error(f"redefinition of typedef '{node.name}'", node)
+			return
+		self._typedef_types[node.name] = resolved
+
 	def visit_struct_member(self, node: StructMember) -> TypeSpec:
 		return node.type_spec
 
@@ -641,4 +670,4 @@ class SemanticAnalyzer(ASTVisitor):
 		return None
 
 	def visit_type_spec(self, node: TypeSpec) -> TypeSpec:
-		return node
+		return self._resolve_type(node)
