@@ -14,6 +14,7 @@ from compiler.ast_nodes import (
 	CompoundStmt,
 	ContinueStmt,
 	DoWhileStmt,
+	EnumDecl,
 	ExprStmt,
 	ForStmt,
 	FunctionCall,
@@ -45,6 +46,7 @@ from compiler.ir import (
 	IRConst,
 	IRCopy,
 	IRFunction,
+	IRGlobalRef,
 	IRInstruction,
 	IRJump,
 	IRLabelInstr,
@@ -53,6 +55,7 @@ from compiler.ir import (
 	IRProgram,
 	IRReturn,
 	IRStore,
+	IRStringData,
 	IRTemp,
 	IRType,
 	IRUnaryOp,
@@ -96,6 +99,9 @@ class IRGenerator(ASTVisitor):
 		self._functions: list[IRFunction] = []
 		self._loop_stack: list[tuple[str, str]] = []  # (continue_label, break_label)
 		self._structs: dict[str, list[StructMember]] = {}  # struct name -> members
+		self._string_data: list[IRStringData] = []
+		self._string_counter: int = 0
+		self._enum_constants: dict[str, int] = {}
 
 	# ------------------------------------------------------------------
 	# Helpers
@@ -121,7 +127,7 @@ class IRGenerator(ASTVisitor):
 	def generate(self, program: Program) -> IRProgram:
 		"""Lower an entire AST Program to an IRProgram."""
 		self.visit(program)
-		return IRProgram(functions=list(self._functions))
+		return IRProgram(functions=list(self._functions), string_data=list(self._string_data))
 
 	# ------------------------------------------------------------------
 	# Top-level
@@ -204,10 +210,15 @@ class IRGenerator(ASTVisitor):
 	def visit_char_literal(self, node: CharLiteral) -> IRConst:
 		return IRConst(ord(node.value))
 
-	def visit_string_literal(self, node: StringLiteral) -> IRConst:
-		return IRConst(0)
+	def visit_string_literal(self, node: StringLiteral) -> IRGlobalRef:
+		label = f".str{self._string_counter}"
+		self._string_counter += 1
+		self._string_data.append(IRStringData(label=label, value=node.value))
+		return IRGlobalRef(label)
 
-	def visit_identifier(self, node: Identifier) -> IRTemp:
+	def visit_identifier(self, node: Identifier) -> IRTemp | IRConst:
+		if node.name in self._enum_constants:
+			return IRConst(self._enum_constants[node.name])
 		src = self._locals.get(node.name)
 		if src is not None:
 			dest = self._new_temp()
@@ -631,6 +642,14 @@ class IRGenerator(ASTVisitor):
 	# ------------------------------------------------------------------
 	# Struct declarations and member access
 	# ------------------------------------------------------------------
+
+	def visit_enum_decl(self, node: EnumDecl) -> None:
+		next_value = 0
+		for const in node.constants:
+			if const.value is not None and isinstance(const.value, IntLiteral):
+				next_value = const.value.value
+			self._enum_constants[const.name] = next_value
+			next_value += 1
 
 	def visit_struct_decl(self, node: StructDecl) -> None:
 		self._structs[node.name] = list(node.members)

@@ -129,6 +129,12 @@ class ASTVisitor:
 	def visit_postfix_expr(self, node: PostfixExpr) -> Any:
 		return None
 
+	def visit_enum_decl(self, node: EnumDecl) -> Any:
+		return None
+
+	def visit_enum_constant(self, node: EnumConstant) -> Any:
+		return None
+
 
 # --- Type node ---
 
@@ -443,6 +449,28 @@ class StructDecl(ASTNode):
 
 	def accept(self, visitor: ASTVisitor) -> Any:
 		return visitor.visit_struct_decl(self)
+
+
+@dataclass
+class EnumConstant(ASTNode):
+	"""A single enumerator: NAME [= value]."""
+
+	name: str = ""
+	value: ASTNode | None = None
+
+	def accept(self, visitor: ASTVisitor) -> Any:
+		return visitor.visit_enum_constant(self)
+
+
+@dataclass
+class EnumDecl(ASTNode):
+	"""Enum type definition: enum name { A, B = 5, C };"""
+
+	name: str = ""
+	constants: list[EnumConstant] = field(default_factory=list)
+
+	def accept(self, visitor: ASTVisitor) -> Any:
+		return visitor.visit_enum_decl(self)
 
 
 @dataclass

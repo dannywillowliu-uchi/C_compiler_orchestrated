@@ -17,6 +17,7 @@ from compiler.ast_nodes import (
 	CompoundStmt,
 	ContinueStmt,
 	DoWhileStmt,
+	EnumDecl,
 	ExprStmt,
 	ForStmt,
 	FunctionCall,
@@ -556,6 +557,17 @@ class SemanticAnalyzer(ASTVisitor):
 		if isinstance(node, UnaryOp) and node.op == "*":
 			return True
 		return False
+
+	def visit_enum_decl(self, node: EnumDecl) -> None:
+		next_value = 0
+		for const in node.constants:
+			if const.value is not None:
+				if isinstance(const.value, IntLiteral):
+					next_value = const.value.value
+				else:
+					self.visit(const.value)
+			self._define_symbol(const.name, TypeSpec(base_type="int"), const)
+			next_value += 1
 
 	def visit_struct_decl(self, node: StructDecl) -> None:
 		if node.name in self._struct_types:

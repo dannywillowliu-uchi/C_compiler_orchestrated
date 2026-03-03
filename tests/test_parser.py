@@ -942,7 +942,7 @@ class TestCompoundAssignment:
 		assert isinstance(expr, CompoundAssignment)
 		assert isinstance(expr.target, Identifier)
 		assert expr.target.name == "x"
-		assert expr.op == "+="
+		assert expr.op == "+"
 		assert isinstance(expr.value, IntLiteral)
 		assert expr.value.value == 1
 
@@ -950,31 +950,31 @@ class TestCompoundAssignment:
 		func = parse_single_func("int f() { x -= 5; }")
 		expr = body_stmts(func)[0].expression
 		assert isinstance(expr, CompoundAssignment)
-		assert expr.op == "-="
+		assert expr.op == "-"
 
 	def test_star_assign(self) -> None:
 		func = parse_single_func("int f() { x *= 2; }")
 		expr = body_stmts(func)[0].expression
 		assert isinstance(expr, CompoundAssignment)
-		assert expr.op == "*="
+		assert expr.op == "*"
 
 	def test_slash_assign(self) -> None:
 		func = parse_single_func("int f() { x /= 3; }")
 		expr = body_stmts(func)[0].expression
 		assert isinstance(expr, CompoundAssignment)
-		assert expr.op == "/="
+		assert expr.op == "/"
 
 	def test_percent_assign(self) -> None:
 		func = parse_single_func("int f() { x %= 4; }")
 		expr = body_stmts(func)[0].expression
 		assert isinstance(expr, CompoundAssignment)
-		assert expr.op == "%="
+		assert expr.op == "%"
 
 	def test_compound_assign_with_expression(self) -> None:
 		func = parse_single_func("int f() { x += 1 + 2; }")
 		expr = body_stmts(func)[0].expression
 		assert isinstance(expr, CompoundAssignment)
-		assert expr.op == "+="
+		assert expr.op == "+"
 		assert isinstance(expr.value, BinaryOp)
 
 	def test_compound_assign_array(self) -> None:
@@ -982,7 +982,7 @@ class TestCompoundAssignment:
 		expr = body_stmts(func)[0].expression
 		assert isinstance(expr, CompoundAssignment)
 		assert isinstance(expr.target, ArraySubscript)
-		assert expr.op == "+="
+		assert expr.op == "+"
 
 	def test_compound_assign_in_for_update(self) -> None:
 		src = "int f() { for (int i = 0; i < 10; i += 1) { return i; } }"
@@ -990,7 +990,7 @@ class TestCompoundAssignment:
 		stmt = body_stmts(func)[0]
 		assert isinstance(stmt, ForStmt)
 		assert isinstance(stmt.update, CompoundAssignment)
-		assert stmt.update.op == "+="
+		assert stmt.update.op == "+"
 
 
 # -- Prefix increment/decrement ---------------------------------------------
