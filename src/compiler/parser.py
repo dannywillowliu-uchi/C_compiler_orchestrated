@@ -18,6 +18,8 @@ from compiler.ast_nodes import (
 	CompoundStmt,
 	ContinueStmt,
 	DoWhileStmt,
+	EnumConstant,
+	EnumDecl,
 	ExprStmt,
 	ForStmt,
 	FunctionCall,
@@ -99,14 +101,14 @@ _BINOP_STR: dict[TokenType, str] = {
 }
 
 _COMPOUND_ASSIGN: dict[TokenType, str] = {
-	TokenType.PLUS_ASSIGN: "+=",
-	TokenType.MINUS_ASSIGN: "-=",
-	TokenType.STAR_ASSIGN: "*=",
-	TokenType.SLASH_ASSIGN: "/=",
-	TokenType.PERCENT_ASSIGN: "%=",
+	TokenType.PLUS_ASSIGN: "+",
+	TokenType.MINUS_ASSIGN: "-",
+	TokenType.STAR_ASSIGN: "*",
+	TokenType.SLASH_ASSIGN: "/",
+	TokenType.PERCENT_ASSIGN: "%",
 }
 
-_TYPE_KEYWORDS: set[TokenType] = {TokenType.INT, TokenType.CHAR, TokenType.VOID, TokenType.STRUCT}
+_TYPE_KEYWORDS: set[TokenType] = {TokenType.INT, TokenType.CHAR, TokenType.VOID, TokenType.STRUCT, TokenType.ENUM}
 
 
 class Parser:
@@ -174,7 +176,11 @@ class Parser:
 		return Program(declarations=declarations, loc=SourceLocation(1, 1))
 
 	def _parse_top_level_decl(self) -> ASTNode:
-		"""Parse a top-level declaration (function, global variable, or struct)."""
+		"""Parse a top-level declaration (function, global variable, struct, or enum)."""
+		# Check for enum definition: enum name { ... };
+		if self._check(TokenType.ENUM) and self._peek(1).type == TokenType.IDENTIFIER and self._peek(2).type == TokenType.LBRACE:
+			return self._parse_enum_decl()
+
 		# Check for struct definition: struct name { ... };
 		if self._check(TokenType.STRUCT) and self._peek(1).type == TokenType.IDENTIFIER and self._peek(2).type == TokenType.LBRACE:
 			return self._parse_struct_decl()
@@ -216,6 +222,9 @@ class Parser:
 		if tok.type == TokenType.STRUCT:
 			name_tok = self._expect(TokenType.IDENTIFIER, "Expected struct name")
 			base_type = f"struct {name_tok.value}"
+		elif tok.type == TokenType.ENUM:
+			name_tok = self._expect(TokenType.IDENTIFIER, "Expected enum name")
+			base_type = f"enum {name_tok.value}"
 		else:
 			base_type = tok.value
 		pointer_count = 0
@@ -243,6 +252,30 @@ class Parser:
 		self._expect(TokenType.RBRACE, "Expected '}' after struct members")
 		self._expect(TokenType.SEMICOLON, "Expected ';' after struct definition")
 		return StructDecl(name=name_tok.value, members=members, loc=self._loc(tok))
+
+	# -- Enum declaration ----------------------------------------------------
+
+	def _parse_enum_decl(self) -> EnumDecl:
+		"""Parse 'enum name { A, B = 5, C };'."""
+		tok = self._advance()  # consume 'enum'
+		name_tok = self._expect(TokenType.IDENTIFIER, "Expected enum name")
+		self._expect(TokenType.LBRACE, "Expected '{' after enum name")
+		constants: list[EnumConstant] = []
+		while not self._check(TokenType.RBRACE) and not self._at_end():
+			const_name_tok = self._expect(TokenType.IDENTIFIER, "Expected enumerator name")
+			value: ASTNode | None = None
+			if self._match(TokenType.ASSIGN):
+				value = self._parse_expression()
+			constants.append(EnumConstant(
+				name=const_name_tok.value,
+				value=value,
+				loc=self._loc(const_name_tok),
+			))
+			if not self._check(TokenType.RBRACE):
+				self._expect(TokenType.COMMA, "Expected ',' or '}' in enum body")
+		self._expect(TokenType.RBRACE, "Expected '}' after enum constants")
+		self._expect(TokenType.SEMICOLON, "Expected ';' after enum definition")
+		return EnumDecl(name=name_tok.value, constants=constants, loc=self._loc(tok))
 
 	# -- Function declaration ------------------------------------------------
 
@@ -310,6 +343,9 @@ class Parser:
 			return self._parse_break_stmt()
 		if self._check(TokenType.CONTINUE):
 			return self._parse_continue_stmt()
+		# enum keyword: enum definition
+		if self._check(TokenType.ENUM) and self._peek(1).type == TokenType.IDENTIFIER and self._peek(2).type == TokenType.LBRACE:
+			return self._parse_enum_decl()
 		# struct keyword: either a struct definition or a struct variable declaration
 		if self._check(TokenType.STRUCT):
 			if self._peek(1).type == TokenType.IDENTIFIER and self._peek(2).type == TokenType.LBRACE:
