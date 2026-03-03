@@ -1,6 +1,7 @@
 """Tests for the AST-to-IR lowering pass."""
 
 from compiler.ast_nodes import (
+	ArraySubscript,
 	Assignment,
 	BinaryOp,
 	CompoundStmt,
@@ -28,8 +29,10 @@ from compiler.ir import (
 	IRCopy,
 	IRJump,
 	IRLabelInstr,
+	IRLoad,
 	IRParam,
 	IRReturn,
+	IRStore,
 	IRType,
 	IRUnaryOp,
 )
@@ -586,6 +589,116 @@ class TestForStmt:
 # ------------------------------------------------------------------
 # Integration: full function lowering
 # ------------------------------------------------------------------
+
+
+class TestArrayIR:
+	def test_array_decl_alloc_size(self) -> None:
+		"""int arr[10]; should allocate 40 bytes (10 * 4)."""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_void_type(),
+				name="f",
+				body=CompoundStmt(
+					statements=[
+						VarDecl(
+							type_spec=_int_type(),
+							name="arr",
+							array_sizes=[IntLiteral(value=10)],
+						)
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		body = ir.functions[0].body
+		assert len(body) == 1
+		assert isinstance(body[0], IRAlloc)
+		assert body[0].size == 40
+
+	def test_array_subscript_read(self) -> None:
+		"""int arr[10]; return arr[2]; -- generates pointer arithmetic + load."""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_int_type(),
+				name="f",
+				body=CompoundStmt(
+					statements=[
+						VarDecl(
+							type_spec=_int_type(),
+							name="arr",
+							array_sizes=[IntLiteral(value=10)],
+						),
+						ReturnStmt(expression=ArraySubscript(
+							array=Identifier(name="arr"),
+							index=IntLiteral(value=2),
+						)),
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		body = ir.functions[0].body
+		# alloc, copy(arr base), mul(index*4), add(base+offset), load, return
+		loads = [i for i in body if isinstance(i, IRLoad)]
+		assert len(loads) == 1
+		binops = [i for i in body if isinstance(i, IRBinOp)]
+		# At least a multiply (index * size) and an add (base + offset)
+		assert len(binops) >= 2
+		ops = [b.op for b in binops]
+		assert "*" in ops
+		assert "+" in ops
+
+	def test_array_subscript_write(self) -> None:
+		"""int arr[10]; arr[0] = 42; -- generates store to computed address."""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_void_type(),
+				name="f",
+				body=CompoundStmt(
+					statements=[
+						VarDecl(
+							type_spec=_int_type(),
+							name="arr",
+							array_sizes=[IntLiteral(value=10)],
+						),
+						ExprStmt(expression=Assignment(
+							target=ArraySubscript(
+								array=Identifier(name="arr"),
+								index=IntLiteral(value=0),
+							),
+							value=IntLiteral(value=42),
+						)),
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		body = ir.functions[0].body
+		stores = [i for i in body if isinstance(i, IRStore)]
+		assert len(stores) == 1
+		assert stores[0].value == IRConst(42)
+
+	def test_char_array_alloc(self) -> None:
+		"""char buf[256]; should allocate 256 bytes."""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_void_type(),
+				name="f",
+				body=CompoundStmt(
+					statements=[
+						VarDecl(
+							type_spec=TypeSpec(base_type="char"),
+							name="buf",
+							array_sizes=[IntLiteral(value=256)],
+						)
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		alloc = ir.functions[0].body[0]
+		assert isinstance(alloc, IRAlloc)
+		assert alloc.size == 256
 
 
 class TestIntegration:

@@ -7,6 +7,7 @@ for expression parsing.
 from __future__ import annotations
 
 from compiler.ast_nodes import (
+	ArraySubscript,
 	Assignment,
 	ASTNode,
 	BinaryOp,
@@ -150,7 +151,14 @@ class Parser:
 		if self._check(TokenType.LPAREN):
 			return self._parse_function_decl(type_spec, name_tok)
 
-		# Global variable declaration
+		# Global variable declaration (possibly array)
+		array_sizes: list[ASTNode] | None = None
+		if self._check(TokenType.LBRACKET):
+			array_sizes = []
+			while self._match(TokenType.LBRACKET):
+				size_expr = self._parse_expression()
+				self._expect(TokenType.RBRACKET, "Expected ']' after array size")
+				array_sizes.append(size_expr)
 		initializer = None
 		if self._match(TokenType.ASSIGN):
 			initializer = self._parse_expression()
@@ -159,6 +167,7 @@ class Parser:
 			type_spec=type_spec,
 			name=name_tok.value,
 			initializer=initializer,
+			array_sizes=array_sizes,
 			loc=self._loc(name_tok),
 		)
 
@@ -307,9 +316,16 @@ class Parser:
 		return ForStmt(init=init, condition=condition, update=update, body=body, loc=self._loc(tok))
 
 	def _parse_var_decl_stmt(self) -> VarDecl:
-		"""Parse a local variable declaration: type name [= expr];"""
+		"""Parse a local variable declaration: type name [= expr]; or type name[size][...];"""
 		type_spec = self._parse_type_spec()
 		name_tok = self._expect(TokenType.IDENTIFIER, "Expected variable name")
+		array_sizes: list[ASTNode] | None = None
+		if self._check(TokenType.LBRACKET):
+			array_sizes = []
+			while self._match(TokenType.LBRACKET):
+				size_expr = self._parse_expression()
+				self._expect(TokenType.RBRACKET, "Expected ']' after array size")
+				array_sizes.append(size_expr)
 		initializer = None
 		if self._match(TokenType.ASSIGN):
 			initializer = self._parse_expression()
@@ -318,6 +334,7 @@ class Parser:
 			type_spec=type_spec,
 			name=name_tok.value,
 			initializer=initializer,
+			array_sizes=array_sizes,
 			loc=self._loc(name_tok),
 		)
 
@@ -387,7 +404,7 @@ class Parser:
 		return self._parse_postfix()
 
 	def _parse_postfix(self) -> ASTNode:
-		"""Parse postfix expressions: function calls."""
+		"""Parse postfix expressions: function calls and array subscripts."""
 		node = self._parse_primary()
 
 		while True:
@@ -400,6 +417,11 @@ class Parser:
 						args.append(self._parse_expression())
 				self._expect(TokenType.RPAREN, "Expected ')' after function arguments")
 				node = FunctionCall(name=node.name, arguments=args, loc=node.loc)
+			elif self._check(TokenType.LBRACKET):
+				self._advance()  # consume '['
+				index = self._parse_expression()
+				self._expect(TokenType.RBRACKET, "Expected ']' after array subscript")
+				node = ArraySubscript(array=node, index=index, loc=node.loc)
 			else:
 				break
 

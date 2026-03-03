@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from compiler.ast_nodes import (
+	ArraySubscript,
 	ASTVisitor,
 	Assignment,
 	BinaryOp,
@@ -50,6 +51,8 @@ class Symbol:
 	scope_depth: int
 	is_function: bool = False
 	param_types: list[TypeSpec] = field(default_factory=list)
+	is_array: bool = False
+	array_sizes: list[int] = field(default_factory=list)
 
 
 class SymbolTable:
@@ -107,6 +110,10 @@ def _is_numeric(ts: TypeSpec) -> bool:
 
 
 def _is_pointer(ts: TypeSpec) -> bool:
+	return ts.pointer_count > 0
+
+
+def _is_array_or_pointer(ts: TypeSpec) -> bool:
 	return ts.pointer_count > 0
 
 
@@ -212,7 +219,27 @@ class SemanticAnalyzer(ASTVisitor):
 					f"'{node.type_spec.base_type}' and '{init_type.base_type}'",
 					node,
 				)
-		self._define_symbol(node.name, node.type_spec, node)
+		is_array = node.array_sizes is not None and len(node.array_sizes) > 0
+		array_size_vals: list[int] = []
+		if is_array:
+			for size_expr in node.array_sizes:  # type: ignore[union-attr]
+				size_type = self.visit(size_expr)
+				if size_type is not None and not _is_numeric(size_type):
+					self._error("array size must be an integer expression", node)
+				if isinstance(size_expr, IntLiteral):
+					array_size_vals.append(size_expr.value)
+		sym = Symbol(
+			name=node.name,
+			type_spec=node.type_spec,
+			scope_depth=self.symbols.depth,
+			is_array=is_array,
+			array_sizes=array_size_vals,
+		)
+		existing = self.symbols.lookup_current_scope(node.name)
+		if existing is not None:
+			self._error(f"redefinition of '{node.name}' in the same scope", node)
+			return node.type_spec
+		self.symbols.define(sym)
 		return node.type_spec
 
 	def visit_compound_stmt(self, node: CompoundStmt) -> None:
@@ -349,6 +376,32 @@ class SemanticAnalyzer(ASTVisitor):
 		for arg in node.arguments:
 			self.visit(arg)
 		return sym.type_spec
+
+	def visit_array_subscript(self, node: ArraySubscript) -> TypeSpec | None:
+		base_type = self.visit(node.array)
+		index_type = self.visit(node.index)
+		if base_type is None:
+			return None
+		# Check base is array or pointer
+		is_base_array = False
+		if isinstance(node.array, Identifier):
+			sym = self.symbols.lookup(node.array.name)
+			if sym is not None:
+				is_base_array = sym.is_array
+		if not is_base_array and not _is_pointer(base_type):
+			self._error("subscript requires array or pointer type", node)
+			return None
+		# Check index is integer
+		if index_type is not None and not _is_numeric(index_type):
+			self._error("array index must be an integer", node)
+			return None
+		# Result type: dereference one pointer level, or base element type for arrays
+		if _is_pointer(base_type):
+			return TypeSpec(
+				base_type=base_type.base_type,
+				pointer_count=base_type.pointer_count - 1,
+			)
+		return TypeSpec(base_type=base_type.base_type)
 
 	def visit_type_spec(self, node: TypeSpec) -> TypeSpec:
 		return node
