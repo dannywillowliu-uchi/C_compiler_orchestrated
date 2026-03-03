@@ -24,11 +24,14 @@ from compiler.ast_nodes import (
 	Identifier,
 	IfStmt,
 	IntLiteral,
+	MemberAccess,
 	ParamDecl,
 	Program,
 	ReturnStmt,
 	SourceLocation,
 	StringLiteral,
+	StructDecl,
+	StructMember,
 	TypeSpec,
 	UnaryOp,
 	VarDecl,
@@ -88,7 +91,7 @@ _COMPOUND_ASSIGN: dict[TokenType, str] = {
 	TokenType.PERCENT_ASSIGN: "%=",
 }
 
-_TYPE_KEYWORDS: set[TokenType] = {TokenType.INT, TokenType.CHAR, TokenType.VOID}
+_TYPE_KEYWORDS: set[TokenType] = {TokenType.INT, TokenType.CHAR, TokenType.VOID, TokenType.STRUCT}
 
 
 class Parser:
@@ -156,7 +159,11 @@ class Parser:
 		return Program(declarations=declarations, loc=SourceLocation(1, 1))
 
 	def _parse_top_level_decl(self) -> ASTNode:
-		"""Parse a top-level declaration (function or global variable)."""
+		"""Parse a top-level declaration (function, global variable, or struct)."""
+		# Check for struct definition: struct name { ... };
+		if self._check(TokenType.STRUCT) and self._peek(1).type == TokenType.IDENTIFIER and self._peek(2).type == TokenType.LBRACE:
+			return self._parse_struct_decl()
+
 		type_spec = self._parse_type_spec()
 		name_tok = self._expect(TokenType.IDENTIFIER, "Expected declaration name")
 
@@ -186,15 +193,41 @@ class Parser:
 	# -- Type specifier ------------------------------------------------------
 
 	def _parse_type_spec(self) -> TypeSpec:
-		"""Parse a type specifier: int, char, void with optional pointer '*'s."""
+		"""Parse a type specifier: int, char, void, struct name with optional pointer '*'s."""
 		tok = self._current()
 		if tok.type not in _TYPE_KEYWORDS:
 			raise self._error(f"Expected type specifier, got {tok.type.name} ({tok.value!r})")
 		self._advance()
+		if tok.type == TokenType.STRUCT:
+			name_tok = self._expect(TokenType.IDENTIFIER, "Expected struct name")
+			base_type = f"struct {name_tok.value}"
+		else:
+			base_type = tok.value
 		pointer_count = 0
 		while self._match(TokenType.STAR):
 			pointer_count += 1
-		return TypeSpec(base_type=tok.value, pointer_count=pointer_count, loc=self._loc(tok))
+		return TypeSpec(base_type=base_type, pointer_count=pointer_count, loc=self._loc(tok))
+
+	# -- Struct declaration --------------------------------------------------
+
+	def _parse_struct_decl(self) -> StructDecl:
+		"""Parse 'struct name { type member; ... };'."""
+		tok = self._advance()  # consume 'struct'
+		name_tok = self._expect(TokenType.IDENTIFIER, "Expected struct name")
+		self._expect(TokenType.LBRACE, "Expected '{' after struct name")
+		members: list[StructMember] = []
+		while not self._check(TokenType.RBRACE) and not self._at_end():
+			member_type = self._parse_type_spec()
+			member_name_tok = self._expect(TokenType.IDENTIFIER, "Expected member name")
+			self._expect(TokenType.SEMICOLON, "Expected ';' after struct member")
+			members.append(StructMember(
+				type_spec=member_type,
+				name=member_name_tok.value,
+				loc=self._loc(member_name_tok),
+			))
+		self._expect(TokenType.RBRACE, "Expected '}' after struct members")
+		self._expect(TokenType.SEMICOLON, "Expected ';' after struct definition")
+		return StructDecl(name=name_tok.value, members=members, loc=self._loc(tok))
 
 	# -- Function declaration ------------------------------------------------
 
@@ -252,6 +285,11 @@ class Parser:
 			return self._parse_break_stmt()
 		if self._check(TokenType.CONTINUE):
 			return self._parse_continue_stmt()
+		# struct keyword: either a struct definition or a struct variable declaration
+		if self._check(TokenType.STRUCT):
+			if self._peek(1).type == TokenType.IDENTIFIER and self._peek(2).type == TokenType.LBRACE:
+				return self._parse_struct_decl()
+			return self._parse_var_decl_stmt()
 		if self._check(*_TYPE_KEYWORDS):
 			return self._parse_var_decl_stmt()
 		return self._parse_expr_stmt()
@@ -459,7 +497,7 @@ class Parser:
 		return self._parse_postfix()
 
 	def _parse_postfix(self) -> ASTNode:
-		"""Parse postfix expressions: function calls and array subscripts."""
+		"""Parse postfix expressions: function calls, array subscripts, member access."""
 		node = self._parse_primary()
 
 		while True:
@@ -477,6 +515,12 @@ class Parser:
 				index = self._parse_expression()
 				self._expect(TokenType.RBRACKET, "Expected ']' after array subscript")
 				node = ArraySubscript(array=node, index=index, loc=node.loc)
+			elif self._match(TokenType.DOT):
+				member_tok = self._expect(TokenType.IDENTIFIER, "Expected member name after '.'")
+				node = MemberAccess(object=node, member=member_tok.value, is_arrow=False, loc=node.loc)
+			elif self._match(TokenType.ARROW):
+				member_tok = self._expect(TokenType.IDENTIFIER, "Expected member name after '->'")
+				node = MemberAccess(object=node, member=member_tok.value, is_arrow=True, loc=node.loc)
 			else:
 				break
 
