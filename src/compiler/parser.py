@@ -13,6 +13,7 @@ from compiler.ast_nodes import (
 	BinaryOp,
 	BreakStmt,
 	CaseClause,
+	CastExpr,
 	CharLiteral,
 	CompoundAssignment,
 	CompoundStmt,
@@ -576,8 +577,15 @@ class Parser:
 		return left
 
 	def _parse_unary(self) -> ASTNode:
-		"""Parse unary prefix operators: - ! ~ * & ++ -- sizeof."""
+		"""Parse unary prefix operators: - ! ~ * & ++ -- sizeof, and cast expressions."""
 		tok = self._current()
+		# Cast expression: (type)expr
+		if tok.type == TokenType.LPAREN and self._peek(1).type in _TYPE_KEYWORDS:
+			self._advance()  # consume '('
+			cast_type = self._parse_type_spec()
+			self._expect(TokenType.RPAREN, "Expected ')' after cast type")
+			operand = self._parse_unary()
+			return CastExpr(target_type=cast_type, operand=operand, loc=self._loc(tok))
 		if tok.type == TokenType.SIZEOF:
 			self._advance()
 			if self._check(TokenType.LPAREN) and self._peek(1).type in _TYPE_KEYWORDS:

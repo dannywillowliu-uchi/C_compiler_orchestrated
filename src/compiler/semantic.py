@@ -12,6 +12,7 @@ from compiler.ast_nodes import (
 	BinaryOp,
 	BreakStmt,
 	CaseClause,
+	CastExpr,
 	CharLiteral,
 	CompoundAssignment,
 	CompoundStmt,
@@ -546,6 +547,25 @@ class SemanticAnalyzer(ASTVisitor):
 		if not self._is_lvalue(node.operand):
 			self._error("operand of postfix operator must be an lvalue", node)
 		return operand_type
+
+	def visit_cast_expr(self, node: CastExpr) -> TypeSpec:
+		operand_type = self.visit(node.operand)
+		target = node.target_type
+		if operand_type is not None:
+			# Allow: numeric-to-numeric, pointer-to-pointer, numeric-to-pointer, pointer-to-numeric
+			src_numeric = _is_numeric(operand_type)
+			src_pointer = _is_pointer(operand_type)
+			tgt_numeric = _is_numeric(target)
+			tgt_pointer = _is_pointer(target)
+			if not ((src_numeric and tgt_numeric)
+				or (src_pointer and tgt_pointer)
+				or (src_numeric and tgt_pointer)
+				or (src_pointer and tgt_numeric)):
+				self._error(
+					f"invalid cast from '{operand_type.base_type}' to '{target.base_type}'",
+					node,
+				)
+		return target
 
 	def _is_lvalue(self, node: ASTNode) -> bool:
 		if isinstance(node, Identifier):

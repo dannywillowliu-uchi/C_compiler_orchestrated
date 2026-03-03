@@ -9,6 +9,7 @@ from compiler.ast_nodes import (
 	BinaryOp,
 	BreakStmt,
 	CaseClause,
+	CastExpr,
 	CharLiteral,
 	CompoundAssignment,
 	CompoundStmt,
@@ -47,6 +48,7 @@ from compiler.ir import (
 	IRCopy,
 	IRFunction,
 	IRGlobalRef,
+	IRGlobalVar,
 	IRInstruction,
 	IRJump,
 	IRLabelInstr,
@@ -97,6 +99,9 @@ class IRGenerator(ASTVisitor):
 		self._local_types: dict[str, TypeSpec] = {}
 		self._local_array: dict[str, list[int]] = {}
 		self._functions: list[IRFunction] = []
+		self._globals: list[IRGlobalVar] = []
+		self._global_names: set[str] = set()
+		self._in_function: bool = False
 		self._loop_stack: list[tuple[str, str]] = []  # (continue_label, break_label)
 		self._structs: dict[str, list[StructMember]] = {}  # struct name -> members
 		self._string_data: list[IRStringData] = []
@@ -127,7 +132,11 @@ class IRGenerator(ASTVisitor):
 	def generate(self, program: Program) -> IRProgram:
 		"""Lower an entire AST Program to an IRProgram."""
 		self.visit(program)
-		return IRProgram(functions=list(self._functions), string_data=list(self._string_data))
+		return IRProgram(
+			functions=list(self._functions),
+			globals=list(self._globals),
+			string_data=list(self._string_data),
+		)
 
 	# ------------------------------------------------------------------
 	# Top-level
@@ -146,10 +155,12 @@ class IRGenerator(ASTVisitor):
 		old_locals = self._locals
 		old_types = self._local_types
 		old_arrays = self._local_array
+		old_in_function = self._in_function
 		self._instructions = []
 		self._locals = {}
 		self._local_types = {}
 		self._local_array = {}
+		self._in_function = True
 
 		params: list[IRTemp] = []
 		for param in node.params:
@@ -173,8 +184,18 @@ class IRGenerator(ASTVisitor):
 		self._locals = old_locals
 		self._local_types = old_types
 		self._local_array = old_arrays
+		self._in_function = old_in_function
 
 	def visit_var_decl(self, node: VarDecl) -> None:
+		if not self._in_function:
+			# Global variable declaration
+			ir_type = _resolve_ir_type(node.type_spec)
+			init_val: int | None = None
+			if node.initializer is not None and isinstance(node.initializer, IntLiteral):
+				init_val = node.initializer.value
+			self._globals.append(IRGlobalVar(name=node.name, ir_type=ir_type, initializer=init_val))
+			self._global_names.add(node.name)
+			return
 		dest = self._new_temp()
 		self._locals[node.name] = dest
 		self._local_types[node.name] = node.type_spec
@@ -223,6 +244,10 @@ class IRGenerator(ASTVisitor):
 		if src is not None:
 			dest = self._new_temp()
 			self._emit(IRCopy(dest=dest, source=src))
+			return dest
+		if node.name in self._global_names:
+			dest = self._new_temp()
+			self._emit(IRLoad(dest=dest, address=IRGlobalRef(node.name)))
 			return dest
 		return IRTemp(node.name)
 
@@ -342,6 +367,9 @@ class IRGenerator(ASTVisitor):
 			if target_temp is not None:
 				self._emit(IRCopy(dest=target_temp, source=val))
 				return target_temp
+			if node.target.name in self._global_names:
+				self._emit(IRStore(address=IRGlobalRef(node.target.name), value=val))
+				return val if isinstance(val, IRTemp) else self._new_temp()
 		target = self.visit(node.target)
 		if isinstance(target, IRTemp):
 			self._emit(IRCopy(dest=target, source=val))
@@ -671,6 +699,13 @@ class IRGenerator(ASTVisitor):
 		self._emit(IRBinOp(dest=addr, left=base, op="+", right=IRConst(offset)))
 		dest = self._new_temp()
 		self._emit(IRLoad(dest=dest, address=addr))
+		return dest
+
+	def visit_cast_expr(self, node: CastExpr) -> IRTemp:
+		"""Cast is a no-op copy since codegen treats all values as 64-bit."""
+		val = self.visit(node.operand)
+		dest = self._new_temp()
+		self._emit(IRCopy(dest=dest, source=val))
 		return dest
 
 	def _resolve_struct_name(self, node: object) -> str:

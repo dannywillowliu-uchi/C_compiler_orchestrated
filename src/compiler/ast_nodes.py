@@ -135,6 +135,9 @@ class ASTVisitor:
 	def visit_enum_constant(self, node: EnumConstant) -> Any:
 		return None
 
+	def visit_cast_expr(self, node: CastExpr) -> Any:
+		return None
+
 
 # --- Type node ---
 
@@ -306,6 +309,17 @@ class PostfixExpr(ASTNode):
 
 	def accept(self, visitor: ASTVisitor) -> Any:
 		return visitor.visit_postfix_expr(self)
+
+
+@dataclass
+class CastExpr(ASTNode):
+	"""Cast expression: (type)expression."""
+
+	target_type: TypeSpec = field(default_factory=TypeSpec)
+	operand: ASTNode = field(default_factory=ASTNode)
+
+	def accept(self, visitor: ASTVisitor) -> Any:
+		return visitor.visit_cast_expr(self)
 
 
 # --- Statement nodes ---
