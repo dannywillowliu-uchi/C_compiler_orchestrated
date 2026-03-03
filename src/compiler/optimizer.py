@@ -1,5 +1,6 @@
 """IR optimization passes: constant folding, dead code elimination, copy propagation,
-strength reduction, jump threading, and unreachable code elimination."""
+strength reduction, jump threading, unreachable code elimination, common subexpression
+elimination, and loop-invariant code motion."""
 
 from __future__ import annotations
 
@@ -42,9 +43,11 @@ class IROptimizer:
 				self._constant_fold,
 				self._strength_reduction,
 				self._copy_propagation,
+				self._cse,
 				self._dead_code_elimination,
 				self._jump_threading,
 				self._unreachable_elimination,
+				self._licm,
 			):
 				new_body = pass_fn(body)
 				if new_body != body:
@@ -310,6 +313,130 @@ class IROptimizer:
 				if isinstance(instr, (IRJump, IRReturn)):
 					unreachable = True
 		return result
+
+	# -- Common Subexpression Elimination --
+
+	def _cse(self, body: list[IRInstruction]) -> list[IRInstruction]:
+		"""Replace duplicate computations with a copy of the first result."""
+		available: dict[tuple, IRTemp] = {}
+		result: list[IRInstruction] = []
+
+		for instr in body:
+			if isinstance(instr, IRLabelInstr):
+				available.clear()
+				result.append(instr)
+				continue
+
+			if isinstance(instr, IRStore):
+				available.clear()
+				result.append(instr)
+				continue
+
+			expr_key = self._expr_key(instr)
+			if expr_key is not None and expr_key in available:
+				result.append(IRCopy(dest=instr.dest, source=available[expr_key]))
+				continue
+
+			dest = self._get_dest(instr)
+			if dest is not None:
+				self._invalidate_cse(available, dest.name)
+
+			if expr_key is not None:
+				uses = self._get_uses(instr)
+				if not any(isinstance(u, IRTemp) and u.name == dest.name for u in uses):
+					available[expr_key] = instr.dest
+
+			result.append(instr)
+
+		return result
+
+	@staticmethod
+	def _expr_key(instr: IRInstruction) -> tuple | None:
+		"""Return a hashable key for the expression, or None if not CSE-able."""
+		if isinstance(instr, IRBinOp):
+			return ("binop", instr.op, instr.left, instr.right)
+		if isinstance(instr, IRUnaryOp):
+			return ("unaryop", instr.op, instr.operand)
+		return None
+
+	@staticmethod
+	def _invalidate_cse(available: dict[tuple, IRTemp], name: str) -> None:
+		"""Remove entries whose dest or operands reference the given temp name."""
+		def _refs_name(key: tuple) -> bool:
+			for part in key[2:]:
+				if isinstance(part, IRTemp) and part.name == name:
+					return True
+			return False
+
+		to_remove = [
+			key for key, dest in available.items()
+			if dest.name == name or _refs_name(key)
+		]
+		for key in to_remove:
+			del available[key]
+
+	# -- Loop-Invariant Code Motion --
+
+	def _licm(self, body: list[IRInstruction]) -> list[IRInstruction]:
+		"""Hoist loop-invariant computations above loop headers."""
+		label_pos: dict[str, int] = {}
+		for i, instr in enumerate(body):
+			if isinstance(instr, IRLabelInstr):
+				label_pos[instr.name] = i
+
+		for i, instr in enumerate(body):
+			targets: list[str] = []
+			if isinstance(instr, IRJump):
+				targets.append(instr.target)
+			elif isinstance(instr, IRCondJump):
+				targets.extend([instr.true_label, instr.false_label])
+
+			for target in targets:
+				if target not in label_pos or label_pos[target] > i:
+					continue
+				header = label_pos[target]
+				back_edge = i
+
+				loop_defs: set[str] = set()
+				for j in range(header, back_edge + 1):
+					d = self._get_dest(body[j])
+					if d is not None:
+						loop_defs.add(d.name)
+
+				to_hoist: list[int] = []
+				for j in range(header + 1, back_edge):
+					jnstr = body[j]
+					if not isinstance(jnstr, (IRBinOp, IRUnaryOp)):
+						continue
+					d = self._get_dest(jnstr)
+					if d is not None:
+						other_defs = sum(
+							1 for k in range(header, back_edge + 1)
+							if k != j
+							and self._get_dest(body[k]) is not None
+							and self._get_dest(body[k]).name == d.name
+						)
+						if other_defs > 0:
+							continue
+					operands = self._get_uses(jnstr)
+					if all(
+						isinstance(op, IRConst) or (isinstance(op, IRTemp) and op.name not in loop_defs)
+						for op in operands
+					):
+						to_hoist.append(j)
+
+				if to_hoist:
+					hoisted = [body[j] for j in to_hoist]
+					hoist_set = set(to_hoist)
+					new_body: list[IRInstruction] = []
+					for j, b_instr in enumerate(body):
+						if j == header:
+							new_body.extend(hoisted)
+						if j not in hoist_set:
+							new_body.append(b_instr)
+					return new_body
+
+		return body
 
 	# -- Helpers --
 
