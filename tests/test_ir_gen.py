@@ -4,7 +4,11 @@ from compiler.ast_nodes import (
 	ArraySubscript,
 	Assignment,
 	BinaryOp,
+	BreakStmt,
+	CompoundAssignment,
 	CompoundStmt,
+	ContinueStmt,
+	DoWhileStmt,
 	ExprStmt,
 	ForStmt,
 	FunctionCall,
@@ -559,7 +563,7 @@ class TestForStmt:
 		labels = [i for i in body if isinstance(i, IRLabelInstr)]
 		jumps = [i for i in body if isinstance(i, IRJump)]
 		cond_jumps = [i for i in body if isinstance(i, IRCondJump)]
-		assert len(labels) == 3  # start, body, end
+		assert len(labels) == 4  # start, body, update, end
 		assert len(jumps) == 1
 		assert len(cond_jumps) == 1
 
@@ -699,6 +703,335 @@ class TestArrayIR:
 		alloc = ir.functions[0].body[0]
 		assert isinstance(alloc, IRAlloc)
 		assert alloc.size == 256
+
+
+class TestDoWhileStmt:
+	def test_do_while_basic(self) -> None:
+		"""do { } while (1); -- body executes before condition check."""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_void_type(),
+				name="f",
+				body=CompoundStmt(
+					statements=[
+						DoWhileStmt(
+							body=CompoundStmt(statements=[]),
+							condition=IntLiteral(value=1),
+						)
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		body = ir.functions[0].body
+		# body label, cond label, cond_jump, end label
+		assert isinstance(body[0], IRLabelInstr)
+		body_label = body[0].name
+		assert isinstance(body[1], IRLabelInstr)  # cond label
+		assert isinstance(body[2], IRCondJump)
+		assert body[2].true_label == body_label
+		assert isinstance(body[3], IRLabelInstr)
+		assert body[3].name == body[2].false_label
+
+	def test_do_while_with_body(self) -> None:
+		"""do { return 42; } while (0);"""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_int_type(),
+				name="f",
+				body=CompoundStmt(
+					statements=[
+						DoWhileStmt(
+							body=CompoundStmt(
+								statements=[ReturnStmt(expression=IntLiteral(value=42))]
+							),
+							condition=IntLiteral(value=0),
+						)
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		body = ir.functions[0].body
+		# body_label, return, cond_label, cond_jump, end_label
+		assert isinstance(body[0], IRLabelInstr)
+		assert isinstance(body[1], IRReturn)
+		assert isinstance(body[2], IRLabelInstr)
+		assert isinstance(body[3], IRCondJump)
+		assert isinstance(body[4], IRLabelInstr)
+
+
+class TestBreakStmt:
+	def test_break_in_while(self) -> None:
+		"""while (1) { break; }"""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_void_type(),
+				name="f",
+				body=CompoundStmt(
+					statements=[
+						WhileStmt(
+							condition=IntLiteral(value=1),
+							body=CompoundStmt(
+								statements=[BreakStmt()]
+							),
+						)
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		body = ir.functions[0].body
+		# start_label, cond_jump, body_label, jump(break->end), jump(back->start), end_label
+		end_label = [i for i in body if isinstance(i, IRLabelInstr)][-1]
+		break_jump = [i for i in body if isinstance(i, IRJump)][0]
+		assert break_jump.target == end_label.name
+
+	def test_break_in_for(self) -> None:
+		"""for (;;) { break; }"""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_void_type(),
+				name="f",
+				body=CompoundStmt(
+					statements=[
+						ForStmt(
+							body=CompoundStmt(
+								statements=[BreakStmt()]
+							),
+						)
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		body = ir.functions[0].body
+		end_label = [i for i in body if isinstance(i, IRLabelInstr)][-1]
+		break_jump = [i for i in body if isinstance(i, IRJump)][0]
+		assert break_jump.target == end_label.name
+
+	def test_break_in_do_while(self) -> None:
+		"""do { break; } while (1);"""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_void_type(),
+				name="f",
+				body=CompoundStmt(
+					statements=[
+						DoWhileStmt(
+							body=CompoundStmt(
+								statements=[BreakStmt()]
+							),
+							condition=IntLiteral(value=1),
+						)
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		body = ir.functions[0].body
+		end_label = [i for i in body if isinstance(i, IRLabelInstr)][-1]
+		break_jump = [i for i in body if isinstance(i, IRJump)][0]
+		assert break_jump.target == end_label.name
+
+
+class TestContinueStmt:
+	def test_continue_in_while(self) -> None:
+		"""while (1) { continue; }"""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_void_type(),
+				name="f",
+				body=CompoundStmt(
+					statements=[
+						WhileStmt(
+							condition=IntLiteral(value=1),
+							body=CompoundStmt(
+								statements=[ContinueStmt()]
+							),
+						)
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		body = ir.functions[0].body
+		# continue in while jumps to loop_start (condition re-check)
+		start_label = body[0]
+		assert isinstance(start_label, IRLabelInstr)
+		continue_jump = [i for i in body if isinstance(i, IRJump)][0]
+		assert continue_jump.target == start_label.name
+
+	def test_continue_in_for(self) -> None:
+		"""for (;;) { continue; } -- continue jumps to update label."""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_void_type(),
+				name="f",
+				body=CompoundStmt(
+					statements=[
+						ForStmt(
+							body=CompoundStmt(
+								statements=[ContinueStmt()]
+							),
+						)
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		body = ir.functions[0].body
+		# start_label, body_label, jump(continue->update), update_label, jump(->start), end_label
+		labels = [i for i in body if isinstance(i, IRLabelInstr)]
+		jumps = [i for i in body if isinstance(i, IRJump)]
+		# continue jump should target the update label (3rd label)
+		assert jumps[0].target == labels[2].name
+
+	def test_continue_in_do_while(self) -> None:
+		"""do { continue; } while (1); -- continue jumps to condition."""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_void_type(),
+				name="f",
+				body=CompoundStmt(
+					statements=[
+						DoWhileStmt(
+							body=CompoundStmt(
+								statements=[ContinueStmt()]
+							),
+							condition=IntLiteral(value=1),
+						)
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		body = ir.functions[0].body
+		# body_label, jump(continue->cond), cond_label, cond_jump, end_label
+		labels = [i for i in body if isinstance(i, IRLabelInstr)]
+		jumps = [i for i in body if isinstance(i, IRJump)]
+		# continue jumps to cond label (2nd label)
+		assert jumps[0].target == labels[1].name
+
+
+class TestCompoundAssignment:
+	def test_compound_assign_identifier(self) -> None:
+		"""int x = 5; x += 3;"""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_void_type(),
+				name="f",
+				body=CompoundStmt(
+					statements=[
+						VarDecl(type_spec=_int_type(), name="x", initializer=IntLiteral(value=5)),
+						ExprStmt(
+							expression=CompoundAssignment(
+								target=Identifier(name="x"),
+								op="+",
+								value=IntLiteral(value=3),
+							)
+						),
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		body = ir.functions[0].body
+		# alloc, copy(5), copy(x->t), binop(t+3), copy(result->x)
+		binops = [i for i in body if isinstance(i, IRBinOp)]
+		assert len(binops) == 1
+		assert binops[0].op == "+"
+		assert binops[0].right == IRConst(3)
+
+	def test_compound_assign_subtract(self) -> None:
+		"""int x = 10; x -= 2;"""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_void_type(),
+				name="f",
+				body=CompoundStmt(
+					statements=[
+						VarDecl(type_spec=_int_type(), name="x", initializer=IntLiteral(value=10)),
+						ExprStmt(
+							expression=CompoundAssignment(
+								target=Identifier(name="x"),
+								op="-",
+								value=IntLiteral(value=2),
+							)
+						),
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		body = ir.functions[0].body
+		binops = [i for i in body if isinstance(i, IRBinOp)]
+		assert len(binops) == 1
+		assert binops[0].op == "-"
+
+	def test_compound_assign_multiply(self) -> None:
+		"""int x = 3; x *= 4;"""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_void_type(),
+				name="f",
+				body=CompoundStmt(
+					statements=[
+						VarDecl(type_spec=_int_type(), name="x", initializer=IntLiteral(value=3)),
+						ExprStmt(
+							expression=CompoundAssignment(
+								target=Identifier(name="x"),
+								op="*",
+								value=IntLiteral(value=4),
+							)
+						),
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		body = ir.functions[0].body
+		binops = [i for i in body if isinstance(i, IRBinOp)]
+		assert len(binops) == 1
+		assert binops[0].op == "*"
+
+	def test_compound_assign_array_subscript(self) -> None:
+		"""int arr[10]; arr[2] += 5;"""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_void_type(),
+				name="f",
+				body=CompoundStmt(
+					statements=[
+						VarDecl(
+							type_spec=_int_type(),
+							name="arr",
+							array_sizes=[IntLiteral(value=10)],
+						),
+						ExprStmt(
+							expression=CompoundAssignment(
+								target=ArraySubscript(
+									array=Identifier(name="arr"),
+									index=IntLiteral(value=2),
+								),
+								op="+",
+								value=IntLiteral(value=5),
+							)
+						),
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		body = ir.functions[0].body
+		loads = [i for i in body if isinstance(i, IRLoad)]
+		stores = [i for i in body if isinstance(i, IRStore)]
+		assert len(loads) == 1  # load current value
+		assert len(stores) == 1  # store updated value
+		binops = [i for i in body if isinstance(i, IRBinOp)]
+		# There should be binops for addr computation (mul, add) twice + the actual += op
+		add_ops = [b for b in binops if b.op == "+"]
+		assert any(b.right == IRConst(5) for b in add_ops)
 
 
 class TestIntegration:
