@@ -6,8 +6,12 @@ from compiler.ast_nodes import (
 	ArraySubscript,
 	Assignment,
 	BinaryOp,
+	BreakStmt,
 	CharLiteral,
+	CompoundAssignment,
 	CompoundStmt,
+	ContinueStmt,
+	DoWhileStmt,
 	ExprStmt,
 	ForStmt,
 	FunctionCall,
@@ -864,6 +868,436 @@ class TestArraySubscriptSemantic:
 					ReturnStmt(expression=ArraySubscript(
 						array=Identifier(name="p"),
 						index=IntLiteral(value=0),
+					)),
+				]),
+			),
+		])
+		SemanticAnalyzer().analyze(prog)
+
+
+# ---------------------------------------------------------------------------
+# Break / Continue validation
+# ---------------------------------------------------------------------------
+
+
+class TestBreakContinueValid:
+	def test_break_in_while(self) -> None:
+		prog = Program(declarations=[
+			FunctionDecl(
+				return_type=void_type(),
+				name="f",
+				params=[],
+				body=CompoundStmt(statements=[
+					WhileStmt(
+						condition=IntLiteral(value=1),
+						body=CompoundStmt(statements=[BreakStmt()]),
+					),
+				]),
+			),
+		])
+		SemanticAnalyzer().analyze(prog)
+
+	def test_continue_in_while(self) -> None:
+		prog = Program(declarations=[
+			FunctionDecl(
+				return_type=void_type(),
+				name="f",
+				params=[],
+				body=CompoundStmt(statements=[
+					WhileStmt(
+						condition=IntLiteral(value=1),
+						body=CompoundStmt(statements=[ContinueStmt()]),
+					),
+				]),
+			),
+		])
+		SemanticAnalyzer().analyze(prog)
+
+	def test_break_in_for(self) -> None:
+		prog = Program(declarations=[
+			FunctionDecl(
+				return_type=void_type(),
+				name="f",
+				params=[],
+				body=CompoundStmt(statements=[
+					ForStmt(
+						init=None,
+						condition=None,
+						update=None,
+						body=CompoundStmt(statements=[BreakStmt()]),
+					),
+				]),
+			),
+		])
+		SemanticAnalyzer().analyze(prog)
+
+	def test_continue_in_for(self) -> None:
+		prog = Program(declarations=[
+			FunctionDecl(
+				return_type=void_type(),
+				name="f",
+				params=[],
+				body=CompoundStmt(statements=[
+					ForStmt(
+						init=None,
+						condition=None,
+						update=None,
+						body=CompoundStmt(statements=[ContinueStmt()]),
+					),
+				]),
+			),
+		])
+		SemanticAnalyzer().analyze(prog)
+
+	def test_break_in_do_while(self) -> None:
+		prog = Program(declarations=[
+			FunctionDecl(
+				return_type=void_type(),
+				name="f",
+				params=[],
+				body=CompoundStmt(statements=[
+					DoWhileStmt(
+						body=CompoundStmt(statements=[BreakStmt()]),
+						condition=IntLiteral(value=0),
+					),
+				]),
+			),
+		])
+		SemanticAnalyzer().analyze(prog)
+
+	def test_continue_in_do_while(self) -> None:
+		prog = Program(declarations=[
+			FunctionDecl(
+				return_type=void_type(),
+				name="f",
+				params=[],
+				body=CompoundStmt(statements=[
+					DoWhileStmt(
+						body=CompoundStmt(statements=[ContinueStmt()]),
+						condition=IntLiteral(value=0),
+					),
+				]),
+			),
+		])
+		SemanticAnalyzer().analyze(prog)
+
+	def test_break_in_nested_loop(self) -> None:
+		prog = Program(declarations=[
+			FunctionDecl(
+				return_type=void_type(),
+				name="f",
+				params=[],
+				body=CompoundStmt(statements=[
+					WhileStmt(
+						condition=IntLiteral(value=1),
+						body=CompoundStmt(statements=[
+							ForStmt(
+								init=None,
+								condition=None,
+								update=None,
+								body=CompoundStmt(statements=[BreakStmt()]),
+							),
+						]),
+					),
+				]),
+			),
+		])
+		SemanticAnalyzer().analyze(prog)
+
+	def test_break_inside_if_inside_loop(self) -> None:
+		"""break inside if inside while is valid."""
+		prog = Program(declarations=[
+			FunctionDecl(
+				return_type=void_type(),
+				name="f",
+				params=[],
+				body=CompoundStmt(statements=[
+					WhileStmt(
+						condition=IntLiteral(value=1),
+						body=CompoundStmt(statements=[
+							IfStmt(
+								condition=IntLiteral(value=1),
+								then_branch=CompoundStmt(statements=[BreakStmt()]),
+							),
+						]),
+					),
+				]),
+			),
+		])
+		SemanticAnalyzer().analyze(prog)
+
+
+class TestBreakContinueInvalid:
+	def test_break_outside_loop(self) -> None:
+		prog = Program(declarations=[
+			FunctionDecl(
+				return_type=void_type(),
+				name="f",
+				params=[],
+				body=CompoundStmt(statements=[
+					BreakStmt(loc=loc(2, 3)),
+				]),
+			),
+		])
+		with pytest.raises(SemanticError, match="break statement not within a loop"):
+			SemanticAnalyzer().analyze(prog)
+
+	def test_continue_outside_loop(self) -> None:
+		prog = Program(declarations=[
+			FunctionDecl(
+				return_type=void_type(),
+				name="f",
+				params=[],
+				body=CompoundStmt(statements=[
+					ContinueStmt(loc=loc(2, 3)),
+				]),
+			),
+		])
+		with pytest.raises(SemanticError, match="continue statement not within a loop"):
+			SemanticAnalyzer().analyze(prog)
+
+	def test_break_in_if_outside_loop(self) -> None:
+		"""break inside if but NOT inside any loop is invalid."""
+		prog = Program(declarations=[
+			FunctionDecl(
+				return_type=void_type(),
+				name="f",
+				params=[],
+				body=CompoundStmt(statements=[
+					IfStmt(
+						condition=IntLiteral(value=1),
+						then_branch=CompoundStmt(statements=[
+							BreakStmt(loc=loc(3, 5)),
+						]),
+					),
+				]),
+			),
+		])
+		with pytest.raises(SemanticError, match="break statement not within a loop"):
+			SemanticAnalyzer().analyze(prog)
+
+	def test_continue_in_if_outside_loop(self) -> None:
+		prog = Program(declarations=[
+			FunctionDecl(
+				return_type=void_type(),
+				name="f",
+				params=[],
+				body=CompoundStmt(statements=[
+					IfStmt(
+						condition=IntLiteral(value=1),
+						then_branch=CompoundStmt(statements=[
+							ContinueStmt(loc=loc(3, 5)),
+						]),
+					),
+				]),
+			),
+		])
+		with pytest.raises(SemanticError, match="continue statement not within a loop"):
+			SemanticAnalyzer().analyze(prog)
+
+
+# ---------------------------------------------------------------------------
+# Do-while semantic tests
+# ---------------------------------------------------------------------------
+
+
+class TestDoWhileSemantic:
+	def test_do_while_valid(self) -> None:
+		"""do { ... } while (x); with declared x should pass."""
+		prog = Program(declarations=[
+			FunctionDecl(
+				return_type=void_type(),
+				name="f",
+				params=[],
+				body=CompoundStmt(statements=[
+					VarDecl(type_spec=int_type(), name="x", initializer=IntLiteral(value=1)),
+					DoWhileStmt(
+						body=CompoundStmt(statements=[
+							ExprStmt(expression=Assignment(
+								target=Identifier(name="x"),
+								value=IntLiteral(value=0),
+							)),
+						]),
+						condition=Identifier(name="x"),
+					),
+				]),
+			),
+		])
+		SemanticAnalyzer().analyze(prog)
+
+	def test_do_while_undeclared_condition(self) -> None:
+		prog = Program(declarations=[
+			FunctionDecl(
+				return_type=void_type(),
+				name="f",
+				params=[],
+				body=CompoundStmt(statements=[
+					DoWhileStmt(
+						body=CompoundStmt(statements=[]),
+						condition=Identifier(name="unknown", loc=loc(3, 10)),
+					),
+				]),
+			),
+		])
+		with pytest.raises(SemanticError, match="undeclared identifier 'unknown'"):
+			SemanticAnalyzer().analyze(prog)
+
+	def test_do_while_undeclared_in_body(self) -> None:
+		prog = Program(declarations=[
+			FunctionDecl(
+				return_type=void_type(),
+				name="f",
+				params=[],
+				body=CompoundStmt(statements=[
+					DoWhileStmt(
+						body=CompoundStmt(statements=[
+							ExprStmt(expression=Identifier(name="nope", loc=loc(2, 5))),
+						]),
+						condition=IntLiteral(value=1),
+					),
+				]),
+			),
+		])
+		with pytest.raises(SemanticError, match="undeclared identifier 'nope'"):
+			SemanticAnalyzer().analyze(prog)
+
+
+# ---------------------------------------------------------------------------
+# Compound assignment semantic tests
+# ---------------------------------------------------------------------------
+
+
+class TestCompoundAssignmentSemantic:
+	def test_valid_int_plus_assign(self) -> None:
+		"""int x = 1; x += 2; -- valid."""
+		prog = Program(declarations=[
+			FunctionDecl(
+				return_type=void_type(),
+				name="f",
+				params=[],
+				body=CompoundStmt(statements=[
+					VarDecl(type_spec=int_type(), name="x", initializer=IntLiteral(value=1)),
+					ExprStmt(expression=CompoundAssignment(
+						target=Identifier(name="x"),
+						op="+",
+						value=IntLiteral(value=2),
+					)),
+				]),
+			),
+		])
+		SemanticAnalyzer().analyze(prog)
+
+	def test_valid_all_arithmetic_ops(self) -> None:
+		"""Test +=, -=, *=, /=, %= all work on int."""
+		for op in ["+", "-", "*", "/", "%"]:
+			prog = Program(declarations=[
+				FunctionDecl(
+					return_type=void_type(),
+					name="f",
+					params=[],
+					body=CompoundStmt(statements=[
+						VarDecl(type_spec=int_type(), name="x", initializer=IntLiteral(value=10)),
+						ExprStmt(expression=CompoundAssignment(
+							target=Identifier(name="x"),
+							op=op,
+							value=IntLiteral(value=2),
+						)),
+					]),
+				),
+			])
+			SemanticAnalyzer().analyze(prog)
+
+	def test_valid_char_compound_assign(self) -> None:
+		"""char c = 'a'; c += 1; -- valid (char is numeric)."""
+		prog = Program(declarations=[
+			FunctionDecl(
+				return_type=void_type(),
+				name="f",
+				params=[],
+				body=CompoundStmt(statements=[
+					VarDecl(type_spec=char_type(), name="c", initializer=CharLiteral(value="a")),
+					ExprStmt(expression=CompoundAssignment(
+						target=Identifier(name="c"),
+						op="+",
+						value=IntLiteral(value=1),
+					)),
+				]),
+			),
+		])
+		SemanticAnalyzer().analyze(prog)
+
+	def test_valid_pointer_plus_assign(self) -> None:
+		"""int *p; p += 1; -- valid pointer arithmetic."""
+		prog = Program(declarations=[
+			FunctionDecl(
+				return_type=void_type(),
+				name="f",
+				params=[],
+				body=CompoundStmt(statements=[
+					VarDecl(type_spec=ptr_type("int"), name="p"),
+					ExprStmt(expression=CompoundAssignment(
+						target=Identifier(name="p"),
+						op="+",
+						value=IntLiteral(value=1),
+					)),
+				]),
+			),
+		])
+		SemanticAnalyzer().analyze(prog)
+
+	def test_invalid_string_compound_assign(self) -> None:
+		"""int x = 1; x += "hello"; -- error: string is not numeric."""
+		prog = Program(declarations=[
+			FunctionDecl(
+				return_type=void_type(),
+				name="f",
+				params=[],
+				body=CompoundStmt(statements=[
+					VarDecl(type_spec=int_type(), name="x", initializer=IntLiteral(value=1)),
+					ExprStmt(expression=CompoundAssignment(
+						target=Identifier(name="x"),
+						op="+",
+						value=StringLiteral(value="hello"),
+						loc=loc(3, 5),
+					)),
+				]),
+			),
+		])
+		with pytest.raises(SemanticError, match="incompatible type for compound assignment"):
+			SemanticAnalyzer().analyze(prog)
+
+	def test_invalid_undeclared_target(self) -> None:
+		"""z += 1; -- error: undeclared."""
+		prog = Program(declarations=[
+			FunctionDecl(
+				return_type=void_type(),
+				name="f",
+				params=[],
+				body=CompoundStmt(statements=[
+					ExprStmt(expression=CompoundAssignment(
+						target=Identifier(name="z", loc=loc(2, 3)),
+						op="+",
+						value=IntLiteral(value=1),
+					)),
+				]),
+			),
+		])
+		with pytest.raises(SemanticError, match="undeclared identifier 'z'"):
+			SemanticAnalyzer().analyze(prog)
+
+	def test_compound_assign_returns_target_type(self) -> None:
+		"""Compound assignment result type should match target."""
+		prog = Program(declarations=[
+			FunctionDecl(
+				return_type=int_type(),
+				name="f",
+				params=[],
+				body=CompoundStmt(statements=[
+					VarDecl(type_spec=int_type(), name="x", initializer=IntLiteral(value=1)),
+					ReturnStmt(expression=CompoundAssignment(
+						target=Identifier(name="x"),
+						op="+",
+						value=IntLiteral(value=2),
 					)),
 				]),
 			),
