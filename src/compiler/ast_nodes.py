@@ -105,6 +105,15 @@ class ASTVisitor:
 	def visit_type_spec(self, node: TypeSpec) -> Any:
 		return None
 
+	def visit_struct_decl(self, node: StructDecl) -> Any:
+		return None
+
+	def visit_struct_member(self, node: StructMember) -> Any:
+		return None
+
+	def visit_member_access(self, node: MemberAccess) -> Any:
+		return None
+
 
 # --- Type node ---
 
@@ -232,6 +241,18 @@ class ArraySubscript(ASTNode):
 		return visitor.visit_array_subscript(self)
 
 
+@dataclass
+class MemberAccess(ASTNode):
+	"""Member access: object.member or object->member."""
+
+	object: ASTNode = field(default_factory=ASTNode)
+	member: str = ""
+	is_arrow: bool = False
+
+	def accept(self, visitor: ASTVisitor) -> Any:
+		return visitor.visit_member_access(self)
+
+
 # --- Statement nodes ---
 
 
@@ -329,6 +350,28 @@ class ContinueStmt(ASTNode):
 
 
 # --- Declaration nodes ---
+
+
+@dataclass
+class StructMember(ASTNode):
+	"""A single member within a struct definition."""
+
+	type_spec: TypeSpec = field(default_factory=TypeSpec)
+	name: str = ""
+
+	def accept(self, visitor: ASTVisitor) -> Any:
+		return visitor.visit_struct_member(self)
+
+
+@dataclass
+class StructDecl(ASTNode):
+	"""Struct type definition: struct name { members }."""
+
+	name: str = ""
+	members: list[StructMember] = field(default_factory=list)
+
+	def accept(self, visitor: ASTVisitor) -> Any:
+		return visitor.visit_struct_decl(self)
 
 
 @dataclass

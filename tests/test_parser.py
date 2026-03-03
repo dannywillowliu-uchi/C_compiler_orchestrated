@@ -19,9 +19,12 @@ from compiler.ast_nodes import (
 	Identifier,
 	IfStmt,
 	IntLiteral,
+	MemberAccess,
 	Program,
 	ReturnStmt,
 	StringLiteral,
+	StructDecl,
+	StructMember,
 	UnaryOp,
 	VarDecl,
 	WhileStmt,
@@ -934,3 +937,111 @@ class TestPrefixIncDec:
 		assert expr.op == "++"
 		assert isinstance(expr.operand, UnaryOp)
 		assert expr.operand.op == "++"
+
+
+# -- Struct support ----------------------------------------------------------
+
+
+class TestStructDecl:
+	def test_struct_definition(self) -> None:
+		src = "struct Point { int x; int y; };"
+		prog = parse(src)
+		assert len(prog.declarations) == 1
+		decl = prog.declarations[0]
+		assert isinstance(decl, StructDecl)
+		assert decl.name == "Point"
+		assert len(decl.members) == 2
+		assert isinstance(decl.members[0], StructMember)
+		assert decl.members[0].name == "x"
+		assert decl.members[0].type_spec.base_type == "int"
+		assert decl.members[1].name == "y"
+		assert decl.members[1].type_spec.base_type == "int"
+
+	def test_struct_with_pointer_member(self) -> None:
+		src = "struct Node { int val; struct Node *next; };"
+		prog = parse(src)
+		decl = prog.declarations[0]
+		assert isinstance(decl, StructDecl)
+		assert decl.members[1].type_spec.base_type == "struct Node"
+		assert decl.members[1].type_spec.pointer_count == 1
+
+	def test_struct_variable_declaration(self) -> None:
+		src = "int f() { struct Point p; }"
+		func = parse_single_func(src)
+		stmt = body_stmts(func)[0]
+		assert isinstance(stmt, VarDecl)
+		assert stmt.type_spec.base_type == "struct Point"
+		assert stmt.name == "p"
+
+	def test_struct_pointer_variable(self) -> None:
+		src = "int f() { struct Point *pp; }"
+		func = parse_single_func(src)
+		stmt = body_stmts(func)[0]
+		assert isinstance(stmt, VarDecl)
+		assert stmt.type_spec.base_type == "struct Point"
+		assert stmt.type_spec.pointer_count == 1
+		assert stmt.name == "pp"
+
+	def test_struct_definition_in_function(self) -> None:
+		src = "int f() { struct Pair { int a; int b; }; }"
+		func = parse_single_func(src)
+		stmt = body_stmts(func)[0]
+		assert isinstance(stmt, StructDecl)
+		assert stmt.name == "Pair"
+
+
+class TestMemberAccess:
+	def test_dot_access(self) -> None:
+		src = "int f() { return p.x; }"
+		func = parse_single_func(src)
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, MemberAccess)
+		assert isinstance(expr.object, Identifier)
+		assert expr.object.name == "p"
+		assert expr.member == "x"
+		assert expr.is_arrow is False
+
+	def test_arrow_access(self) -> None:
+		src = "int f() { return p->x; }"
+		func = parse_single_func(src)
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, MemberAccess)
+		assert isinstance(expr.object, Identifier)
+		assert expr.object.name == "p"
+		assert expr.member == "x"
+		assert expr.is_arrow is True
+
+	def test_nested_dot_access(self) -> None:
+		src = "int f() { return a.b.c; }"
+		func = parse_single_func(src)
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, MemberAccess)
+		assert expr.member == "c"
+		assert expr.is_arrow is False
+		inner = expr.object
+		assert isinstance(inner, MemberAccess)
+		assert inner.member == "b"
+		assert isinstance(inner.object, Identifier)
+		assert inner.object.name == "a"
+
+	def test_mixed_dot_arrow(self) -> None:
+		src = "int f() { return a->b.c; }"
+		func = parse_single_func(src)
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, MemberAccess)
+		assert expr.member == "c"
+		assert expr.is_arrow is False
+		inner = expr.object
+		assert isinstance(inner, MemberAccess)
+		assert inner.member == "b"
+		assert inner.is_arrow is True
+
+	def test_member_access_assignment(self) -> None:
+		src = "int f() { p.x = 42; }"
+		func = parse_single_func(src)
+		stmt = body_stmts(func)[0]
+		assert isinstance(stmt, ExprStmt)
+		expr = stmt.expression
+		assert isinstance(expr, Assignment)
+		assert isinstance(expr.target, MemberAccess)
+		assert expr.target.member == "x"
