@@ -7,6 +7,7 @@ from compiler.ast_nodes import (
 	Assignment,
 	BinaryOp,
 	BreakStmt,
+	CaseClause,
 	CharLiteral,
 	CompoundAssignment,
 	CompoundStmt,
@@ -20,10 +21,14 @@ from compiler.ast_nodes import (
 	IfStmt,
 	IntLiteral,
 	ParamDecl,
+	PostfixExpr,
 	Program,
 	ReturnStmt,
+	SizeofExpr,
 	SourceLocation,
 	StringLiteral,
+	SwitchStmt,
+	TernaryExpr,
 	TypeSpec,
 	UnaryOp,
 	VarDecl,
@@ -1299,6 +1304,330 @@ class TestCompoundAssignmentSemantic:
 						op="+",
 						value=IntLiteral(value=2),
 					)),
+				]),
+			),
+		])
+		SemanticAnalyzer().analyze(prog)
+
+
+# ---------------------------------------------------------------------------
+# Switch/case semantic tests
+# ---------------------------------------------------------------------------
+
+
+class TestSwitchSemanticValid:
+	def test_switch_basic(self) -> None:
+		prog = Program(declarations=[
+			FunctionDecl(
+				return_type=void_type(),
+				name="f",
+				params=[],
+				body=CompoundStmt(statements=[
+					VarDecl(type_spec=int_type(), name="x", initializer=IntLiteral(value=1)),
+					SwitchStmt(
+						expression=Identifier(name="x"),
+						cases=[
+							CaseClause(value=IntLiteral(value=1), statements=[
+								BreakStmt(),
+							]),
+							CaseClause(value=IntLiteral(value=2), statements=[
+								BreakStmt(),
+							]),
+						],
+					),
+				]),
+			),
+		])
+		SemanticAnalyzer().analyze(prog)
+
+	def test_switch_with_default(self) -> None:
+		prog = Program(declarations=[
+			FunctionDecl(
+				return_type=void_type(),
+				name="f",
+				params=[],
+				body=CompoundStmt(statements=[
+					VarDecl(type_spec=int_type(), name="x", initializer=IntLiteral(value=1)),
+					SwitchStmt(
+						expression=Identifier(name="x"),
+						cases=[
+							CaseClause(value=IntLiteral(value=1), statements=[BreakStmt()]),
+							CaseClause(value=None, statements=[BreakStmt()]),
+						],
+					),
+				]),
+			),
+		])
+		SemanticAnalyzer().analyze(prog)
+
+	def test_break_valid_in_switch(self) -> None:
+		"""break inside switch is valid even without a loop."""
+		prog = Program(declarations=[
+			FunctionDecl(
+				return_type=void_type(),
+				name="f",
+				params=[],
+				body=CompoundStmt(statements=[
+					VarDecl(type_spec=int_type(), name="x", initializer=IntLiteral(value=0)),
+					SwitchStmt(
+						expression=Identifier(name="x"),
+						cases=[
+							CaseClause(value=IntLiteral(value=0), statements=[BreakStmt()]),
+						],
+					),
+				]),
+			),
+		])
+		SemanticAnalyzer().analyze(prog)
+
+
+class TestSwitchSemanticInvalid:
+	def test_duplicate_case(self) -> None:
+		prog = Program(declarations=[
+			FunctionDecl(
+				return_type=void_type(),
+				name="f",
+				params=[],
+				body=CompoundStmt(statements=[
+					VarDecl(type_spec=int_type(), name="x", initializer=IntLiteral(value=1)),
+					SwitchStmt(
+						expression=Identifier(name="x"),
+						cases=[
+							CaseClause(value=IntLiteral(value=1), statements=[BreakStmt()]),
+							CaseClause(value=IntLiteral(value=1), statements=[BreakStmt()], loc=loc(3, 5)),
+						],
+					),
+				]),
+			),
+		])
+		with pytest.raises(SemanticError, match="duplicate case value"):
+			SemanticAnalyzer().analyze(prog)
+
+	def test_duplicate_default(self) -> None:
+		prog = Program(declarations=[
+			FunctionDecl(
+				return_type=void_type(),
+				name="f",
+				params=[],
+				body=CompoundStmt(statements=[
+					VarDecl(type_spec=int_type(), name="x", initializer=IntLiteral(value=1)),
+					SwitchStmt(
+						expression=Identifier(name="x"),
+						cases=[
+							CaseClause(value=None, statements=[BreakStmt()]),
+							CaseClause(value=None, statements=[BreakStmt()], loc=loc(4, 5)),
+						],
+					),
+				]),
+			),
+		])
+		with pytest.raises(SemanticError, match="duplicate default label"):
+			SemanticAnalyzer().analyze(prog)
+
+	def test_non_constant_case(self) -> None:
+		prog = Program(declarations=[
+			FunctionDecl(
+				return_type=void_type(),
+				name="f",
+				params=[],
+				body=CompoundStmt(statements=[
+					VarDecl(type_spec=int_type(), name="x", initializer=IntLiteral(value=1)),
+					VarDecl(type_spec=int_type(), name="y", initializer=IntLiteral(value=2)),
+					SwitchStmt(
+						expression=Identifier(name="x"),
+						cases=[
+							CaseClause(value=Identifier(name="y"), statements=[BreakStmt()], loc=loc(3, 5)),
+						],
+					),
+				]),
+			),
+		])
+		with pytest.raises(SemanticError, match="case expression must be a constant integer"):
+			SemanticAnalyzer().analyze(prog)
+
+
+# ---------------------------------------------------------------------------
+# Ternary expression semantic tests
+# ---------------------------------------------------------------------------
+
+
+class TestTernarySemantic:
+	def test_ternary_valid(self) -> None:
+		prog = Program(declarations=[
+			FunctionDecl(
+				return_type=int_type(),
+				name="f",
+				params=[],
+				body=CompoundStmt(statements=[
+					VarDecl(type_spec=int_type(), name="x", initializer=IntLiteral(value=1)),
+					ReturnStmt(expression=TernaryExpr(
+						condition=Identifier(name="x"),
+						true_expr=IntLiteral(value=1),
+						false_expr=IntLiteral(value=0),
+					)),
+				]),
+			),
+		])
+		SemanticAnalyzer().analyze(prog)
+
+	def test_ternary_incompatible_branches(self) -> None:
+		prog = Program(declarations=[
+			FunctionDecl(
+				return_type=int_type(),
+				name="f",
+				params=[],
+				body=CompoundStmt(statements=[
+					VarDecl(type_spec=int_type(), name="x", initializer=IntLiteral(value=1)),
+					ReturnStmt(expression=TernaryExpr(
+						condition=Identifier(name="x"),
+						true_expr=IntLiteral(value=1),
+						false_expr=StringLiteral(value="hello"),
+						loc=loc(3, 5),
+					)),
+				]),
+			),
+		])
+		with pytest.raises(SemanticError, match="incompatible types in ternary"):
+			SemanticAnalyzer().analyze(prog)
+
+
+# ---------------------------------------------------------------------------
+# Sizeof semantic tests
+# ---------------------------------------------------------------------------
+
+
+class TestSizeofSemantic:
+	def test_sizeof_type_returns_int(self) -> None:
+		prog = Program(declarations=[
+			FunctionDecl(
+				return_type=int_type(),
+				name="f",
+				params=[],
+				body=CompoundStmt(statements=[
+					ReturnStmt(expression=SizeofExpr(type_operand=int_type())),
+				]),
+			),
+		])
+		SemanticAnalyzer().analyze(prog)
+
+	def test_sizeof_expr_returns_int(self) -> None:
+		prog = Program(declarations=[
+			FunctionDecl(
+				return_type=int_type(),
+				name="f",
+				params=[],
+				body=CompoundStmt(statements=[
+					VarDecl(type_spec=int_type(), name="x", initializer=IntLiteral(value=0)),
+					ReturnStmt(expression=SizeofExpr(operand=Identifier(name="x"))),
+				]),
+			),
+		])
+		SemanticAnalyzer().analyze(prog)
+
+
+# ---------------------------------------------------------------------------
+# Postfix ++/-- semantic tests
+# ---------------------------------------------------------------------------
+
+
+class TestPostfixSemantic:
+	def test_postfix_on_identifier(self) -> None:
+		prog = Program(declarations=[
+			FunctionDecl(
+				return_type=void_type(),
+				name="f",
+				params=[],
+				body=CompoundStmt(statements=[
+					VarDecl(type_spec=int_type(), name="x", initializer=IntLiteral(value=0)),
+					ExprStmt(expression=PostfixExpr(operand=Identifier(name="x"), op="++")),
+				]),
+			),
+		])
+		SemanticAnalyzer().analyze(prog)
+
+	def test_postfix_on_non_lvalue(self) -> None:
+		prog = Program(declarations=[
+			FunctionDecl(
+				return_type=void_type(),
+				name="f",
+				params=[],
+				body=CompoundStmt(statements=[
+					ExprStmt(expression=PostfixExpr(
+						operand=IntLiteral(value=1),
+						op="++",
+						loc=loc(2, 3),
+					)),
+				]),
+			),
+		])
+		with pytest.raises(SemanticError, match="operand of postfix operator must be an lvalue"):
+			SemanticAnalyzer().analyze(prog)
+
+	def test_postfix_on_array_subscript(self) -> None:
+		prog = Program(declarations=[
+			FunctionDecl(
+				return_type=void_type(),
+				name="f",
+				params=[],
+				body=CompoundStmt(statements=[
+					VarDecl(type_spec=int_type(), name="arr", array_sizes=[IntLiteral(value=10)]),
+					ExprStmt(expression=PostfixExpr(
+						operand=ArraySubscript(
+							array=Identifier(name="arr"),
+							index=IntLiteral(value=0),
+						),
+						op="++",
+					)),
+				]),
+			),
+		])
+		SemanticAnalyzer().analyze(prog)
+
+
+# ---------------------------------------------------------------------------
+# Function prototype semantic tests
+# ---------------------------------------------------------------------------
+
+
+class TestFunctionPrototypeSemantic:
+	def test_prototype_registers_function(self) -> None:
+		"""Prototype should register function so it can be called."""
+		prog = Program(declarations=[
+			FunctionDecl(
+				return_type=int_type(),
+				name="foo",
+				params=[ParamDecl(type_spec=int_type(), name="x")],
+				body=None,
+			),
+			FunctionDecl(
+				return_type=int_type(),
+				name="main",
+				params=[],
+				body=CompoundStmt(statements=[
+					ReturnStmt(expression=FunctionCall(
+						name="foo",
+						arguments=[IntLiteral(value=42)],
+					)),
+				]),
+			),
+		])
+		SemanticAnalyzer().analyze(prog)
+
+	def test_prototype_then_definition(self) -> None:
+		"""Prototype followed by definition should not error."""
+		prog = Program(declarations=[
+			FunctionDecl(
+				return_type=int_type(),
+				name="foo",
+				params=[ParamDecl(type_spec=int_type(), name="x")],
+				body=None,
+			),
+			FunctionDecl(
+				return_type=int_type(),
+				name="foo",
+				params=[ParamDecl(type_spec=int_type(), name="x")],
+				body=CompoundStmt(statements=[
+					ReturnStmt(expression=Identifier(name="x")),
 				]),
 			),
 		])

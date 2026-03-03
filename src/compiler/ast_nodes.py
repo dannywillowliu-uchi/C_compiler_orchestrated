@@ -114,6 +114,21 @@ class ASTVisitor:
 	def visit_member_access(self, node: MemberAccess) -> Any:
 		return None
 
+	def visit_switch_stmt(self, node: SwitchStmt) -> Any:
+		return None
+
+	def visit_case_clause(self, node: CaseClause) -> Any:
+		return None
+
+	def visit_ternary_expr(self, node: TernaryExpr) -> Any:
+		return None
+
+	def visit_sizeof_expr(self, node: SizeofExpr) -> Any:
+		return None
+
+	def visit_postfix_expr(self, node: PostfixExpr) -> Any:
+		return None
+
 
 # --- Type node ---
 
@@ -253,6 +268,40 @@ class MemberAccess(ASTNode):
 		return visitor.visit_member_access(self)
 
 
+@dataclass
+class TernaryExpr(ASTNode):
+	"""Ternary conditional: condition ? true_expr : false_expr."""
+
+	condition: ASTNode = field(default_factory=ASTNode)
+	true_expr: ASTNode = field(default_factory=ASTNode)
+	false_expr: ASTNode = field(default_factory=ASTNode)
+
+	def accept(self, visitor: ASTVisitor) -> Any:
+		return visitor.visit_ternary_expr(self)
+
+
+@dataclass
+class SizeofExpr(ASTNode):
+	"""Sizeof expression: sizeof(type) or sizeof expr."""
+
+	operand: ASTNode | None = None
+	type_operand: TypeSpec | None = None
+
+	def accept(self, visitor: ASTVisitor) -> Any:
+		return visitor.visit_sizeof_expr(self)
+
+
+@dataclass
+class PostfixExpr(ASTNode):
+	"""Postfix increment/decrement: expr++ or expr--."""
+
+	operand: ASTNode = field(default_factory=ASTNode)
+	op: str = ""
+
+	def accept(self, visitor: ASTVisitor) -> Any:
+		return visitor.visit_postfix_expr(self)
+
+
 # --- Statement nodes ---
 
 
@@ -349,6 +398,28 @@ class ContinueStmt(ASTNode):
 		return visitor.visit_continue_stmt(self)
 
 
+@dataclass
+class CaseClause(ASTNode):
+	"""A single case or default clause within a switch statement."""
+
+	value: ASTNode | None = None
+	statements: list[ASTNode] = field(default_factory=list)
+
+	def accept(self, visitor: ASTVisitor) -> Any:
+		return visitor.visit_case_clause(self)
+
+
+@dataclass
+class SwitchStmt(ASTNode):
+	"""Switch statement: switch(expr) { case ...: ... default: ... }."""
+
+	expression: ASTNode = field(default_factory=ASTNode)
+	cases: list[CaseClause] = field(default_factory=list)
+
+	def accept(self, visitor: ASTVisitor) -> Any:
+		return visitor.visit_switch_stmt(self)
+
+
 # --- Declaration nodes ---
 
 
@@ -405,7 +476,7 @@ class FunctionDecl(ASTNode):
 	return_type: TypeSpec = field(default_factory=TypeSpec)
 	name: str = ""
 	params: list[ParamDecl] = field(default_factory=list)
-	body: CompoundStmt = field(default_factory=CompoundStmt)
+	body: CompoundStmt | None = None
 
 	def accept(self, visitor: ASTVisitor) -> Any:
 		return visitor.visit_function_decl(self)

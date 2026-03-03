@@ -7,6 +7,7 @@ from compiler.ast_nodes import (
 	Assignment,
 	BinaryOp,
 	BreakStmt,
+	CaseClause,
 	CharLiteral,
 	CompoundAssignment,
 	CompoundStmt,
@@ -20,11 +21,15 @@ from compiler.ast_nodes import (
 	IfStmt,
 	IntLiteral,
 	MemberAccess,
+	PostfixExpr,
 	Program,
 	ReturnStmt,
+	SizeofExpr,
 	StringLiteral,
 	StructDecl,
 	StructMember,
+	SwitchStmt,
+	TernaryExpr,
 	UnaryOp,
 	VarDecl,
 	WhileStmt,
@@ -1045,3 +1050,225 @@ class TestMemberAccess:
 		assert isinstance(expr, Assignment)
 		assert isinstance(expr.target, MemberAccess)
 		assert expr.target.member == "x"
+
+
+# -- Switch/case/default -----------------------------------------------------
+
+
+class TestSwitchStmt:
+	def test_simple_switch(self) -> None:
+		src = "int f() { switch (x) { case 1: return 1; case 2: return 2; } }"
+		func = parse_single_func(src)
+		stmt = body_stmts(func)[0]
+		assert isinstance(stmt, SwitchStmt)
+		assert isinstance(stmt.expression, Identifier)
+		assert len(stmt.cases) == 2
+		assert isinstance(stmt.cases[0], CaseClause)
+		assert isinstance(stmt.cases[0].value, IntLiteral)
+		assert stmt.cases[0].value.value == 1
+		assert isinstance(stmt.cases[1].value, IntLiteral)
+		assert stmt.cases[1].value.value == 2
+
+	def test_switch_with_default(self) -> None:
+		src = "int f() { switch (x) { case 1: return 1; default: return 0; } }"
+		func = parse_single_func(src)
+		stmt = body_stmts(func)[0]
+		assert isinstance(stmt, SwitchStmt)
+		assert len(stmt.cases) == 2
+		assert stmt.cases[0].value is not None
+		assert stmt.cases[1].value is None
+
+	def test_switch_with_break(self) -> None:
+		src = "int f() { switch (x) { case 1: y = 1; break; case 2: y = 2; break; } }"
+		func = parse_single_func(src)
+		stmt = body_stmts(func)[0]
+		assert isinstance(stmt, SwitchStmt)
+		assert len(stmt.cases) == 2
+		assert len(stmt.cases[0].statements) == 2
+		assert isinstance(stmt.cases[0].statements[1], BreakStmt)
+
+	def test_switch_multiple_stmts_per_case(self) -> None:
+		src = "int f() { switch (x) { case 1: y = 1; z = 2; break; default: return 0; } }"
+		func = parse_single_func(src)
+		stmt = body_stmts(func)[0]
+		assert isinstance(stmt, SwitchStmt)
+		assert len(stmt.cases[0].statements) == 3
+
+	def test_switch_expression(self) -> None:
+		src = "int f() { switch (a + b) { case 0: return 0; } }"
+		func = parse_single_func(src)
+		stmt = body_stmts(func)[0]
+		assert isinstance(stmt, SwitchStmt)
+		assert isinstance(stmt.expression, BinaryOp)
+
+
+# -- Ternary operator --------------------------------------------------------
+
+
+class TestTernaryExpr:
+	def test_simple_ternary(self) -> None:
+		func = parse_single_func("int f() { return x ? 1 : 0; }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, TernaryExpr)
+		assert isinstance(expr.condition, Identifier)
+		assert isinstance(expr.true_expr, IntLiteral)
+		assert expr.true_expr.value == 1
+		assert isinstance(expr.false_expr, IntLiteral)
+		assert expr.false_expr.value == 0
+
+	def test_ternary_with_expressions(self) -> None:
+		func = parse_single_func("int f() { return a > b ? a : b; }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, TernaryExpr)
+		assert isinstance(expr.condition, BinaryOp)
+		assert expr.condition.op == ">"
+
+	def test_nested_ternary(self) -> None:
+		func = parse_single_func("int f() { return a ? 1 : b ? 2 : 3; }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, TernaryExpr)
+		assert isinstance(expr.false_expr, TernaryExpr)
+
+	def test_ternary_in_assignment(self) -> None:
+		func = parse_single_func("int f() { x = a ? 1 : 0; }")
+		stmt = body_stmts(func)[0]
+		assert isinstance(stmt, ExprStmt)
+		expr = stmt.expression
+		assert isinstance(expr, Assignment)
+		assert isinstance(expr.value, TernaryExpr)
+
+	def test_ternary_precedence_above_assignment(self) -> None:
+		func = parse_single_func("int f() { return a ? b = 1 : 0; }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, TernaryExpr)
+		assert isinstance(expr.true_expr, Assignment)
+
+
+# -- Sizeof expression -------------------------------------------------------
+
+
+class TestSizeofExpr:
+	def test_sizeof_type(self) -> None:
+		func = parse_single_func("int f() { return sizeof(int); }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, SizeofExpr)
+		assert expr.type_operand is not None
+		assert expr.type_operand.base_type == "int"
+		assert expr.operand is None
+
+	def test_sizeof_pointer_type(self) -> None:
+		func = parse_single_func("int f() { return sizeof(int*); }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, SizeofExpr)
+		assert expr.type_operand is not None
+		assert expr.type_operand.base_type == "int"
+		assert expr.type_operand.pointer_count == 1
+
+	def test_sizeof_expr(self) -> None:
+		func = parse_single_func("int f() { return sizeof x; }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, SizeofExpr)
+		assert expr.operand is not None
+		assert isinstance(expr.operand, Identifier)
+		assert expr.type_operand is None
+
+	def test_sizeof_parenthesized_expr(self) -> None:
+		func = parse_single_func("int f() { return sizeof(x + 1); }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, SizeofExpr)
+		assert expr.operand is not None
+		assert isinstance(expr.operand, BinaryOp)
+
+	def test_sizeof_char(self) -> None:
+		func = parse_single_func("int f() { return sizeof(char); }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, SizeofExpr)
+		assert expr.type_operand is not None
+		assert expr.type_operand.base_type == "char"
+
+	def test_sizeof_struct(self) -> None:
+		func = parse_single_func("int f() { return sizeof(struct Point); }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, SizeofExpr)
+		assert expr.type_operand is not None
+		assert expr.type_operand.base_type == "struct Point"
+
+
+# -- Postfix ++/-- -----------------------------------------------------------
+
+
+class TestPostfixExpr:
+	def test_postfix_increment(self) -> None:
+		func = parse_single_func("int f() { x++; }")
+		stmt = body_stmts(func)[0]
+		assert isinstance(stmt, ExprStmt)
+		expr = stmt.expression
+		assert isinstance(expr, PostfixExpr)
+		assert expr.op == "++"
+		assert isinstance(expr.operand, Identifier)
+		assert expr.operand.name == "x"
+
+	def test_postfix_decrement(self) -> None:
+		func = parse_single_func("int f() { x--; }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, PostfixExpr)
+		assert expr.op == "--"
+
+	def test_postfix_in_for_update(self) -> None:
+		src = "int f() { for (int i = 0; i < 10; i++) { return i; } }"
+		func = parse_single_func(src)
+		stmt = body_stmts(func)[0]
+		assert isinstance(stmt, ForStmt)
+		assert isinstance(stmt.update, PostfixExpr)
+		assert stmt.update.op == "++"
+
+	def test_postfix_in_expression(self) -> None:
+		func = parse_single_func("int f() { return x++ + 1; }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, BinaryOp)
+		assert isinstance(expr.left, PostfixExpr)
+		assert expr.left.op == "++"
+
+	def test_postfix_on_array_subscript(self) -> None:
+		func = parse_single_func("int f() { arr[0]++; }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, PostfixExpr)
+		assert isinstance(expr.operand, ArraySubscript)
+
+
+# -- Function prototypes -----------------------------------------------------
+
+
+class TestFunctionPrototype:
+	def test_simple_prototype(self) -> None:
+		prog = parse("int foo(int x);")
+		assert len(prog.declarations) == 1
+		decl = prog.declarations[0]
+		assert isinstance(decl, FunctionDecl)
+		assert decl.name == "foo"
+		assert decl.body is None
+		assert len(decl.params) == 1
+
+	def test_void_prototype(self) -> None:
+		prog = parse("void bar(void);")
+		assert len(prog.declarations) == 1
+		decl = prog.declarations[0]
+		assert isinstance(decl, FunctionDecl)
+		assert decl.body is None
+		assert len(decl.params) == 0
+
+	def test_prototype_then_definition(self) -> None:
+		src = "int foo(int x); int foo(int x) { return x; }"
+		prog = parse(src)
+		assert len(prog.declarations) == 2
+		assert prog.declarations[0].body is None
+		assert prog.declarations[1].body is not None
+
+	def test_prototype_multiple_params(self) -> None:
+		prog = parse("int add(int a, int b);")
+		decl = prog.declarations[0]
+		assert isinstance(decl, FunctionDecl)
+		assert decl.body is None
+		assert len(decl.params) == 2
+		assert decl.params[0].name == "a"
+		assert decl.params[1].name == "b"

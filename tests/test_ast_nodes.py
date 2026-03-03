@@ -6,6 +6,7 @@ from compiler.ast_nodes import (
 	ASTVisitor,
 	Assignment,
 	BinaryOp,
+	CaseClause,
 	CharLiteral,
 	CompoundStmt,
 	ExprStmt,
@@ -16,10 +17,14 @@ from compiler.ast_nodes import (
 	IfStmt,
 	IntLiteral,
 	ParamDecl,
+	PostfixExpr,
 	Program,
 	ReturnStmt,
+	SizeofExpr,
 	SourceLocation,
 	StringLiteral,
+	SwitchStmt,
+	TernaryExpr,
 	TypeSpec,
 	UnaryOp,
 	VarDecl,
@@ -432,6 +437,61 @@ class TestVisitorPattern:
 			FunctionCall(),
 			ArraySubscript(),
 			TypeSpec(),
+			SwitchStmt(),
+			CaseClause(),
+			TernaryExpr(),
+			SizeofExpr(),
+			PostfixExpr(),
 		]
 		for node in nodes:
 			assert node.accept(visitor) is None
+
+
+class TestSwitchStmt:
+	def test_construction(self) -> None:
+		case1 = CaseClause(value=IntLiteral(value=1), statements=[ReturnStmt(expression=IntLiteral(value=10))])
+		default = CaseClause(value=None, statements=[ReturnStmt(expression=IntLiteral(value=0))])
+		node = SwitchStmt(expression=Identifier(name="x"), cases=[case1, default])
+		assert len(node.cases) == 2
+		assert node.cases[0].value is not None
+		assert node.cases[1].value is None
+
+	def test_case_clause(self) -> None:
+		case = CaseClause(value=IntLiteral(value=42), statements=[])
+		assert isinstance(case.value, IntLiteral)
+		assert case.statements == []
+
+
+class TestTernaryExpr:
+	def test_construction(self) -> None:
+		node = TernaryExpr(
+			condition=Identifier(name="x"),
+			true_expr=IntLiteral(value=1),
+			false_expr=IntLiteral(value=0),
+		)
+		assert isinstance(node.condition, Identifier)
+		assert isinstance(node.true_expr, IntLiteral)
+		assert isinstance(node.false_expr, IntLiteral)
+
+
+class TestSizeofExpr:
+	def test_sizeof_type(self) -> None:
+		node = SizeofExpr(type_operand=TypeSpec(base_type="int"))
+		assert node.type_operand is not None
+		assert node.operand is None
+
+	def test_sizeof_expr(self) -> None:
+		node = SizeofExpr(operand=Identifier(name="x"))
+		assert node.operand is not None
+		assert node.type_operand is None
+
+
+class TestPostfixExpr:
+	def test_increment(self) -> None:
+		node = PostfixExpr(operand=Identifier(name="i"), op="++")
+		assert node.op == "++"
+		assert isinstance(node.operand, Identifier)
+
+	def test_decrement(self) -> None:
+		node = PostfixExpr(operand=Identifier(name="i"), op="--")
+		assert node.op == "--"

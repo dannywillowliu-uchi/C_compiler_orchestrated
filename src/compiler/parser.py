@@ -12,6 +12,7 @@ from compiler.ast_nodes import (
 	ASTNode,
 	BinaryOp,
 	BreakStmt,
+	CaseClause,
 	CharLiteral,
 	CompoundAssignment,
 	CompoundStmt,
@@ -26,12 +27,16 @@ from compiler.ast_nodes import (
 	IntLiteral,
 	MemberAccess,
 	ParamDecl,
+	PostfixExpr,
 	Program,
 	ReturnStmt,
+	SizeofExpr,
 	SourceLocation,
 	StringLiteral,
 	StructDecl,
 	StructMember,
+	SwitchStmt,
+	TernaryExpr,
 	TypeSpec,
 	UnaryOp,
 	VarDecl,
@@ -232,10 +237,18 @@ class Parser:
 	# -- Function declaration ------------------------------------------------
 
 	def _parse_function_decl(self, return_type: TypeSpec, name_tok: Token) -> FunctionDecl:
-		"""Parse function parameters and body after seeing 'type name'."""
+		"""Parse function parameters and body (or prototype with ';') after seeing 'type name'."""
 		self._expect(TokenType.LPAREN)
 		params = self._parse_param_list()
 		self._expect(TokenType.RPAREN, "Expected ')' after parameter list")
+		if self._match(TokenType.SEMICOLON):
+			return FunctionDecl(
+				return_type=return_type,
+				name=name_tok.value,
+				params=params,
+				body=None,
+				loc=self._loc(name_tok),
+			)
 		body = self._parse_compound_stmt()
 		return FunctionDecl(
 			return_type=return_type,
@@ -281,6 +294,8 @@ class Parser:
 			return self._parse_for_stmt()
 		if self._check(TokenType.DO):
 			return self._parse_do_while_stmt()
+		if self._check(TokenType.SWITCH):
+			return self._parse_switch_stmt()
 		if self._check(TokenType.BREAK):
 			return self._parse_break_stmt()
 		if self._check(TokenType.CONTINUE):
@@ -394,6 +409,45 @@ class Parser:
 		self._expect(TokenType.SEMICOLON, "Expected ';' after 'continue'")
 		return ContinueStmt(loc=self._loc(tok))
 
+	def _parse_switch_stmt(self) -> SwitchStmt:
+		"""Parse 'switch (expr) { case ...: stmts... default: stmts... }'."""
+		tok = self._advance()  # consume 'switch'
+		self._expect(TokenType.LPAREN, "Expected '(' after 'switch'")
+		expression = self._parse_expression()
+		self._expect(TokenType.RPAREN, "Expected ')' after switch expression")
+		self._expect(TokenType.LBRACE, "Expected '{' after switch expression")
+		cases: list[CaseClause] = []
+		while not self._check(TokenType.RBRACE) and not self._at_end():
+			if self._check(TokenType.CASE):
+				case_tok = self._advance()  # consume 'case'
+				value = self._parse_expression()
+				self._expect(TokenType.COLON, "Expected ':' after case expression")
+				stmts: list[ASTNode] = []
+				while (
+					not self._check(TokenType.CASE)
+					and not self._check(TokenType.DEFAULT)
+					and not self._check(TokenType.RBRACE)
+					and not self._at_end()
+				):
+					stmts.append(self._parse_statement())
+				cases.append(CaseClause(value=value, statements=stmts, loc=self._loc(case_tok)))
+			elif self._check(TokenType.DEFAULT):
+				default_tok = self._advance()  # consume 'default'
+				self._expect(TokenType.COLON, "Expected ':' after 'default'")
+				stmts = []
+				while (
+					not self._check(TokenType.CASE)
+					and not self._check(TokenType.DEFAULT)
+					and not self._check(TokenType.RBRACE)
+					and not self._at_end()
+				):
+					stmts.append(self._parse_statement())
+				cases.append(CaseClause(value=None, statements=stmts, loc=self._loc(default_tok)))
+			else:
+				raise self._error("Expected 'case' or 'default' in switch body")
+		self._expect(TokenType.RBRACE, "Expected '}' after switch body")
+		return SwitchStmt(expression=expression, cases=cases, loc=self._loc(tok))
+
 	def _parse_var_decl_stmt(self) -> VarDecl:
 		"""Parse a local variable declaration: type name [= expr]; or type name[size][...];"""
 		type_spec = self._parse_type_spec()
@@ -432,7 +486,7 @@ class Parser:
 
 	def _parse_assignment(self) -> ASTNode:
 		"""Parse assignment or compound assignment (right-associative)."""
-		left = self._parse_binop(1)
+		left = self._parse_ternary()
 		if self._match(TokenType.ASSIGN):
 			value = self._parse_assignment()
 			return Assignment(target=left, value=value, loc=left.loc)
@@ -443,6 +497,18 @@ class Parser:
 				target=left, op=_COMPOUND_ASSIGN[op_tok.type], value=value, loc=left.loc
 			)
 		return left
+
+	def _parse_ternary(self) -> ASTNode:
+		"""Parse ternary conditional: expr ? expr : expr (right-associative)."""
+		expr = self._parse_binop(1)
+		if self._match(TokenType.QUESTION):
+			true_expr = self._parse_expression()
+			self._expect(TokenType.COLON, "Expected ':' in ternary expression")
+			false_expr = self._parse_ternary()
+			return TernaryExpr(
+				condition=expr, true_expr=true_expr, false_expr=false_expr, loc=expr.loc
+			)
+		return expr
 
 	def _parse_binop(self, min_prec: int) -> ASTNode:
 		"""Precedence climbing for binary operators."""
@@ -464,8 +530,17 @@ class Parser:
 		return left
 
 	def _parse_unary(self) -> ASTNode:
-		"""Parse unary prefix operators: - ! ~ * & ++ --."""
+		"""Parse unary prefix operators: - ! ~ * & ++ -- sizeof."""
 		tok = self._current()
+		if tok.type == TokenType.SIZEOF:
+			self._advance()
+			if self._check(TokenType.LPAREN) and self._peek(1).type in _TYPE_KEYWORDS:
+				self._advance()  # consume '('
+				type_spec = self._parse_type_spec()
+				self._expect(TokenType.RPAREN, "Expected ')' after sizeof type")
+				return SizeofExpr(type_operand=type_spec, loc=self._loc(tok))
+			operand = self._parse_unary()
+			return SizeofExpr(operand=operand, loc=self._loc(tok))
 		if tok.type == TokenType.INCREMENT:
 			self._advance()
 			operand = self._parse_unary()
@@ -521,6 +596,10 @@ class Parser:
 			elif self._match(TokenType.ARROW):
 				member_tok = self._expect(TokenType.IDENTIFIER, "Expected member name after '->'")
 				node = MemberAccess(object=node, member=member_tok.value, is_arrow=True, loc=node.loc)
+			elif self._match(TokenType.INCREMENT):
+				node = PostfixExpr(operand=node, op="++", loc=node.loc)
+			elif self._match(TokenType.DECREMENT):
+				node = PostfixExpr(operand=node, op="--", loc=node.loc)
 			else:
 				break
 

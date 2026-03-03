@@ -11,6 +11,7 @@ from compiler.ast_nodes import (
 	Assignment,
 	BinaryOp,
 	BreakStmt,
+	CaseClause,
 	CharLiteral,
 	CompoundAssignment,
 	CompoundStmt,
@@ -23,10 +24,15 @@ from compiler.ast_nodes import (
 	Identifier,
 	IfStmt,
 	IntLiteral,
+	MemberAccess,
 	ParamDecl,
+	PostfixExpr,
 	Program,
 	ReturnStmt,
+	SizeofExpr,
 	StringLiteral,
+	SwitchStmt,
+	TernaryExpr,
 	TypeSpec,
 	UnaryOp,
 	VarDecl,
@@ -57,6 +63,7 @@ class Symbol:
 	param_types: list[TypeSpec] = field(default_factory=list)
 	is_array: bool = False
 	array_sizes: list[int] = field(default_factory=list)
+	is_prototype: bool = False
 
 
 class SymbolTable:
@@ -157,6 +164,7 @@ class SemanticAnalyzer(ASTVisitor):
 		self.errors: list[SemanticError] = []
 		self._current_function: FunctionDecl | None = None
 		self._loop_depth: int = 0
+		self._switch_depth: int = 0
 
 	def analyze(self, node: ASTNode) -> list[SemanticError]:
 		self.visit(node)
@@ -197,9 +205,29 @@ class SemanticAnalyzer(ASTVisitor):
 
 	def visit_function_decl(self, node: FunctionDecl) -> TypeSpec:
 		param_types = [p.type_spec for p in node.params]
-		self._define_symbol(
-			node.name, node.return_type, node, is_function=True, param_types=param_types
-		)
+		existing = self.symbols.lookup_current_scope(node.name)
+		if existing is not None and existing.is_function and existing.is_prototype and node.body is not None:
+			existing.is_prototype = False
+		elif node.body is None:
+			sym = Symbol(
+				name=node.name,
+				type_spec=node.return_type,
+				scope_depth=self.symbols.depth,
+				is_function=True,
+				param_types=param_types,
+				is_prototype=True,
+			)
+			if existing is not None:
+				self._error(f"redefinition of '{node.name}' in the same scope", node)
+				return node.return_type
+			self.symbols.define(sym)
+			return node.return_type
+		else:
+			self._define_symbol(
+				node.name, node.return_type, node, is_function=True, param_types=param_types
+			)
+		if node.body is None:
+			return node.return_type
 		prev_func = self._current_function
 		self._current_function = node
 		self.symbols.push_scope()
@@ -296,8 +324,8 @@ class SemanticAnalyzer(ASTVisitor):
 		self.visit(node.condition)
 
 	def visit_break_stmt(self, node: BreakStmt) -> None:
-		if self._loop_depth == 0:
-			self._error("break statement not within a loop", node)
+		if self._loop_depth == 0 and self._switch_depth == 0:
+			self._error("break statement not within a loop or switch", node)
 
 	def visit_continue_stmt(self, node: ContinueStmt) -> None:
 		if self._loop_depth == 0:
@@ -460,6 +488,71 @@ class SemanticAnalyzer(ASTVisitor):
 				pointer_count=base_type.pointer_count - 1,
 			)
 		return TypeSpec(base_type=base_type.base_type)
+
+	def visit_switch_stmt(self, node: SwitchStmt) -> None:
+		self.visit(node.expression)
+		self._switch_depth += 1
+		seen_values: set[int | str] = set()
+		has_default = False
+		for case in node.cases:
+			if case.value is None:
+				if has_default:
+					self._error("duplicate default label in switch", case)
+				has_default = True
+			else:
+				if not isinstance(case.value, (IntLiteral, CharLiteral)):
+					self._error("case expression must be a constant integer", case)
+				else:
+					val: int | str = case.value.value
+					if val in seen_values:
+						self._error(f"duplicate case value {val!r}", case)
+					seen_values.add(val)
+			for stmt in case.statements:
+				self.visit(stmt)
+		self._switch_depth -= 1
+
+	def visit_case_clause(self, node: CaseClause) -> None:
+		if node.value is not None:
+			self.visit(node.value)
+		for stmt in node.statements:
+			self.visit(stmt)
+
+	def visit_ternary_expr(self, node: TernaryExpr) -> TypeSpec | None:
+		cond_type = self.visit(node.condition)
+		true_type = self.visit(node.true_expr)
+		false_type = self.visit(node.false_expr)
+		if cond_type is not None and not (_is_numeric(cond_type) or _is_pointer(cond_type)):
+			self._error("ternary condition must be a scalar type", node)
+		if true_type is not None and false_type is not None:
+			if not _types_compatible(true_type, false_type):
+				self._error(
+					f"incompatible types in ternary branches: "
+					f"'{true_type.base_type}' and '{false_type.base_type}'",
+					node,
+				)
+		return true_type
+
+	def visit_sizeof_expr(self, node: SizeofExpr) -> TypeSpec:
+		if node.operand is not None:
+			self.visit(node.operand)
+		return TypeSpec(base_type="int")
+
+	def visit_postfix_expr(self, node: PostfixExpr) -> TypeSpec | None:
+		operand_type = self.visit(node.operand)
+		if not self._is_lvalue(node.operand):
+			self._error("operand of postfix operator must be an lvalue", node)
+		return operand_type
+
+	def _is_lvalue(self, node: ASTNode) -> bool:
+		if isinstance(node, Identifier):
+			return True
+		if isinstance(node, ArraySubscript):
+			return True
+		if isinstance(node, MemberAccess):
+			return True
+		if isinstance(node, UnaryOp) and node.op == "*":
+			return True
+		return False
 
 	def visit_type_spec(self, node: TypeSpec) -> TypeSpec:
 		return node
