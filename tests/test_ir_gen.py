@@ -5,6 +5,7 @@ from compiler.ast_nodes import (
 	Assignment,
 	BinaryOp,
 	BreakStmt,
+	CaseClause,
 	CompoundAssignment,
 	CompoundStmt,
 	ContinueStmt,
@@ -16,9 +17,16 @@ from compiler.ast_nodes import (
 	Identifier,
 	IfStmt,
 	IntLiteral,
+	MemberAccess,
 	ParamDecl,
+	PostfixExpr,
 	Program,
 	ReturnStmt,
+	SizeofExpr,
+	StructDecl,
+	StructMember,
+	SwitchStmt,
+	TernaryExpr,
 	TypeSpec,
 	UnaryOp,
 	VarDecl,
@@ -1208,6 +1216,833 @@ class TestPrefixIncDec:
 		assert len(unary_dec) == 0
 		binops = [i for i in body if isinstance(i, IRBinOp)]
 		assert any(b.op == "-" and b.right == IRConst(1) for b in binops)
+
+
+# ------------------------------------------------------------------
+# Switch statement
+# ------------------------------------------------------------------
+
+
+class TestSwitchStmt:
+	def test_switch_single_case(self) -> None:
+		"""switch (x) { case 1: return 10; }"""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_int_type(),
+				name="f",
+				params=[ParamDecl(type_spec=_int_type(), name="x")],
+				body=CompoundStmt(
+					statements=[
+						SwitchStmt(
+							expression=Identifier(name="x"),
+							cases=[
+								CaseClause(
+									value=IntLiteral(value=1),
+									statements=[ReturnStmt(expression=IntLiteral(value=10))],
+								),
+							],
+						)
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		body = ir.functions[0].body
+		# Should have a comparison == and a cond jump
+		cond_jumps = [i for i in body if isinstance(i, IRCondJump)]
+		assert len(cond_jumps) >= 1
+		# Should have a case body with return 10
+		returns = [i for i in body if isinstance(i, IRReturn)]
+		assert len(returns) == 1
+		assert returns[0].value == IRConst(10)
+
+	def test_switch_with_default(self) -> None:
+		"""switch (x) { case 1: return 10; default: return 0; }"""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_int_type(),
+				name="f",
+				params=[ParamDecl(type_spec=_int_type(), name="x")],
+				body=CompoundStmt(
+					statements=[
+						SwitchStmt(
+							expression=Identifier(name="x"),
+							cases=[
+								CaseClause(
+									value=IntLiteral(value=1),
+									statements=[ReturnStmt(expression=IntLiteral(value=10))],
+								),
+								CaseClause(
+									value=None,
+									statements=[ReturnStmt(expression=IntLiteral(value=0))],
+								),
+							],
+						)
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		body = ir.functions[0].body
+		returns = [i for i in body if isinstance(i, IRReturn)]
+		assert len(returns) == 2
+		# Default case should produce a jump (not fall off to end)
+		jumps = [i for i in body if isinstance(i, IRJump)]
+		# There should be a jump to default label (not end_label)
+		labels = [i for i in body if isinstance(i, IRLabelInstr)]
+		label_names = [lbl.name for lbl in labels]
+		# The jump after case checks should target a case label, not switch_end
+		assert any(j.target in label_names for j in jumps)
+
+	def test_switch_with_break(self) -> None:
+		"""switch (x) { case 1: return 1; break; case 2: return 2; break; }"""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_int_type(),
+				name="f",
+				params=[ParamDecl(type_spec=_int_type(), name="x")],
+				body=CompoundStmt(
+					statements=[
+						SwitchStmt(
+							expression=Identifier(name="x"),
+							cases=[
+								CaseClause(
+									value=IntLiteral(value=1),
+									statements=[
+										ReturnStmt(expression=IntLiteral(value=1)),
+										BreakStmt(),
+									],
+								),
+								CaseClause(
+									value=IntLiteral(value=2),
+									statements=[
+										ReturnStmt(expression=IntLiteral(value=2)),
+										BreakStmt(),
+									],
+								),
+							],
+						)
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		body = ir.functions[0].body
+		# Break should generate jumps to the switch end label
+		end_label = [i for i in body if isinstance(i, IRLabelInstr)][-1]
+		break_jumps = [i for i in body if isinstance(i, IRJump) and i.target == end_label.name]
+		assert len(break_jumps) >= 2
+
+	def test_switch_fallthrough(self) -> None:
+		"""switch (x) { case 1: case 2: return 99; } -- fallthrough from case 1 to case 2."""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_int_type(),
+				name="f",
+				params=[ParamDecl(type_spec=_int_type(), name="x")],
+				body=CompoundStmt(
+					statements=[
+						SwitchStmt(
+							expression=Identifier(name="x"),
+							cases=[
+								CaseClause(
+									value=IntLiteral(value=1),
+									statements=[],  # fallthrough
+								),
+								CaseClause(
+									value=IntLiteral(value=2),
+									statements=[ReturnStmt(expression=IntLiteral(value=99))],
+								),
+							],
+						)
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		body = ir.functions[0].body
+		# Both case body labels should exist (not counting case_check labels)
+		case_body_labels = [
+			i for i in body
+			if isinstance(i, IRLabelInstr) and i.name.startswith("case") and "check" not in i.name
+		]
+		assert len(case_body_labels) == 2
+		returns = [i for i in body if isinstance(i, IRReturn)]
+		assert len(returns) == 1
+		assert returns[0].value == IRConst(99)
+
+	def test_switch_multiple_cases(self) -> None:
+		"""switch (x) { case 0: return 0; case 1: return 1; case 2: return 2; }"""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_int_type(),
+				name="f",
+				params=[ParamDecl(type_spec=_int_type(), name="x")],
+				body=CompoundStmt(
+					statements=[
+						SwitchStmt(
+							expression=Identifier(name="x"),
+							cases=[
+								CaseClause(
+									value=IntLiteral(value=0),
+									statements=[ReturnStmt(expression=IntLiteral(value=0))],
+								),
+								CaseClause(
+									value=IntLiteral(value=1),
+									statements=[ReturnStmt(expression=IntLiteral(value=1))],
+								),
+								CaseClause(
+									value=IntLiteral(value=2),
+									statements=[ReturnStmt(expression=IntLiteral(value=2))],
+								),
+							],
+						)
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		body = ir.functions[0].body
+		# Should have 3 comparisons
+		eq_binops = [i for i in body if isinstance(i, IRBinOp) and i.op == "=="]
+		assert len(eq_binops) == 3
+		cond_jumps = [i for i in body if isinstance(i, IRCondJump)]
+		assert len(cond_jumps) == 3
+
+
+# ------------------------------------------------------------------
+# Ternary expression
+# ------------------------------------------------------------------
+
+
+class TestTernaryExpr:
+	def test_simple_ternary(self) -> None:
+		"""return x ? 1 : 0;"""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_int_type(),
+				name="f",
+				params=[ParamDecl(type_spec=_int_type(), name="x")],
+				body=CompoundStmt(
+					statements=[
+						ReturnStmt(
+							expression=TernaryExpr(
+								condition=Identifier(name="x"),
+								true_expr=IntLiteral(value=1),
+								false_expr=IntLiteral(value=0),
+							)
+						)
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		body = ir.functions[0].body
+		cond_jumps = [i for i in body if isinstance(i, IRCondJump)]
+		assert len(cond_jumps) == 1
+		# Should have two copy instructions to the result temp
+		copies = [i for i in body if isinstance(i, IRCopy)]
+		# At least 3 copies: one for identifier load, two for true/false branch results
+		assert len(copies) >= 3
+		# Should have a return
+		returns = [i for i in body if isinstance(i, IRReturn)]
+		assert len(returns) == 1
+
+	def test_ternary_with_expressions(self) -> None:
+		"""return x ? x + 1 : x - 1;"""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_int_type(),
+				name="f",
+				params=[ParamDecl(type_spec=_int_type(), name="x")],
+				body=CompoundStmt(
+					statements=[
+						ReturnStmt(
+							expression=TernaryExpr(
+								condition=Identifier(name="x"),
+								true_expr=BinaryOp(
+									left=Identifier(name="x"), op="+", right=IntLiteral(value=1)
+								),
+								false_expr=BinaryOp(
+									left=Identifier(name="x"), op="-", right=IntLiteral(value=1)
+								),
+							)
+						)
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		body = ir.functions[0].body
+		binops = [i for i in body if isinstance(i, IRBinOp)]
+		ops = [b.op for b in binops]
+		assert "+" in ops
+		assert "-" in ops
+
+	def test_nested_ternary(self) -> None:
+		"""return x ? (y ? 1 : 2) : 3;"""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_int_type(),
+				name="f",
+				params=[
+					ParamDecl(type_spec=_int_type(), name="x"),
+					ParamDecl(type_spec=_int_type(), name="y"),
+				],
+				body=CompoundStmt(
+					statements=[
+						ReturnStmt(
+							expression=TernaryExpr(
+								condition=Identifier(name="x"),
+								true_expr=TernaryExpr(
+									condition=Identifier(name="y"),
+									true_expr=IntLiteral(value=1),
+									false_expr=IntLiteral(value=2),
+								),
+								false_expr=IntLiteral(value=3),
+							)
+						)
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		body = ir.functions[0].body
+		# Two ternary expansions = 2 cond jumps
+		cond_jumps = [i for i in body if isinstance(i, IRCondJump)]
+		assert len(cond_jumps) == 2
+
+	def test_ternary_result_used_in_return(self) -> None:
+		"""Ternary result temp is what gets returned."""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_int_type(),
+				name="f",
+				body=CompoundStmt(
+					statements=[
+						ReturnStmt(
+							expression=TernaryExpr(
+								condition=IntLiteral(value=1),
+								true_expr=IntLiteral(value=42),
+								false_expr=IntLiteral(value=0),
+							)
+						)
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		body = ir.functions[0].body
+		ret = [i for i in body if isinstance(i, IRReturn)][0]
+		# The return value should be the result temp of the ternary
+		assert ret.value is not None
+
+
+# ------------------------------------------------------------------
+# Sizeof expression
+# ------------------------------------------------------------------
+
+
+class TestSizeofExpr:
+	def test_sizeof_int(self) -> None:
+		"""sizeof(int) == 4"""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_int_type(),
+				name="f",
+				body=CompoundStmt(
+					statements=[
+						ReturnStmt(
+							expression=SizeofExpr(type_operand=TypeSpec(base_type="int"))
+						)
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		body = ir.functions[0].body
+		ret = body[0]
+		assert isinstance(ret, IRReturn)
+		assert ret.value == IRConst(4)
+
+	def test_sizeof_char(self) -> None:
+		"""sizeof(char) == 1"""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_int_type(),
+				name="f",
+				body=CompoundStmt(
+					statements=[
+						ReturnStmt(
+							expression=SizeofExpr(type_operand=TypeSpec(base_type="char"))
+						)
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		body = ir.functions[0].body
+		ret = body[0]
+		assert isinstance(ret, IRReturn)
+		assert ret.value == IRConst(1)
+
+	def test_sizeof_pointer(self) -> None:
+		"""sizeof(int*) == 8"""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_int_type(),
+				name="f",
+				body=CompoundStmt(
+					statements=[
+						ReturnStmt(
+							expression=SizeofExpr(
+								type_operand=TypeSpec(base_type="int", pointer_count=1)
+							)
+						)
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		body = ir.functions[0].body
+		ret = body[0]
+		assert isinstance(ret, IRReturn)
+		assert ret.value == IRConst(8)
+
+	def test_sizeof_char_pointer(self) -> None:
+		"""sizeof(char*) == 8"""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_int_type(),
+				name="f",
+				body=CompoundStmt(
+					statements=[
+						ReturnStmt(
+							expression=SizeofExpr(
+								type_operand=TypeSpec(base_type="char", pointer_count=1)
+							)
+						)
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		body = ir.functions[0].body
+		ret = body[0]
+		assert isinstance(ret, IRReturn)
+		assert ret.value == IRConst(8)
+
+	def test_sizeof_expr_defaults_to_int_size(self) -> None:
+		"""sizeof(expr) defaults to 4."""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_int_type(),
+				name="f",
+				body=CompoundStmt(
+					statements=[
+						ReturnStmt(
+							expression=SizeofExpr(operand=IntLiteral(value=42))
+						)
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		body = ir.functions[0].body
+		ret = body[0]
+		assert isinstance(ret, IRReturn)
+		assert ret.value == IRConst(4)
+
+	def test_sizeof_struct(self) -> None:
+		"""sizeof(struct point) with two int members == 8."""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_int_type(),
+				name="f",
+				body=CompoundStmt(
+					statements=[
+						StructDecl(
+							name="point",
+							members=[
+								StructMember(type_spec=TypeSpec(base_type="int"), name="x"),
+								StructMember(type_spec=TypeSpec(base_type="int"), name="y"),
+							],
+						),
+						ReturnStmt(
+							expression=SizeofExpr(
+								type_operand=TypeSpec(base_type="point")
+							)
+						),
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		body = ir.functions[0].body
+		ret = body[0]
+		assert isinstance(ret, IRReturn)
+		assert ret.value == IRConst(8)
+
+	def test_sizeof_in_expression(self) -> None:
+		"""return sizeof(int) + 1; -- sizeof folds to constant."""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_int_type(),
+				name="f",
+				body=CompoundStmt(
+					statements=[
+						ReturnStmt(
+							expression=BinaryOp(
+								left=SizeofExpr(type_operand=TypeSpec(base_type="int")),
+								op="+",
+								right=IntLiteral(value=1),
+							)
+						)
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		body = ir.functions[0].body
+		binop = body[0]
+		assert isinstance(binop, IRBinOp)
+		assert binop.left == IRConst(4)
+		assert binop.right == IRConst(1)
+
+
+# ------------------------------------------------------------------
+# Postfix increment/decrement
+# ------------------------------------------------------------------
+
+
+class TestPostfixExpr:
+	def test_postfix_increment_returns_old_value(self) -> None:
+		"""int x = 5; return x++; -- returns old value (5)."""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_int_type(),
+				name="f",
+				body=CompoundStmt(
+					statements=[
+						VarDecl(type_spec=_int_type(), name="x", initializer=IntLiteral(value=5)),
+						ReturnStmt(
+							expression=PostfixExpr(
+								operand=Identifier(name="x"), op="++"
+							)
+						),
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		body = ir.functions[0].body
+		# Should NOT have IRUnaryOp with '++'
+		unary_inc = [i for i in body if isinstance(i, IRUnaryOp) and i.op == "++"]
+		assert len(unary_inc) == 0
+		# Should have a binop with '+'
+		binops = [i for i in body if isinstance(i, IRBinOp)]
+		assert any(b.op == "+" and b.right == IRConst(1) for b in binops)
+		# The return should use the OLD value (copy before increment)
+		ret = [i for i in body if isinstance(i, IRReturn)][0]
+		# The returned temp should be the copy made before the binop
+		copies = [i for i in body if isinstance(i, IRCopy)]
+		old_copy = copies[1]  # first copy is init, second is old value save
+		assert ret.value == old_copy.dest
+
+	def test_postfix_decrement(self) -> None:
+		"""int x = 10; x--;"""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_void_type(),
+				name="f",
+				body=CompoundStmt(
+					statements=[
+						VarDecl(type_spec=_int_type(), name="x", initializer=IntLiteral(value=10)),
+						ExprStmt(
+							expression=PostfixExpr(
+								operand=Identifier(name="x"), op="--"
+							)
+						),
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		body = ir.functions[0].body
+		binops = [i for i in body if isinstance(i, IRBinOp)]
+		assert any(b.op == "-" and b.right == IRConst(1) for b in binops)
+
+	def test_postfix_in_expression(self) -> None:
+		"""int x = 5; return x++ + 1; -- x++ returns 5, so result is 6."""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_int_type(),
+				name="f",
+				body=CompoundStmt(
+					statements=[
+						VarDecl(type_spec=_int_type(), name="x", initializer=IntLiteral(value=5)),
+						ReturnStmt(
+							expression=BinaryOp(
+								left=PostfixExpr(operand=Identifier(name="x"), op="++"),
+								op="+",
+								right=IntLiteral(value=1),
+							)
+						),
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		body = ir.functions[0].body
+		# The outer binop uses the OLD value of x
+		ret = [i for i in body if isinstance(i, IRReturn)][0]
+		assert ret.value is not None
+		# There should be an addition with literal 1 from the outer expression
+		outer_adds = [
+			i for i in body
+			if isinstance(i, IRBinOp) and i.op == "+" and i.right == IRConst(1)
+		]
+		# Two additions: one from postfix (x + 1), one from outer (old + 1)
+		assert len(outer_adds) == 2
+
+	def test_postfix_on_array_subscript(self) -> None:
+		"""int arr[10]; arr[0]++;"""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_void_type(),
+				name="f",
+				body=CompoundStmt(
+					statements=[
+						VarDecl(
+							type_spec=_int_type(),
+							name="arr",
+							array_sizes=[IntLiteral(value=10)],
+						),
+						ExprStmt(
+							expression=PostfixExpr(
+								operand=ArraySubscript(
+									array=Identifier(name="arr"),
+									index=IntLiteral(value=0),
+								),
+								op="++",
+							)
+						),
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		body = ir.functions[0].body
+		loads = [i for i in body if isinstance(i, IRLoad)]
+		stores = [i for i in body if isinstance(i, IRStore)]
+		assert len(loads) == 1
+		assert len(stores) == 1
+		binops = [i for i in body if isinstance(i, IRBinOp) and i.op == "+" and i.right == IRConst(1)]
+		assert len(binops) >= 1
+
+	def test_postfix_in_for_update(self) -> None:
+		"""for (int i = 0; i < 10; i++) {} -- postfix in update position."""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_void_type(),
+				name="f",
+				body=CompoundStmt(
+					statements=[
+						VarDecl(type_spec=_int_type(), name="i", initializer=IntLiteral(value=0)),
+						ForStmt(
+							condition=BinaryOp(
+								left=Identifier(name="i"),
+								op="<",
+								right=IntLiteral(value=10),
+							),
+							update=ExprStmt(
+								expression=PostfixExpr(
+									operand=Identifier(name="i"), op="++"
+								)
+							),
+							body=CompoundStmt(statements=[]),
+						),
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		body = ir.functions[0].body
+		# The for loop should contain the postfix increment in the update section
+		binops = [i for i in body if isinstance(i, IRBinOp)]
+		assert any(b.op == "+" and b.right == IRConst(1) for b in binops)
+
+
+# ------------------------------------------------------------------
+# Struct declarations and member access
+# ------------------------------------------------------------------
+
+
+class TestStructDecl:
+	def test_struct_decl_no_op(self) -> None:
+		"""struct point { int x; int y; }; -- no IR instructions emitted."""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_void_type(),
+				name="f",
+				body=CompoundStmt(
+					statements=[
+						StructDecl(
+							name="point",
+							members=[
+								StructMember(type_spec=TypeSpec(base_type="int"), name="x"),
+								StructMember(type_spec=TypeSpec(base_type="int"), name="y"),
+							],
+						)
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		body = ir.functions[0].body
+		assert len(body) == 0
+
+
+class TestMemberAccess:
+	def test_dot_access_first_field(self) -> None:
+		"""struct point p; p.x -- offset 0."""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_int_type(),
+				name="f",
+				body=CompoundStmt(
+					statements=[
+						StructDecl(
+							name="point",
+							members=[
+								StructMember(type_spec=TypeSpec(base_type="int"), name="x"),
+								StructMember(type_spec=TypeSpec(base_type="int"), name="y"),
+							],
+						),
+						VarDecl(type_spec=TypeSpec(base_type="point"), name="p"),
+						ReturnStmt(
+							expression=MemberAccess(
+								object=Identifier(name="p"),
+								member="x",
+								is_arrow=False,
+							)
+						),
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		body = ir.functions[0].body
+		# Should have: alloc(p), copy(p), binop(p+0), load, return
+		binops = [i for i in body if isinstance(i, IRBinOp)]
+		assert any(b.op == "+" and b.right == IRConst(0) for b in binops)
+		loads = [i for i in body if isinstance(i, IRLoad)]
+		assert len(loads) == 1
+
+	def test_dot_access_second_field(self) -> None:
+		"""struct point p; p.y -- offset 4 (after int x)."""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_int_type(),
+				name="f",
+				body=CompoundStmt(
+					statements=[
+						StructDecl(
+							name="point",
+							members=[
+								StructMember(type_spec=TypeSpec(base_type="int"), name="x"),
+								StructMember(type_spec=TypeSpec(base_type="int"), name="y"),
+							],
+						),
+						VarDecl(type_spec=TypeSpec(base_type="point"), name="p"),
+						ReturnStmt(
+							expression=MemberAccess(
+								object=Identifier(name="p"),
+								member="y",
+								is_arrow=False,
+							)
+						),
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		body = ir.functions[0].body
+		binops = [i for i in body if isinstance(i, IRBinOp)]
+		assert any(b.op == "+" and b.right == IRConst(4) for b in binops)
+
+	def test_arrow_access(self) -> None:
+		"""struct point *p; p->x -- arrow access."""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_int_type(),
+				name="f",
+				params=[
+					ParamDecl(type_spec=TypeSpec(base_type="point", pointer_count=1), name="p")
+				],
+				body=CompoundStmt(
+					statements=[
+						StructDecl(
+							name="point",
+							members=[
+								StructMember(type_spec=TypeSpec(base_type="int"), name="x"),
+								StructMember(type_spec=TypeSpec(base_type="int"), name="y"),
+							],
+						),
+						ReturnStmt(
+							expression=MemberAccess(
+								object=Identifier(name="p"),
+								member="x",
+								is_arrow=True,
+							)
+						),
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		body = ir.functions[0].body
+		# Should have binop for offset computation and a load
+		loads = [i for i in body if isinstance(i, IRLoad)]
+		assert len(loads) == 1
+
+	def test_member_access_with_char_field(self) -> None:
+		"""struct s { int a; char b; }; s.b -- offset 4."""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_int_type(),
+				name="f",
+				body=CompoundStmt(
+					statements=[
+						StructDecl(
+							name="s",
+							members=[
+								StructMember(type_spec=TypeSpec(base_type="int"), name="a"),
+								StructMember(type_spec=TypeSpec(base_type="char"), name="b"),
+							],
+						),
+						VarDecl(type_spec=TypeSpec(base_type="s"), name="val"),
+						ReturnStmt(
+							expression=MemberAccess(
+								object=Identifier(name="val"),
+								member="b",
+								is_arrow=False,
+							)
+						),
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		body = ir.functions[0].body
+		binops = [i for i in body if isinstance(i, IRBinOp)]
+		# Offset for b: int(4) + 0 for b = 4
+		assert any(b.op == "+" and b.right == IRConst(4) for b in binops)
+
+
+# ------------------------------------------------------------------
+# Integration: full function lowering
+# ------------------------------------------------------------------
 
 
 class TestIntegration:
