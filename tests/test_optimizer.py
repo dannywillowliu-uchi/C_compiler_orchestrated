@@ -1,4 +1,5 @@
-"""Tests for IR optimizer: constant folding, dead code elimination, copy propagation."""
+"""Tests for IR optimizer: constant folding, dead code elimination, copy propagation,
+strength reduction, jump threading, and unreachable code elimination."""
 
 from compiler.ir import (
 	IRBinOp,
@@ -7,6 +8,7 @@ from compiler.ir import (
 	IRConst,
 	IRCopy,
 	IRFunction,
+	IRJump,
 	IRLabelInstr,
 	IRLoad,
 	IRParam,
@@ -47,6 +49,21 @@ def _dce_only(body):
 def _propagate_only(body):
 	"""Run only copy propagation (single pass)."""
 	return IROptimizer()._copy_propagation(body)
+
+
+def _strength_only(body):
+	"""Run only strength reduction (single pass)."""
+	return IROptimizer()._strength_reduction(body)
+
+
+def _thread_only(body):
+	"""Run only jump threading."""
+	return IROptimizer()._jump_threading(body)
+
+
+def _unreachable_only(body):
+	"""Run only unreachable code elimination."""
+	return IROptimizer()._unreachable_elimination(body)
 
 
 # ── Constant Folding (isolated) ──
@@ -466,3 +483,358 @@ class TestCombinedOptimizations:
 		assert len(binops) == 1
 		assert binops[0].left == IRConst(7)
 		assert binops[0].right == IRTemp("x")
+
+
+# ── Strength Reduction (isolated) ──
+
+
+class TestStrengthReduction:
+	def test_multiply_by_power_of_2(self):
+		"""a * 4 -> a << 2"""
+		body = [IRBinOp(dest=IRTemp("t0"), left=IRTemp("a"), op="*", right=IRConst(4))]
+		result = _strength_only(body)
+		assert isinstance(result[0], IRBinOp)
+		assert result[0].op == "<<"
+		assert result[0].left == IRTemp("a")
+		assert result[0].right == IRConst(2)
+
+	def test_multiply_by_power_of_2_left(self):
+		"""4 * a -> a << 2 (commutative)"""
+		body = [IRBinOp(dest=IRTemp("t0"), left=IRConst(4), op="*", right=IRTemp("a"))]
+		result = _strength_only(body)
+		assert isinstance(result[0], IRBinOp)
+		assert result[0].op == "<<"
+		assert result[0].left == IRTemp("a")
+		assert result[0].right == IRConst(2)
+
+	def test_multiply_by_8(self):
+		"""a * 8 -> a << 3"""
+		body = [IRBinOp(dest=IRTemp("t0"), left=IRTemp("a"), op="*", right=IRConst(8))]
+		result = _strength_only(body)
+		assert result[0].op == "<<"
+		assert result[0].right == IRConst(3)
+
+	def test_multiply_by_2(self):
+		"""a * 2 -> a << 1"""
+		body = [IRBinOp(dest=IRTemp("t0"), left=IRTemp("a"), op="*", right=IRConst(2))]
+		result = _strength_only(body)
+		assert result[0].op == "<<"
+		assert result[0].right == IRConst(1)
+
+	def test_multiply_by_0(self):
+		"""a * 0 -> 0"""
+		body = [IRBinOp(dest=IRTemp("t0"), left=IRTemp("a"), op="*", right=IRConst(0))]
+		result = _strength_only(body)
+		assert isinstance(result[0], IRCopy)
+		assert result[0].source == IRConst(0)
+
+	def test_multiply_by_0_left(self):
+		"""0 * a -> 0"""
+		body = [IRBinOp(dest=IRTemp("t0"), left=IRConst(0), op="*", right=IRTemp("a"))]
+		result = _strength_only(body)
+		assert isinstance(result[0], IRCopy)
+		assert result[0].source == IRConst(0)
+
+	def test_multiply_by_1(self):
+		"""a * 1 -> copy a"""
+		body = [IRBinOp(dest=IRTemp("t0"), left=IRTemp("a"), op="*", right=IRConst(1))]
+		result = _strength_only(body)
+		assert isinstance(result[0], IRCopy)
+		assert result[0].source == IRTemp("a")
+
+	def test_multiply_by_1_left(self):
+		"""1 * a -> copy a"""
+		body = [IRBinOp(dest=IRTemp("t0"), left=IRConst(1), op="*", right=IRTemp("a"))]
+		result = _strength_only(body)
+		assert isinstance(result[0], IRCopy)
+		assert result[0].source == IRTemp("a")
+
+	def test_add_0_right(self):
+		"""a + 0 -> copy a"""
+		body = [IRBinOp(dest=IRTemp("t0"), left=IRTemp("a"), op="+", right=IRConst(0))]
+		result = _strength_only(body)
+		assert isinstance(result[0], IRCopy)
+		assert result[0].source == IRTemp("a")
+
+	def test_add_0_left(self):
+		"""0 + a -> copy a"""
+		body = [IRBinOp(dest=IRTemp("t0"), left=IRConst(0), op="+", right=IRTemp("a"))]
+		result = _strength_only(body)
+		assert isinstance(result[0], IRCopy)
+		assert result[0].source == IRTemp("a")
+
+	def test_subtract_0(self):
+		"""a - 0 -> copy a"""
+		body = [IRBinOp(dest=IRTemp("t0"), left=IRTemp("a"), op="-", right=IRConst(0))]
+		result = _strength_only(body)
+		assert isinstance(result[0], IRCopy)
+		assert result[0].source == IRTemp("a")
+
+	def test_non_power_of_2_preserved(self):
+		"""a * 3 is not a power of 2 and should stay as multiply."""
+		body = [IRBinOp(dest=IRTemp("t0"), left=IRTemp("a"), op="*", right=IRConst(3))]
+		result = _strength_only(body)
+		assert isinstance(result[0], IRBinOp)
+		assert result[0].op == "*"
+
+	def test_non_matching_op_preserved(self):
+		"""Division is not reduced."""
+		body = [IRBinOp(dest=IRTemp("t0"), left=IRTemp("a"), op="/", right=IRConst(2))]
+		result = _strength_only(body)
+		assert isinstance(result[0], IRBinOp)
+		assert result[0].op == "/"
+
+	def test_subtract_nonzero_preserved(self):
+		"""a - 5 stays as subtract."""
+		body = [IRBinOp(dest=IRTemp("t0"), left=IRTemp("a"), op="-", right=IRConst(5))]
+		result = _strength_only(body)
+		assert isinstance(result[0], IRBinOp)
+		assert result[0].op == "-"
+
+
+# ── Jump Threading (isolated) ──
+
+
+class TestJumpThreading:
+	def test_simple_thread(self):
+		"""jump L1; L1: jump L2 -> jump L2"""
+		body = [
+			IRJump(target="L1"),
+			IRLabelInstr(name="L1"),
+			IRJump(target="L2"),
+			IRLabelInstr(name="L2"),
+			IRReturn(value=None),
+		]
+		result = _thread_only(body)
+		assert result[0] == IRJump(target="L2")
+
+	def test_transitive_thread(self):
+		"""jump L1; L1: jump L2; L2: jump L3 -> jump L3"""
+		body = [
+			IRJump(target="L1"),
+			IRLabelInstr(name="L1"),
+			IRJump(target="L2"),
+			IRLabelInstr(name="L2"),
+			IRJump(target="L3"),
+			IRLabelInstr(name="L3"),
+			IRReturn(value=None),
+		]
+		result = _thread_only(body)
+		assert result[0] == IRJump(target="L3")
+
+	def test_condjump_true_threaded(self):
+		"""if cond goto L1 else L2; L1: jump L3 -> if cond goto L3 else L2"""
+		body = [
+			IRCondJump(condition=IRTemp("c"), true_label="L1", false_label="L2"),
+			IRLabelInstr(name="L1"),
+			IRJump(target="L3"),
+			IRLabelInstr(name="L2"),
+			IRReturn(value=IRConst(0)),
+			IRLabelInstr(name="L3"),
+			IRReturn(value=IRConst(1)),
+		]
+		result = _thread_only(body)
+		cj = result[0]
+		assert isinstance(cj, IRCondJump)
+		assert cj.true_label == "L3"
+		assert cj.false_label == "L2"
+
+	def test_condjump_false_threaded(self):
+		"""Thread the false label of a conditional jump."""
+		body = [
+			IRCondJump(condition=IRTemp("c"), true_label="L1", false_label="L2"),
+			IRLabelInstr(name="L1"),
+			IRReturn(value=IRConst(1)),
+			IRLabelInstr(name="L2"),
+			IRJump(target="L3"),
+			IRLabelInstr(name="L3"),
+			IRReturn(value=IRConst(0)),
+		]
+		result = _thread_only(body)
+		cj = result[0]
+		assert isinstance(cj, IRCondJump)
+		assert cj.true_label == "L1"
+		assert cj.false_label == "L3"
+
+	def test_condjump_both_threaded(self):
+		"""Thread both labels of a conditional jump."""
+		body = [
+			IRCondJump(condition=IRTemp("c"), true_label="L1", false_label="L2"),
+			IRLabelInstr(name="L1"),
+			IRJump(target="L3"),
+			IRLabelInstr(name="L2"),
+			IRJump(target="L4"),
+			IRLabelInstr(name="L3"),
+			IRReturn(value=IRConst(1)),
+			IRLabelInstr(name="L4"),
+			IRReturn(value=IRConst(0)),
+		]
+		result = _thread_only(body)
+		cj = result[0]
+		assert isinstance(cj, IRCondJump)
+		assert cj.true_label == "L3"
+		assert cj.false_label == "L4"
+
+	def test_no_thread_when_label_has_code(self):
+		"""No threading when label is followed by a non-jump instruction."""
+		body = [
+			IRJump(target="L1"),
+			IRLabelInstr(name="L1"),
+			IRCopy(dest=IRTemp("t0"), source=IRConst(1)),
+			IRReturn(value=IRTemp("t0")),
+		]
+		result = _thread_only(body)
+		assert result[0] == IRJump(target="L1")
+
+	def test_self_loop_not_infinite(self):
+		"""L1: jump L1 should not cause infinite loop in threading."""
+		body = [
+			IRJump(target="L1"),
+			IRLabelInstr(name="L1"),
+			IRJump(target="L1"),
+		]
+		result = _thread_only(body)
+		assert result[0] == IRJump(target="L1")
+
+
+# ── Unreachable Code Elimination (isolated) ──
+
+
+class TestUnreachableElimination:
+	def test_remove_after_jump(self):
+		"""Code between jump and next label is removed."""
+		body = [
+			IRJump(target="L1"),
+			IRCopy(dest=IRTemp("t0"), source=IRConst(42)),
+			IRBinOp(dest=IRTemp("t1"), left=IRTemp("t0"), op="+", right=IRConst(1)),
+			IRLabelInstr(name="L1"),
+			IRReturn(value=None),
+		]
+		result = _unreachable_only(body)
+		assert len(result) == 3
+		assert isinstance(result[0], IRJump)
+		assert isinstance(result[1], IRLabelInstr)
+		assert isinstance(result[2], IRReturn)
+
+	def test_remove_after_return(self):
+		"""Code between return and next label is removed."""
+		body = [
+			IRReturn(value=IRConst(0)),
+			IRCopy(dest=IRTemp("t0"), source=IRConst(1)),
+			IRLabelInstr(name="L1"),
+			IRReturn(value=IRConst(1)),
+		]
+		result = _unreachable_only(body)
+		assert len(result) == 3
+		assert isinstance(result[0], IRReturn)
+		assert isinstance(result[1], IRLabelInstr)
+		assert isinstance(result[2], IRReturn)
+
+	def test_no_removal_when_reachable(self):
+		"""Code that is reachable is preserved."""
+		body = [
+			IRCopy(dest=IRTemp("t0"), source=IRConst(1)),
+			IRReturn(value=IRTemp("t0")),
+		]
+		result = _unreachable_only(body)
+		assert len(result) == 2
+
+	def test_multiple_unreachable_regions(self):
+		"""Multiple separate unreachable regions are all removed."""
+		body = [
+			IRJump(target="L1"),
+			IRCopy(dest=IRTemp("dead1"), source=IRConst(1)),
+			IRLabelInstr(name="L1"),
+			IRJump(target="L2"),
+			IRCopy(dest=IRTemp("dead2"), source=IRConst(2)),
+			IRLabelInstr(name="L2"),
+			IRReturn(value=None),
+		]
+		result = _unreachable_only(body)
+		assert len(result) == 5
+		copies = [i for i in result if isinstance(i, IRCopy)]
+		assert len(copies) == 0
+
+	def test_label_restores_reachability(self):
+		"""A label after unreachable code restores reachability."""
+		body = [
+			IRJump(target="L1"),
+			IRCopy(dest=IRTemp("dead"), source=IRConst(1)),
+			IRLabelInstr(name="L1"),
+			IRCopy(dest=IRTemp("live"), source=IRConst(2)),
+			IRReturn(value=IRTemp("live")),
+		]
+		result = _unreachable_only(body)
+		copies = [i for i in result if isinstance(i, IRCopy)]
+		assert len(copies) == 1
+		assert copies[0].dest == IRTemp("live")
+
+
+# ── New Combined Pass Tests ──
+
+
+class TestCombinedNewPasses:
+	def test_strength_reduction_with_constant_fold(self):
+		"""Strength reduction + folding: const * power_of_2 folds directly."""
+		body = [
+			IRBinOp(dest=IRTemp("t0"), left=IRConst(5), op="*", right=IRConst(4)),
+			IRReturn(value=IRTemp("t0")),
+		]
+		result = _opt(body)
+		assert len(result) == 1
+		assert result[0].value == IRConst(20)
+
+	def test_jump_threading_with_unreachable(self):
+		"""Jump threading + unreachable elimination working together."""
+		body = [
+			IRCondJump(condition=IRTemp("c"), true_label="L1", false_label="L2"),
+			IRLabelInstr(name="L1"),
+			IRJump(target="L3"),
+			IRLabelInstr(name="L2"),
+			IRReturn(value=IRConst(0)),
+			IRLabelInstr(name="L3"),
+			IRReturn(value=IRConst(1)),
+		]
+		result = _opt(body)
+		# L1 jumps to L3, so condjump should be threaded to L3
+		cjs = [i for i in result if isinstance(i, IRCondJump)]
+		assert cjs[0].true_label == "L3"
+
+	def test_strength_plus_propagation(self):
+		"""Strength reduction creates copies that propagation can resolve."""
+		body = [
+			IRBinOp(dest=IRTemp("t0"), left=IRTemp("x"), op="*", right=IRConst(1)),
+			IRReturn(value=IRTemp("t0")),
+		]
+		result = _opt(body)
+		# * 1 -> copy x, propagated into return, DCE removes copy
+		assert len(result) == 1
+		assert isinstance(result[0], IRReturn)
+		assert result[0].value == IRTemp("x")
+
+	def test_all_passes_combined(self):
+		"""All optimization passes work together on a complex function."""
+		body = [
+			# Constant fold: 2 + 3 = 5
+			IRBinOp(dest=IRTemp("t0"), left=IRConst(2), op="+", right=IRConst(3)),
+			# Strength reduction: t0 * 4 -> t0 << 2, then folded to 5 << 2 = 20
+			IRBinOp(dest=IRTemp("t1"), left=IRTemp("t0"), op="*", right=IRConst(4)),
+			# Add 0 -> copy
+			IRBinOp(dest=IRTemp("t2"), left=IRTemp("t1"), op="+", right=IRConst(0)),
+			IRReturn(value=IRTemp("t2")),
+		]
+		result = _opt(body)
+		assert len(result) == 1
+		assert result[0].value == IRConst(20)
+
+	def test_unreachable_after_early_return(self):
+		"""Unreachable elimination removes dead code after early return."""
+		body = [
+			IRReturn(value=IRConst(42)),
+			IRBinOp(dest=IRTemp("t0"), left=IRConst(1), op="+", right=IRConst(2)),
+			IRCopy(dest=IRTemp("t1"), source=IRTemp("t0")),
+		]
+		result = _opt(body)
+		assert len(result) == 1
+		assert isinstance(result[0], IRReturn)
+		assert result[0].value == IRConst(42)

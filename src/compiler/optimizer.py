@@ -1,4 +1,5 @@
-"""IR optimization passes: constant folding, dead code elimination, copy propagation."""
+"""IR optimization passes: constant folding, dead code elimination, copy propagation,
+strength reduction, jump threading, and unreachable code elimination."""
 
 from __future__ import annotations
 
@@ -11,6 +12,7 @@ from compiler.ir import (
 	IRCopy,
 	IRFunction,
 	IRInstruction,
+	IRJump,
 	IRLoad,
 	IRParam,
 	IRProgram,
@@ -36,18 +38,18 @@ class IROptimizer:
 		changed = True
 		while changed:
 			changed = False
-			new_body = self._constant_fold(body)
-			if new_body != body:
-				changed = True
-				body = new_body
-			new_body = self._copy_propagation(body)
-			if new_body != body:
-				changed = True
-				body = new_body
-			new_body = self._dead_code_elimination(body)
-			if new_body != body:
-				changed = True
-				body = new_body
+			for pass_fn in (
+				self._constant_fold,
+				self._strength_reduction,
+				self._copy_propagation,
+				self._dead_code_elimination,
+				self._jump_threading,
+				self._unreachable_elimination,
+			):
+				new_body = pass_fn(body)
+				if new_body != body:
+					changed = True
+					body = new_body
 		return IRFunction(name=func.name, params=func.params, body=body, return_type=func.return_type)
 
 	# -- Constant Folding --
@@ -204,6 +206,110 @@ class IROptimizer:
 			instr for instr in body
 			if not (isinstance(instr, (IRBinOp, IRUnaryOp, IRCopy)) and instr.dest.name not in used)
 		]
+
+	# -- Strength Reduction --
+
+	def _strength_reduction(self, body: list[IRInstruction]) -> list[IRInstruction]:
+		"""Replace expensive operations with cheaper equivalents."""
+		result: list[IRInstruction] = []
+		for instr in body:
+			if isinstance(instr, IRBinOp):
+				reduced = self._reduce_binop(instr)
+				if reduced is not None:
+					result.append(reduced)
+					continue
+			result.append(instr)
+		return result
+
+	def _reduce_binop(self, instr: IRBinOp) -> IRInstruction | None:
+		"""Try to reduce a binary operation to a cheaper form."""
+		left, op, right = instr.left, instr.op, instr.right
+		if op == "*":
+			# * 0 -> 0
+			if isinstance(right, IRConst) and right.value == 0:
+				return IRCopy(dest=instr.dest, source=IRConst(0))
+			if isinstance(left, IRConst) and left.value == 0:
+				return IRCopy(dest=instr.dest, source=IRConst(0))
+			# * 1 -> copy
+			if isinstance(right, IRConst) and right.value == 1:
+				return IRCopy(dest=instr.dest, source=left)
+			if isinstance(left, IRConst) and left.value == 1:
+				return IRCopy(dest=instr.dest, source=right)
+			# * power_of_2 -> left shift
+			if isinstance(right, IRConst) and right.value > 1 and (right.value & (right.value - 1)) == 0:
+				return IRBinOp(dest=instr.dest, left=left, op="<<", right=IRConst(right.value.bit_length() - 1))
+			if isinstance(left, IRConst) and left.value > 1 and (left.value & (left.value - 1)) == 0:
+				return IRBinOp(dest=instr.dest, left=right, op="<<", right=IRConst(left.value.bit_length() - 1))
+		elif op == "+":
+			if isinstance(right, IRConst) and right.value == 0:
+				return IRCopy(dest=instr.dest, source=left)
+			if isinstance(left, IRConst) and left.value == 0:
+				return IRCopy(dest=instr.dest, source=right)
+		elif op == "-":
+			if isinstance(right, IRConst) and right.value == 0:
+				return IRCopy(dest=instr.dest, source=left)
+		return None
+
+	# -- Jump Threading --
+
+	def _jump_threading(self, body: list[IRInstruction]) -> list[IRInstruction]:
+		"""Redirect jumps through labels that immediately jump elsewhere."""
+		changed = True
+		while changed:
+			changed = False
+			# Build map: label -> final target (for labels followed by unconditional jump)
+			label_target: dict[str, str] = {}
+			for i, instr in enumerate(body):
+				if isinstance(instr, IRLabelInstr) and i + 1 < len(body) and isinstance(body[i + 1], IRJump):
+					label_target[instr.name] = body[i + 1].target
+			if not label_target:
+				break
+
+			def resolve(label: str) -> str:
+				visited: set[str] = set()
+				while label in label_target and label not in visited:
+					visited.add(label)
+					label = label_target[label]
+				return label
+
+			new_body: list[IRInstruction] = []
+			for instr in body:
+				if isinstance(instr, IRJump):
+					new_target = resolve(instr.target)
+					if new_target != instr.target:
+						new_body.append(IRJump(target=new_target))
+						changed = True
+						continue
+				elif isinstance(instr, IRCondJump):
+					new_true = resolve(instr.true_label)
+					new_false = resolve(instr.false_label)
+					if new_true != instr.true_label or new_false != instr.false_label:
+						new_body.append(IRCondJump(
+							condition=instr.condition, true_label=new_true, false_label=new_false,
+						))
+						changed = True
+						continue
+				new_body.append(instr)
+			body = new_body
+		return body
+
+	# -- Unreachable Code Elimination --
+
+	def _unreachable_elimination(self, body: list[IRInstruction]) -> list[IRInstruction]:
+		"""Remove instructions between an unconditional jump/return and the next label."""
+		result: list[IRInstruction] = []
+		unreachable = False
+		for instr in body:
+			if isinstance(instr, IRLabelInstr):
+				unreachable = False
+				result.append(instr)
+			elif unreachable:
+				continue
+			else:
+				result.append(instr)
+				if isinstance(instr, (IRJump, IRReturn)):
+					unreachable = True
+		return result
 
 	# -- Helpers --
 
