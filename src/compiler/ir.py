@@ -54,6 +54,15 @@ class IRLabel(IRValue):
 		return self.name
 
 
+@dataclass(frozen=True)
+class IRGlobalRef(IRValue):
+	"""A reference to a global symbol (variable or string label). Loads the address."""
+	name: str
+
+	def __str__(self) -> str:
+		return f"&{self.name}"
+
+
 # ---------------------------------------------------------------------------
 # Instructions
 # ---------------------------------------------------------------------------
@@ -197,6 +206,28 @@ class IRAlloc(IRInstruction):
 # ---------------------------------------------------------------------------
 
 @dataclass
+class IRGlobalVar:
+	"""A global variable declaration."""
+	name: str
+	ir_type: IRType
+	initializer: Optional[int] = None  # None => uninitialized (.bss)
+
+	def __str__(self) -> str:
+		init = f" = {self.initializer}" if self.initializer is not None else ""
+		return f"global {self.ir_type.name} {self.name}{init}"
+
+
+@dataclass
+class IRStringData:
+	"""A string literal stored in read-only data."""
+	label: str
+	value: str
+
+	def __str__(self) -> str:
+		return f'{self.label}: .string "{self.value}"'
+
+
+@dataclass
 class IRFunction:
 	"""A function in the IR: name, parameters, body, and return type."""
 	name: str
@@ -215,8 +246,17 @@ class IRFunction:
 
 @dataclass
 class IRProgram:
-	"""Top-level container: a list of IR functions."""
+	"""Top-level container: functions, globals, and string data."""
 	functions: list[IRFunction] = field(default_factory=list)
+	globals: list[IRGlobalVar] = field(default_factory=list)
+	string_data: list[IRStringData] = field(default_factory=list)
 
 	def __str__(self) -> str:
-		return "\n\n".join(str(f) for f in self.functions)
+		parts: list[str] = []
+		for g in self.globals:
+			parts.append(str(g))
+		for s in self.string_data:
+			parts.append(str(s))
+		for f in self.functions:
+			parts.append(str(f))
+		return "\n\n".join(parts)

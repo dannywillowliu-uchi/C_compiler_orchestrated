@@ -9,6 +9,8 @@ from compiler.ir import (
 	IRConst,
 	IRCopy,
 	IRFunction,
+	IRGlobalRef,
+	IRGlobalVar,
 	IRInstruction,
 	IRJump,
 	IRLabelInstr,
@@ -16,6 +18,7 @@ from compiler.ir import (
 	IRParam,
 	IRProgram,
 	IRReturn,
+	IRStringData,
 	IRStore,
 	IRTemp,
 	IRType,
@@ -821,3 +824,248 @@ class TestErrors:
 			assert False, "Should have raised ValueError"
 		except ValueError as e:
 			assert "Unknown unary operator" in str(e)
+
+
+# ---------------------------------------------------------------------------
+# Global variables (.data / .bss)
+# ---------------------------------------------------------------------------
+
+
+class TestGlobalVars:
+	def test_initialized_global_data_section(self) -> None:
+		"""Initialized global should appear in .data with .quad directive."""
+		prog = IRProgram(
+			functions=[IRFunction("main", [], [IRReturn(IRConst(0))], IRType.INT)],
+			globals=[IRGlobalVar("counter", IRType.INT, initializer=42)],
+		)
+		asm = CodeGenerator().generate(prog)
+		assert ".section .data" in asm
+		assert ".globl counter" in asm
+		assert "counter:" in asm
+		assert ".quad 42" in asm
+
+	def test_uninitialized_global_bss_section(self) -> None:
+		"""Uninitialized global should appear in .bss with .zero directive."""
+		prog = IRProgram(
+			functions=[IRFunction("main", [], [IRReturn(IRConst(0))], IRType.INT)],
+			globals=[IRGlobalVar("buffer", IRType.INT)],
+		)
+		asm = CodeGenerator().generate(prog)
+		assert ".section .bss" in asm
+		assert ".globl buffer" in asm
+		assert "buffer:" in asm
+		assert ".zero 8" in asm
+
+	def test_char_global_uses_byte(self) -> None:
+		"""Char-typed initialized global emits .byte instead of .quad."""
+		prog = IRProgram(
+			functions=[IRFunction("main", [], [IRReturn(IRConst(0))], IRType.INT)],
+			globals=[IRGlobalVar("ch", IRType.CHAR, initializer=65)],
+		)
+		asm = CodeGenerator().generate(prog)
+		assert ".byte 65" in asm
+
+	def test_char_global_bss_uses_zero_1(self) -> None:
+		"""Uninitialized char global reserves 1 byte in .bss."""
+		prog = IRProgram(
+			functions=[IRFunction("main", [], [IRReturn(IRConst(0))], IRType.INT)],
+			globals=[IRGlobalVar("ch", IRType.CHAR)],
+		)
+		asm = CodeGenerator().generate(prog)
+		assert ".zero 1" in asm
+
+	def test_mixed_initialized_and_uninitialized(self) -> None:
+		"""Program with both initialized and uninitialized globals."""
+		prog = IRProgram(
+			functions=[IRFunction("main", [], [IRReturn(IRConst(0))], IRType.INT)],
+			globals=[
+				IRGlobalVar("x", IRType.INT, initializer=10),
+				IRGlobalVar("y", IRType.INT),
+			],
+		)
+		asm = CodeGenerator().generate(prog)
+		assert ".section .data" in asm
+		assert ".section .bss" in asm
+		assert ".quad 10" in asm
+		assert ".zero 8" in asm
+
+	def test_no_data_section_when_no_initialized_globals(self) -> None:
+		"""No .data section emitted when there are no initialized globals."""
+		prog = IRProgram(
+			functions=[IRFunction("main", [], [IRReturn(IRConst(0))], IRType.INT)],
+			globals=[IRGlobalVar("x", IRType.INT)],
+		)
+		asm = CodeGenerator().generate(prog)
+		assert ".section .data" not in asm
+		assert ".section .bss" in asm
+
+	def test_no_bss_section_when_no_uninitialized_globals(self) -> None:
+		"""No .bss section emitted when all globals are initialized."""
+		prog = IRProgram(
+			functions=[IRFunction("main", [], [IRReturn(IRConst(0))], IRType.INT)],
+			globals=[IRGlobalVar("x", IRType.INT, initializer=5)],
+		)
+		asm = CodeGenerator().generate(prog)
+		assert ".section .data" in asm
+		assert ".section .bss" not in asm
+
+
+# ---------------------------------------------------------------------------
+# String literals (.rodata)
+# ---------------------------------------------------------------------------
+
+
+class TestStringData:
+	def test_string_literal_rodata(self) -> None:
+		"""String data should appear in .rodata with .asciz directive."""
+		prog = IRProgram(
+			functions=[IRFunction("main", [], [IRReturn(IRConst(0))], IRType.INT)],
+			string_data=[IRStringData(".LC0", "hello")],
+		)
+		asm = CodeGenerator().generate(prog)
+		assert ".section .rodata" in asm
+		assert ".LC0:" in asm
+		assert '.asciz "hello"' in asm
+
+	def test_multiple_strings(self) -> None:
+		"""Multiple string literals each get their own label."""
+		prog = IRProgram(
+			functions=[IRFunction("main", [], [IRReturn(IRConst(0))], IRType.INT)],
+			string_data=[
+				IRStringData(".LC0", "hello"),
+				IRStringData(".LC1", "world"),
+			],
+		)
+		asm = CodeGenerator().generate(prog)
+		assert ".LC0:" in asm
+		assert '.asciz "hello"' in asm
+		assert ".LC1:" in asm
+		assert '.asciz "world"' in asm
+
+	def test_no_rodata_section_when_no_strings(self) -> None:
+		"""No .rodata section emitted when there are no string literals."""
+		prog = IRProgram(
+			functions=[IRFunction("main", [], [IRReturn(IRConst(0))], IRType.INT)],
+		)
+		asm = CodeGenerator().generate(prog)
+		assert ".section .rodata" not in asm
+
+
+# ---------------------------------------------------------------------------
+# IRGlobalRef (loading addresses of globals/strings)
+# ---------------------------------------------------------------------------
+
+
+class TestGlobalRef:
+	def test_global_ref_emits_leaq(self) -> None:
+		"""IRGlobalRef should emit leaq for RIP-relative address loading."""
+		body: list[IRInstruction] = [
+			IRCopy(IRTemp("addr"), IRGlobalRef("counter")),
+			IRReturn(IRTemp("addr")),
+		]
+		prog = IRProgram(
+			functions=[IRFunction("main", [], body, IRType.INT)],
+			globals=[IRGlobalVar("counter", IRType.INT, initializer=0)],
+		)
+		asm = CodeGenerator().generate(prog)
+		assert "leaq counter(%rip)" in asm
+
+	def test_load_global_value(self) -> None:
+		"""Load value from a global: get address via IRGlobalRef, then IRLoad."""
+		body: list[IRInstruction] = [
+			IRCopy(IRTemp("addr"), IRGlobalRef("x")),
+			IRLoad(IRTemp("val"), IRTemp("addr")),
+			IRReturn(IRTemp("val")),
+		]
+		prog = IRProgram(
+			functions=[IRFunction("main", [], body, IRType.INT)],
+			globals=[IRGlobalVar("x", IRType.INT, initializer=42)],
+		)
+		asm = CodeGenerator().generate(prog)
+		assert "leaq x(%rip)" in asm
+		assert "movq (%rax), %rax" in asm
+
+	def test_store_to_global(self) -> None:
+		"""Store value to a global: get address via IRGlobalRef, then IRStore."""
+		body: list[IRInstruction] = [
+			IRCopy(IRTemp("addr"), IRGlobalRef("x")),
+			IRStore(IRTemp("addr"), IRConst(99)),
+			IRReturn(),
+		]
+		prog = IRProgram(
+			functions=[IRFunction("main", [], body, IRType.VOID)],
+			globals=[IRGlobalVar("x", IRType.INT, initializer=0)],
+		)
+		asm = CodeGenerator().generate(prog)
+		assert "leaq x(%rip)" in asm
+		assert "movq %rcx, (%rax)" in asm
+
+	def test_string_ref_by_label(self) -> None:
+		"""Reference a string literal label with IRGlobalRef."""
+		body: list[IRInstruction] = [
+			IRCopy(IRTemp("str_ptr"), IRGlobalRef(".LC0")),
+			IRCall(None, "puts", [IRTemp("str_ptr")]),
+			IRReturn(IRConst(0)),
+		]
+		prog = IRProgram(
+			functions=[IRFunction("main", [], body, IRType.INT)],
+			string_data=[IRStringData(".LC0", "hello world")],
+		)
+		asm = CodeGenerator().generate(prog)
+		assert ".section .rodata" in asm
+		assert '.asciz "hello world"' in asm
+		assert "leaq .LC0(%rip)" in asm
+		assert "call puts" in asm
+
+	def test_full_program_globals_and_strings(self) -> None:
+		"""Full program with globals, strings, and functions using them."""
+		body: list[IRInstruction] = [
+			# Load string address and call printf
+			IRCopy(IRTemp("fmt"), IRGlobalRef(".LC0")),
+			# Load global value
+			IRCopy(IRTemp("g_addr"), IRGlobalRef("count")),
+			IRLoad(IRTemp("g_val"), IRTemp("g_addr")),
+			# Call printf(fmt, g_val)
+			IRCall(None, "printf", [IRTemp("fmt"), IRTemp("g_val")]),
+			IRReturn(IRConst(0)),
+		]
+		prog = IRProgram(
+			functions=[IRFunction("main", [], body, IRType.INT)],
+			globals=[
+				IRGlobalVar("count", IRType.INT, initializer=5),
+				IRGlobalVar("result", IRType.INT),
+			],
+			string_data=[IRStringData(".LC0", "count = %d\\n")],
+		)
+		asm = CodeGenerator().generate(prog)
+		# .data section with initialized global
+		assert ".section .data" in asm
+		assert ".quad 5" in asm
+		# .rodata section with string
+		assert ".section .rodata" in asm
+		assert '.asciz "count = %d\\n"' in asm
+		# .bss section with uninitialized global
+		assert ".section .bss" in asm
+		assert ".zero 8" in asm
+		# .text section with code
+		assert ".section .text" in asm
+		assert "leaq .LC0(%rip)" in asm
+		assert "leaq count(%rip)" in asm
+		assert "call printf" in asm
+
+	def test_section_order(self) -> None:
+		"""Sections should appear in order: .data, .rodata, .bss, .text."""
+		prog = IRProgram(
+			functions=[IRFunction("main", [], [IRReturn(IRConst(0))], IRType.INT)],
+			globals=[
+				IRGlobalVar("x", IRType.INT, initializer=1),
+				IRGlobalVar("y", IRType.INT),
+			],
+			string_data=[IRStringData(".LC0", "test")],
+		)
+		asm = CodeGenerator().generate(prog)
+		data_pos = asm.index(".section .data")
+		rodata_pos = asm.index(".section .rodata")
+		bss_pos = asm.index(".section .bss")
+		text_pos = asm.index(".section .text")
+		assert data_pos < rodata_pos < bss_pos < text_pos

@@ -10,6 +10,7 @@ from compiler.ir import (
 	IRConst,
 	IRCopy,
 	IRFunction,
+	IRGlobalRef,
 	IRJump,
 	IRLabelInstr,
 	IRLoad,
@@ -18,6 +19,7 @@ from compiler.ir import (
 	IRReturn,
 	IRStore,
 	IRTemp,
+	IRType,
 	IRUnaryOp,
 	IRValue,
 )
@@ -41,6 +43,39 @@ class CodeGenerator:
 	def generate(self, program: IRProgram) -> str:
 		"""Generate assembly for an entire IR program."""
 		self._lines = []
+
+		# Emit .data section for initialized globals
+		initialized = [g for g in program.globals if g.initializer is not None]
+		if initialized:
+			self._emit(".section .data")
+			for g in initialized:
+				self._emit(f".globl {g.name}")
+				self._emit(f"{g.name}:")
+				if g.ir_type == IRType.CHAR:
+					self._emit_instr(f".byte {g.initializer}")
+				else:
+					self._emit_instr(f".quad {g.initializer}")
+
+		# Emit .rodata section for string literals
+		if program.string_data:
+			self._emit(".section .rodata")
+			for s in program.string_data:
+				self._emit(f"{s.label}:")
+				self._emit_instr(f'.asciz "{s.value}"')
+
+		# Emit .bss section for uninitialized globals
+		uninitialized = [g for g in program.globals if g.initializer is None]
+		if uninitialized:
+			self._emit(".section .bss")
+			for g in uninitialized:
+				self._emit(f".globl {g.name}")
+				self._emit(f"{g.name}:")
+				if g.ir_type == IRType.CHAR:
+					self._emit_instr(".zero 1")
+				else:
+					self._emit_instr(".zero 8")
+
+		# Emit .text section for functions
 		self._emit(".section .text")
 		for func in program.functions:
 			self._generate_function(func)
@@ -72,6 +107,8 @@ class CodeGenerator:
 		elif isinstance(value, IRTemp):
 			offset = self._get_offset(value.name)
 			self._emit_instr(f"movq {offset}(%rbp), {reg}")
+		elif isinstance(value, IRGlobalRef):
+			self._emit_instr(f"leaq {value.name}(%rip), {reg}")
 		else:
 			raise ValueError(f"Unsupported IRValue type: {type(value).__name__}")
 
