@@ -10,8 +10,12 @@ from compiler.ast_nodes import (
 	ASTVisitor,
 	Assignment,
 	BinaryOp,
+	BreakStmt,
 	CharLiteral,
+	CompoundAssignment,
 	CompoundStmt,
+	ContinueStmt,
+	DoWhileStmt,
 	ExprStmt,
 	ForStmt,
 	FunctionCall,
@@ -152,6 +156,7 @@ class SemanticAnalyzer(ASTVisitor):
 		self.symbols = SymbolTable()
 		self.errors: list[SemanticError] = []
 		self._current_function: FunctionDecl | None = None
+		self._loop_depth: int = 0
 
 	def analyze(self, node: ASTNode) -> list[SemanticError]:
 		self.visit(node)
@@ -267,7 +272,9 @@ class SemanticAnalyzer(ASTVisitor):
 
 	def visit_while_stmt(self, node: WhileStmt) -> None:
 		self.visit(node.condition)
+		self._loop_depth += 1
 		self.visit(node.body)
+		self._loop_depth -= 1
 
 	def visit_for_stmt(self, node: ForStmt) -> None:
 		self.symbols.push_scope()
@@ -277,8 +284,59 @@ class SemanticAnalyzer(ASTVisitor):
 			self.visit(node.condition)
 		if node.update is not None:
 			self.visit(node.update)
+		self._loop_depth += 1
 		self.visit(node.body)
+		self._loop_depth -= 1
 		self.symbols.pop_scope()
+
+	def visit_do_while_stmt(self, node: DoWhileStmt) -> None:
+		self._loop_depth += 1
+		self.visit(node.body)
+		self._loop_depth -= 1
+		self.visit(node.condition)
+
+	def visit_break_stmt(self, node: BreakStmt) -> None:
+		if self._loop_depth == 0:
+			self._error("break statement not within a loop", node)
+
+	def visit_continue_stmt(self, node: ContinueStmt) -> None:
+		if self._loop_depth == 0:
+			self._error("continue statement not within a loop", node)
+
+	def visit_compound_assignment(self, node: CompoundAssignment) -> TypeSpec | None:
+		target_type = self.visit(node.target)
+		value_type = self.visit(node.value)
+		if target_type is None or value_type is None:
+			return None
+		# Arithmetic compound ops require numeric types
+		if node.op in _ARITHMETIC_OPS:
+			if not _is_numeric(target_type) and not _is_pointer(target_type):
+				self._error(
+					f"incompatible type for compound assignment operator '{node.op}='",
+					node,
+				)
+				return None
+			if not _is_numeric(value_type):
+				self._error(
+					f"incompatible type for compound assignment operator '{node.op}='",
+					node,
+				)
+				return None
+			# Modulo requires both numeric (no pointers)
+			if node.op == "%" and (not _is_numeric(target_type) or not _is_numeric(value_type)):
+				self._error(
+					f"incompatible types for operator '{node.op}=': "
+					f"'{target_type.base_type}' and '{value_type.base_type}'",
+					node,
+				)
+				return None
+		elif not _types_compatible(target_type, value_type):
+			self._error(
+				f"incompatible types in compound assignment: "
+				f"'{target_type.base_type}' and '{value_type.base_type}'",
+				node,
+			)
+		return target_type
 
 	def visit_expr_stmt(self, node: ExprStmt) -> None:
 		self.visit(node.expression)
