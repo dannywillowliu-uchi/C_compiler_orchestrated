@@ -486,23 +486,27 @@ class Preprocessor:
 			changed = False
 			iteration += 1
 
+			# Process function-like macros first so they capture raw arguments
+			# before object-like macros can expand identifiers inside arguments
 			for name, macro in list(self.macros.items()):
 				if name in expanding:
 					continue
-
 				if macro.params is not None:
-					# Function-like macro: look for NAME(args)
 					new_text = self._expand_function_macro(text, name, macro, filename, line_num, expanding)
 					if new_text != text:
 						text = new_text
 						changed = True
-				else:
-					# Object-like macro: simple substitution with word boundary
+
+			for name, macro in list(self.macros.items()):
+				if name in expanding:
+					continue
+				if macro.params is None:
 					pattern = re.compile(r"\b" + re.escape(name) + r"\b")
 					if pattern.search(text):
 						new_expanding = expanding | {name}
+						body = self._apply_token_pasting(macro.body)
 						expanded_body = self._expand_macros_impl(
-							macro.body, filename, line_num, new_expanding
+							body, filename, line_num, new_expanding
 						)
 						new_text = self._sub_outside_strings(pattern, expanded_body, text)
 						if new_text != text:
@@ -561,6 +565,130 @@ class Preprocessor:
 				result.append(ch)
 				i += 1
 
+		return "".join(result)
+
+	@staticmethod
+	def _stringify(arg: str) -> str:
+		"""Stringify a macro argument (# operator)."""
+		escaped = arg.strip()
+		escaped = escaped.replace("\\", "\\\\")
+		escaped = escaped.replace('"', '\\"')
+		return f'"{escaped}"'
+
+	def _apply_stringification(
+		self, body: str, params: list[str], args: list[str]
+	) -> str:
+		"""Apply # (stringification) operator in macro body."""
+		result: list[str] = []
+		i = 0
+		while i < len(body):
+			ch = body[i]
+			# Skip string literals
+			if ch == '"':
+				j = i + 1
+				while j < len(body):
+					if body[j] == "\\" and j + 1 < len(body):
+						j += 2
+					elif body[j] == '"':
+						j += 1
+						break
+					else:
+						j += 1
+				result.append(body[i:j])
+				i = j
+				continue
+			# Skip char literals
+			if ch == "'":
+				j = i + 1
+				while j < len(body):
+					if body[j] == "\\" and j + 1 < len(body):
+						j += 2
+					elif body[j] == "'":
+						j += 1
+						break
+					else:
+						j += 1
+				result.append(body[i:j])
+				i = j
+				continue
+			if ch == "#":
+				# Check for ## (token pasting - leave it alone)
+				if i + 1 < len(body) and body[i + 1] == "#":
+					result.append("##")
+					i += 2
+					continue
+				# Try stringification: # followed by optional whitespace and param name
+				j = i + 1
+				while j < len(body) and body[j] in " \t":
+					j += 1
+				matched = False
+				for pi, param in enumerate(params):
+					plen = len(param)
+					if body[j : j + plen] == param:
+						end = j + plen
+						if end >= len(body) or not (body[end].isalnum() or body[end] == "_"):
+							arg_val = args[pi] if pi < len(args) else ""
+							result.append(self._stringify(arg_val))
+							i = end
+							matched = True
+							break
+				if not matched:
+					result.append("#")
+					i += 1
+			else:
+				result.append(ch)
+				i += 1
+		return "".join(result)
+
+	@staticmethod
+	def _apply_token_pasting(body: str) -> str:
+		"""Apply ## (token pasting) operator in macro body."""
+		if "##" not in body:
+			return body
+		result: list[str] = []
+		i = 0
+		while i < len(body):
+			ch = body[i]
+			# Skip string literals
+			if ch == '"':
+				j = i + 1
+				while j < len(body):
+					if body[j] == "\\" and j + 1 < len(body):
+						j += 2
+					elif body[j] == '"':
+						j += 1
+						break
+					else:
+						j += 1
+				result.append(body[i:j])
+				i = j
+				continue
+			# Skip char literals
+			if ch == "'":
+				j = i + 1
+				while j < len(body):
+					if body[j] == "\\" and j + 1 < len(body):
+						j += 2
+					elif body[j] == "'":
+						j += 1
+						break
+					else:
+						j += 1
+				result.append(body[i:j])
+				i = j
+				continue
+			# Check for ##
+			if ch == "#" and i + 1 < len(body) and body[i + 1] == "#":
+				# Remove trailing whitespace from result
+				while result and result[-1] in " \t":
+					result.pop()
+				# Skip ## and leading whitespace after it
+				i += 2
+				while i < len(body) and body[i] in " \t":
+					i += 1
+				continue
+			result.append(ch)
+			i += 1
 		return "".join(result)
 
 	def _expand_function_macro(
@@ -629,6 +757,11 @@ class Preprocessor:
 			# Substitute parameters
 			body = macro.body
 
+			# 1. Apply stringification (#param) before normal substitution
+			if macro.params:
+				body = self._apply_stringification(body, macro.params, args)
+
+			# 2. Normal parameter substitution
 			if macro.params:
 				for pi, param in enumerate(macro.params):
 					arg_val = args[pi].strip() if pi < len(args) else ""
@@ -638,7 +771,10 @@ class Preprocessor:
 				va_args = ", ".join(a.strip() for a in args[expected:])
 				body = body.replace("__VA_ARGS__", va_args)
 
-			# Recursively expand the result
+			# 3. Apply token pasting (##) after substitution
+			body = self._apply_token_pasting(body)
+
+			# 4. Recursively expand the result
 			new_expanding = expanding | {name}
 			body = self._expand_macros_impl(body, filename, line_num, new_expanding)
 
