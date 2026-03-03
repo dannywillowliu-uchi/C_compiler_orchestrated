@@ -7,8 +7,12 @@ from compiler.ast_nodes import (
 	ASTVisitor,
 	Assignment,
 	BinaryOp,
+	BreakStmt,
 	CharLiteral,
+	CompoundAssignment,
 	CompoundStmt,
+	ContinueStmt,
+	DoWhileStmt,
 	ExprStmt,
 	ForStmt,
 	FunctionCall,
@@ -82,6 +86,7 @@ class IRGenerator(ASTVisitor):
 		self._local_types: dict[str, TypeSpec] = {}
 		self._local_array: dict[str, list[int]] = {}
 		self._functions: list[IRFunction] = []
+		self._loop_stack: list[tuple[str, str]] = []  # (continue_label, break_label)
 
 	# ------------------------------------------------------------------
 	# Helpers
@@ -304,6 +309,7 @@ class IRGenerator(ASTVisitor):
 		loop_body = self._new_label("while_body")
 		loop_end = self._new_label("while_end")
 
+		self._loop_stack.append((loop_start, loop_end))
 		self._emit(IRLabelInstr(name=loop_start))
 		cond = self.visit(node.condition)
 		self._emit(IRCondJump(condition=cond, true_label=loop_body, false_label=loop_end))
@@ -311,6 +317,7 @@ class IRGenerator(ASTVisitor):
 		self.visit(node.body)
 		self._emit(IRJump(target=loop_start))
 		self._emit(IRLabelInstr(name=loop_end))
+		self._loop_stack.pop()
 
 	def visit_for_stmt(self, node: ForStmt) -> None:
 		if node.init is not None:
@@ -318,18 +325,71 @@ class IRGenerator(ASTVisitor):
 
 		loop_start = self._new_label("for_start")
 		loop_body = self._new_label("for_body")
+		loop_update = self._new_label("for_update")
 		loop_end = self._new_label("for_end")
 
+		self._loop_stack.append((loop_update, loop_end))
 		self._emit(IRLabelInstr(name=loop_start))
 		if node.condition is not None:
 			cond = self.visit(node.condition)
 			self._emit(IRCondJump(condition=cond, true_label=loop_body, false_label=loop_end))
 		self._emit(IRLabelInstr(name=loop_body))
 		self.visit(node.body)
+		self._emit(IRLabelInstr(name=loop_update))
 		if node.update is not None:
 			self.visit(node.update)
 		self._emit(IRJump(target=loop_start))
 		self._emit(IRLabelInstr(name=loop_end))
+		self._loop_stack.pop()
+
+	def visit_do_while_stmt(self, node: DoWhileStmt) -> None:
+		loop_body = self._new_label("do_body")
+		loop_cond = self._new_label("do_cond")
+		loop_end = self._new_label("do_end")
+
+		self._loop_stack.append((loop_cond, loop_end))
+		self._emit(IRLabelInstr(name=loop_body))
+		self.visit(node.body)
+		self._emit(IRLabelInstr(name=loop_cond))
+		cond = self.visit(node.condition)
+		self._emit(IRCondJump(condition=cond, true_label=loop_body, false_label=loop_end))
+		self._emit(IRLabelInstr(name=loop_end))
+		self._loop_stack.pop()
+
+	def visit_break_stmt(self, node: BreakStmt) -> None:
+		_, break_label = self._loop_stack[-1]
+		self._emit(IRJump(target=break_label))
+
+	def visit_continue_stmt(self, node: ContinueStmt) -> None:
+		continue_label, _ = self._loop_stack[-1]
+		self._emit(IRJump(target=continue_label))
+
+	def visit_compound_assignment(self, node: CompoundAssignment) -> None:
+		if isinstance(node.target, ArraySubscript):
+			addr = self._compute_array_addr(node.target)
+			# Load current value
+			current = self._new_temp()
+			self._emit(IRLoad(dest=current, address=addr))
+			# Compute new value
+			rhs = self.visit(node.value)
+			result = self._new_temp()
+			self._emit(IRBinOp(dest=result, left=current, op=node.op, right=rhs))
+			# Store back (recompute address since addr temp may have been clobbered)
+			addr2 = self._compute_array_addr(node.target)
+			self._emit(IRStore(address=addr2, value=result))
+		elif isinstance(node.target, Identifier):
+			target_temp = self._locals.get(node.target.name)
+			if target_temp is None:
+				target_temp = IRTemp(node.target.name)
+			# Read current value
+			current = self._new_temp()
+			self._emit(IRCopy(dest=current, source=target_temp))
+			# Compute new value
+			rhs = self.visit(node.value)
+			result = self._new_temp()
+			self._emit(IRBinOp(dest=result, left=current, op=node.op, right=rhs))
+			# Write back
+			self._emit(IRCopy(dest=target_temp, source=result))
 
 	def visit_type_spec(self, node: TypeSpec) -> None:
 		pass
