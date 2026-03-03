@@ -3,6 +3,7 @@
 import pytest
 
 from compiler.ast_nodes import (
+	ArraySubscript,
 	Assignment,
 	BinaryOp,
 	CharLiteral,
@@ -593,3 +594,101 @@ class TestCompoundStmt:
 		inner = outer.statements[0]
 		assert isinstance(inner, CompoundStmt)
 		assert isinstance(inner.statements[0], ReturnStmt)
+
+
+# -- Array declarations and subscripts ----------------------------------------
+
+
+class TestArrayDecl:
+	def test_simple_array(self) -> None:
+		func = parse_single_func("int f() { int arr[10]; return 0; }")
+		decl = body_stmts(func)[0]
+		assert isinstance(decl, VarDecl)
+		assert decl.name == "arr"
+		assert decl.array_sizes is not None
+		assert len(decl.array_sizes) == 1
+		assert isinstance(decl.array_sizes[0], IntLiteral)
+		assert decl.array_sizes[0].value == 10
+
+	def test_multidim_array(self) -> None:
+		func = parse_single_func("int f() { int matrix[3][4]; return 0; }")
+		decl = body_stmts(func)[0]
+		assert isinstance(decl, VarDecl)
+		assert decl.array_sizes is not None
+		assert len(decl.array_sizes) == 2
+		assert decl.array_sizes[0].value == 3
+		assert decl.array_sizes[1].value == 4
+
+	def test_char_array(self) -> None:
+		func = parse_single_func("int f() { char buf[256]; return 0; }")
+		decl = body_stmts(func)[0]
+		assert isinstance(decl, VarDecl)
+		assert decl.type_spec.base_type == "char"
+		assert decl.array_sizes is not None
+		assert decl.array_sizes[0].value == 256
+
+	def test_global_array(self) -> None:
+		prog = parse("int arr[5];")
+		assert len(prog.declarations) == 1
+		decl = prog.declarations[0]
+		assert isinstance(decl, VarDecl)
+		assert decl.array_sizes is not None
+		assert decl.array_sizes[0].value == 5
+
+	def test_no_array_sizes_for_normal_var(self) -> None:
+		func = parse_single_func("int f() { int x; return 0; }")
+		decl = body_stmts(func)[0]
+		assert isinstance(decl, VarDecl)
+		assert decl.array_sizes is None
+
+
+class TestArraySubscript:
+	def test_simple_subscript(self) -> None:
+		func = parse_single_func("int f() { return arr[0]; }")
+		ret = body_stmts(func)[0]
+		assert isinstance(ret, ReturnStmt)
+		expr = ret.expression
+		assert isinstance(expr, ArraySubscript)
+		assert isinstance(expr.array, Identifier)
+		assert expr.array.name == "arr"
+		assert isinstance(expr.index, IntLiteral)
+		assert expr.index.value == 0
+
+	def test_subscript_with_variable_index(self) -> None:
+		func = parse_single_func("int f() { return arr[i]; }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, ArraySubscript)
+		assert isinstance(expr.index, Identifier)
+		assert expr.index.name == "i"
+
+	def test_subscript_with_expression_index(self) -> None:
+		func = parse_single_func("int f() { return arr[i + 1]; }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, ArraySubscript)
+		assert isinstance(expr.index, BinaryOp)
+		assert expr.index.op == "+"
+
+	def test_nested_subscript(self) -> None:
+		func = parse_single_func("int f() { return matrix[i][j]; }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, ArraySubscript)
+		assert isinstance(expr.array, ArraySubscript)
+		inner = expr.array
+		assert isinstance(inner.array, Identifier)
+		assert inner.array.name == "matrix"
+
+	def test_subscript_assignment(self) -> None:
+		func = parse_single_func("int f() { arr[0] = 42; }")
+		stmt = body_stmts(func)[0]
+		assert isinstance(stmt, ExprStmt)
+		expr = stmt.expression
+		assert isinstance(expr, Assignment)
+		assert isinstance(expr.target, ArraySubscript)
+		assert isinstance(expr.value, IntLiteral)
+
+	def test_subscript_in_expression(self) -> None:
+		func = parse_single_func("int f() { return arr[0] + arr[1]; }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, BinaryOp)
+		assert isinstance(expr.left, ArraySubscript)
+		assert isinstance(expr.right, ArraySubscript)

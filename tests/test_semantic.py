@@ -3,6 +3,7 @@
 import pytest
 
 from compiler.ast_nodes import (
+	ArraySubscript,
 	Assignment,
 	BinaryOp,
 	CharLiteral,
@@ -721,3 +722,150 @@ class TestUnaryOpErrors:
 		])
 		with pytest.raises(SemanticError, match="dereference of non-pointer"):
 			SemanticAnalyzer().analyze(prog)
+
+
+# ---------------------------------------------------------------------------
+# Array support tests
+# ---------------------------------------------------------------------------
+
+
+class TestArrayDeclSemantic:
+	def test_array_decl_valid(self) -> None:
+		"""int arr[10]; -- should pass without errors."""
+		prog = Program(declarations=[
+			FunctionDecl(
+				return_type=void_type(),
+				name="f",
+				params=[],
+				body=CompoundStmt(statements=[
+					VarDecl(
+						type_spec=int_type(),
+						name="arr",
+						array_sizes=[IntLiteral(value=10)],
+					),
+				]),
+			),
+		])
+		SemanticAnalyzer().analyze(prog)
+
+	def test_multidim_array_valid(self) -> None:
+		"""int matrix[3][4]; -- should pass."""
+		prog = Program(declarations=[
+			FunctionDecl(
+				return_type=void_type(),
+				name="f",
+				params=[],
+				body=CompoundStmt(statements=[
+					VarDecl(
+						type_spec=int_type(),
+						name="matrix",
+						array_sizes=[IntLiteral(value=3), IntLiteral(value=4)],
+					),
+				]),
+			),
+		])
+		SemanticAnalyzer().analyze(prog)
+
+
+class TestArraySubscriptSemantic:
+	def test_valid_array_subscript(self) -> None:
+		"""int arr[10]; return arr[0]; -- valid."""
+		prog = Program(declarations=[
+			FunctionDecl(
+				return_type=int_type(),
+				name="f",
+				params=[],
+				body=CompoundStmt(statements=[
+					VarDecl(
+						type_spec=int_type(),
+						name="arr",
+						array_sizes=[IntLiteral(value=10)],
+					),
+					ReturnStmt(expression=ArraySubscript(
+						array=Identifier(name="arr"),
+						index=IntLiteral(value=0),
+					)),
+				]),
+			),
+		])
+		SemanticAnalyzer().analyze(prog)
+
+	def test_pointer_subscript_valid(self) -> None:
+		"""int *p; return p[0]; -- valid (pointer subscript)."""
+		prog = Program(declarations=[
+			FunctionDecl(
+				return_type=int_type(),
+				name="f",
+				params=[],
+				body=CompoundStmt(statements=[
+					VarDecl(type_spec=ptr_type("int"), name="p"),
+					ReturnStmt(expression=ArraySubscript(
+						array=Identifier(name="p"),
+						index=IntLiteral(value=0),
+					)),
+				]),
+			),
+		])
+		SemanticAnalyzer().analyze(prog)
+
+	def test_subscript_non_array_non_pointer(self) -> None:
+		"""int x; x[0]; -- error: subscript on non-array/non-pointer."""
+		prog = Program(declarations=[
+			FunctionDecl(
+				return_type=void_type(),
+				name="f",
+				params=[],
+				body=CompoundStmt(statements=[
+					VarDecl(type_spec=int_type(), name="x"),
+					ExprStmt(expression=ArraySubscript(
+						array=Identifier(name="x"),
+						index=IntLiteral(value=0),
+						loc=loc(3, 3),
+					)),
+				]),
+			),
+		])
+		with pytest.raises(SemanticError, match="subscript requires array or pointer"):
+			SemanticAnalyzer().analyze(prog)
+
+	def test_subscript_non_integer_index(self) -> None:
+		"""int arr[10]; arr["hello"]; -- error: index must be integer."""
+		prog = Program(declarations=[
+			FunctionDecl(
+				return_type=void_type(),
+				name="f",
+				params=[],
+				body=CompoundStmt(statements=[
+					VarDecl(
+						type_spec=int_type(),
+						name="arr",
+						array_sizes=[IntLiteral(value=10)],
+					),
+					ExprStmt(expression=ArraySubscript(
+						array=Identifier(name="arr"),
+						index=StringLiteral(value="hello"),
+						loc=loc(3, 3),
+					)),
+				]),
+			),
+		])
+		with pytest.raises(SemanticError, match="array index must be an integer"):
+			SemanticAnalyzer().analyze(prog)
+
+	def test_array_subscript_result_type(self) -> None:
+		"""int *p; p[0] should have type int (dereference pointer)."""
+		prog = Program(declarations=[
+			FunctionDecl(
+				return_type=int_type(),
+				name="f",
+				params=[],
+				body=CompoundStmt(statements=[
+					VarDecl(type_spec=ptr_type("int"), name="p"),
+					ReturnStmt(expression=ArraySubscript(
+						array=Identifier(name="p"),
+						index=IntLiteral(value=0),
+					)),
+				]),
+			),
+		])
+		SemanticAnalyzer().analyze(prog)

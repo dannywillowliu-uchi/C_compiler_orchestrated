@@ -1,6 +1,7 @@
 """Tests for AST node definitions."""
 
 from compiler.ast_nodes import (
+	ArraySubscript,
 	ASTNode,
 	ASTVisitor,
 	Assignment,
@@ -214,6 +215,55 @@ class TestDeclarations:
 		assert len(func.params) == 2
 
 
+class TestArraySubscript:
+	def test_construction(self) -> None:
+		arr = Identifier(name="arr")
+		idx = IntLiteral(value=0)
+		node = ArraySubscript(array=arr, index=idx)
+		assert isinstance(node.array, Identifier)
+		assert isinstance(node.index, IntLiteral)
+
+	def test_nested_subscript(self) -> None:
+		"""arr[i][j] => ArraySubscript(ArraySubscript(arr, i), j)"""
+		inner = ArraySubscript(
+			array=Identifier(name="arr"),
+			index=Identifier(name="i"),
+		)
+		outer = ArraySubscript(array=inner, index=Identifier(name="j"))
+		assert isinstance(outer.array, ArraySubscript)
+
+	def test_accept(self) -> None:
+		visitor = ASTVisitor()
+		node = ArraySubscript(
+			array=Identifier(name="a"),
+			index=IntLiteral(value=0),
+		)
+		assert node.accept(visitor) is None
+
+
+class TestArrayDecl:
+	def test_var_decl_with_array_sizes(self) -> None:
+		node = VarDecl(
+			type_spec=TypeSpec(base_type="int"),
+			name="arr",
+			array_sizes=[IntLiteral(value=10)],
+		)
+		assert node.array_sizes is not None
+		assert len(node.array_sizes) == 1
+
+	def test_var_decl_multi_dim(self) -> None:
+		node = VarDecl(
+			type_spec=TypeSpec(base_type="int"),
+			name="matrix",
+			array_sizes=[IntLiteral(value=3), IntLiteral(value=4)],
+		)
+		assert len(node.array_sizes) == 2
+
+	def test_var_decl_no_array(self) -> None:
+		node = VarDecl(type_spec=TypeSpec(base_type="int"), name="x")
+		assert node.array_sizes is None
+
+
 class TestProgram:
 	def test_empty_program(self) -> None:
 		prog = Program(declarations=[])
@@ -380,6 +430,7 @@ class TestVisitorPattern:
 			Identifier(),
 			Assignment(),
 			FunctionCall(),
+			ArraySubscript(),
 			TypeSpec(),
 		]
 		for node in nodes:

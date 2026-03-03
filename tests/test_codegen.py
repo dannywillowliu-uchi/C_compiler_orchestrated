@@ -741,6 +741,62 @@ class TestIntegration:
 # ---------------------------------------------------------------------------
 
 
+class TestArrayCodegen:
+	def test_array_element_read(self) -> None:
+		"""Simulate: arr[2] read via pointer arithmetic + load."""
+		body: list[IRInstruction] = [
+			IRAlloc(IRTemp("arr"), 40),  # int arr[10]
+			IRBinOp(IRTemp("offset"), IRConst(2), "*", IRConst(4)),
+			IRBinOp(IRTemp("addr"), IRTemp("arr"), "+", IRTemp("offset")),
+			IRLoad(IRTemp("val"), IRTemp("addr")),
+			IRReturn(IRTemp("val")),
+		]
+		asm = _gen(IRFunction("f", [], body, IRType.INT))
+		# Should contain alloc, mul for offset, add for addr, load, return
+		assert "subq $" in asm  # alloc
+		assert "imulq %rcx, %rax" in asm  # offset = 2 * 4
+		assert "addq %rcx, %rax" in asm  # addr = arr + offset
+		assert "movq (%rax), %rax" in asm  # load
+		assert "ret" in asm
+
+	def test_array_element_write(self) -> None:
+		"""Simulate: arr[0] = 42 via pointer arithmetic + store."""
+		body: list[IRInstruction] = [
+			IRAlloc(IRTemp("arr"), 40),
+			IRBinOp(IRTemp("offset"), IRConst(0), "*", IRConst(4)),
+			IRBinOp(IRTemp("addr"), IRTemp("arr"), "+", IRTemp("offset")),
+			IRStore(IRTemp("addr"), IRConst(42)),
+			IRReturn(),
+		]
+		asm = _gen(IRFunction("f", [], body, IRType.VOID))
+		assert "movq %rcx, (%rax)" in asm  # store
+		assert "ret" in asm
+
+	def test_array_loop_access(self) -> None:
+		"""Simulate loop: for i in 0..n, read arr[i]."""
+		body: list[IRInstruction] = [
+			IRAlloc(IRTemp("arr"), 40),
+			IRCopy(IRTemp("i"), IRConst(0)),
+			IRLabelInstr("loop"),
+			IRBinOp(IRTemp("cond"), IRTemp("i"), "<", IRConst(10)),
+			IRCondJump(IRTemp("cond"), "body", "end"),
+			IRLabelInstr("body"),
+			IRBinOp(IRTemp("off"), IRTemp("i"), "*", IRConst(4)),
+			IRBinOp(IRTemp("addr"), IRTemp("arr"), "+", IRTemp("off")),
+			IRLoad(IRTemp("val"), IRTemp("addr")),
+			IRBinOp(IRTemp("i"), IRTemp("i"), "+", IRConst(1)),
+			IRJump("loop"),
+			IRLabelInstr("end"),
+			IRReturn(IRTemp("val")),
+		]
+		asm = _gen(IRFunction("f", [], body, IRType.INT))
+		assert "loop:" in asm
+		assert "body:" in asm
+		assert "end:" in asm
+		assert "movq (%rax), %rax" in asm
+		assert "ret" in asm
+
+
 class TestErrors:
 	def test_unknown_binop_raises(self) -> None:
 		body: list[IRInstruction] = [

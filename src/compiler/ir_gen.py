@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from compiler.ast_nodes import (
+	ArraySubscript,
 	ASTVisitor,
 	Assignment,
 	BinaryOp,
@@ -35,9 +36,11 @@ from compiler.ir import (
 	IRInstruction,
 	IRJump,
 	IRLabelInstr,
+	IRLoad,
 	IRParam,
 	IRProgram,
 	IRReturn,
+	IRStore,
 	IRTemp,
 	IRType,
 	IRUnaryOp,
@@ -76,6 +79,8 @@ class IRGenerator(ASTVisitor):
 		self._label_counter: int = 0
 		self._instructions: list[IRInstruction] = []
 		self._locals: dict[str, IRTemp] = {}
+		self._local_types: dict[str, TypeSpec] = {}
+		self._local_array: dict[str, list[int]] = {}
 		self._functions: list[IRFunction] = []
 
 	# ------------------------------------------------------------------
@@ -119,14 +124,19 @@ class IRGenerator(ASTVisitor):
 	def visit_function_decl(self, node: FunctionDecl) -> None:
 		old_instructions = self._instructions
 		old_locals = self._locals
+		old_types = self._local_types
+		old_arrays = self._local_array
 		self._instructions = []
 		self._locals = {}
+		self._local_types = {}
+		self._local_array = {}
 
 		params: list[IRTemp] = []
 		for param in node.params:
 			p_temp = self._new_temp()
 			params.append(p_temp)
 			self._locals[param.name] = p_temp
+			self._local_types[param.name] = param.type_spec
 
 		self.visit(node.body)
 
@@ -141,11 +151,26 @@ class IRGenerator(ASTVisitor):
 
 		self._instructions = old_instructions
 		self._locals = old_locals
+		self._local_types = old_types
+		self._local_array = old_arrays
 
 	def visit_var_decl(self, node: VarDecl) -> None:
 		dest = self._new_temp()
 		self._locals[node.name] = dest
-		self._emit(IRAlloc(dest=dest, size=_resolve_size(node.type_spec)))
+		self._local_types[node.name] = node.type_spec
+		if node.array_sizes is not None and len(node.array_sizes) > 0:
+			# Compute total array size: product of all dimensions * element_size
+			element_size = _resolve_size(node.type_spec)
+			total_elements = 1
+			size_vals: list[int] = []
+			for size_expr in node.array_sizes:
+				if isinstance(size_expr, IntLiteral):
+					total_elements *= size_expr.value
+					size_vals.append(size_expr.value)
+			self._local_array[node.name] = size_vals
+			self._emit(IRAlloc(dest=dest, size=element_size * total_elements))
+		else:
+			self._emit(IRAlloc(dest=dest, size=_resolve_size(node.type_spec)))
 		if node.initializer is not None:
 			val = self.visit(node.initializer)
 			self._emit(IRCopy(dest=dest, source=val))
@@ -191,6 +216,10 @@ class IRGenerator(ASTVisitor):
 
 	def visit_assignment(self, node: Assignment) -> IRTemp:
 		val = self.visit(node.value)
+		if isinstance(node.target, ArraySubscript):
+			addr = self._compute_array_addr(node.target)
+			self._emit(IRStore(address=addr, value=val))
+			return val if isinstance(val, IRTemp) else self._new_temp()
 		if isinstance(node.target, Identifier):
 			target_temp = self._locals.get(node.target.name)
 			if target_temp is not None:
@@ -210,6 +239,29 @@ class IRGenerator(ASTVisitor):
 			self._emit(IRParam(value=av))
 		dest = self._new_temp()
 		self._emit(IRCall(dest=dest, function_name=node.name, args=arg_vals))
+		return dest
+
+	def _compute_array_addr(self, node: ArraySubscript) -> IRTemp:
+		"""Compute the address of an array element: base + index * element_size."""
+		base = self.visit(node.array)
+		index = self.visit(node.index)
+		# Determine element size from base type
+		element_size = 4  # default int
+		if isinstance(node.array, Identifier):
+			ts = self._local_types.get(node.array.name)
+			if ts is not None:
+				element_size = _resolve_size(ts)
+		size_val = IRConst(element_size)
+		offset = self._new_temp()
+		self._emit(IRBinOp(dest=offset, left=index, op="*", right=size_val))
+		addr = self._new_temp()
+		self._emit(IRBinOp(dest=addr, left=base, op="+", right=offset))
+		return addr
+
+	def visit_array_subscript(self, node: ArraySubscript) -> IRTemp:
+		addr = self._compute_array_addr(node)
+		dest = self._new_temp()
+		self._emit(IRLoad(dest=dest, address=addr))
 		return dest
 
 	# ------------------------------------------------------------------

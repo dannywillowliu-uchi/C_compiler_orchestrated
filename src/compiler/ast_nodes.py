@@ -87,6 +87,9 @@ class ASTVisitor:
 	def visit_function_call(self, node: FunctionCall) -> Any:
 		return None
 
+	def visit_array_subscript(self, node: ArraySubscript) -> Any:
+		return None
+
 	def visit_type_spec(self, node: TypeSpec) -> Any:
 		return None
 
@@ -194,6 +197,17 @@ class FunctionCall(ASTNode):
 		return visitor.visit_function_call(self)
 
 
+@dataclass
+class ArraySubscript(ASTNode):
+	"""Array subscript: array[index]."""
+
+	array: ASTNode = field(default_factory=ASTNode)
+	index: ASTNode = field(default_factory=ASTNode)
+
+	def accept(self, visitor: ASTVisitor) -> Any:
+		return visitor.visit_array_subscript(self)
+
+
 # --- Statement nodes ---
 
 
@@ -284,6 +298,7 @@ class VarDecl(ASTNode):
 	type_spec: TypeSpec = field(default_factory=TypeSpec)
 	name: str = ""
 	initializer: ASTNode | None = None
+	array_sizes: list[ASTNode] | None = None
 
 	def accept(self, visitor: ASTVisitor) -> Any:
 		return visitor.visit_var_decl(self)
