@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import struct
+
 from compiler.ir import (
 	IRAlloc,
 	IRBinOp,
 	IRCall,
 	IRCondJump,
 	IRConst,
+	IRConvert,
 	IRCopy,
+	IRFloatConst,
 	IRFunction,
 	IRGlobalRef,
 	IRJump,
@@ -26,6 +30,24 @@ from compiler.ir import (
 
 # System V AMD64 ABI: first 6 integer/pointer argument registers
 _ARG_REGS = ["%rdi", "%rsi", "%rdx", "%rcx", "%r8", "%r9"]
+# System V AMD64 ABI: first 8 float/double argument registers
+_FLOAT_ARG_REGS = ["%xmm0", "%xmm1", "%xmm2", "%xmm3", "%xmm4", "%xmm5", "%xmm6", "%xmm7"]
+
+_FLOAT_TYPES = {IRType.FLOAT, IRType.DOUBLE}
+
+
+def _is_float(ir_type: IRType) -> bool:
+	return ir_type in _FLOAT_TYPES
+
+
+def _ss_sd(ir_type: IRType) -> str:
+	"""Return 'ss' for float, 'sd' for double."""
+	return "ss" if ir_type == IRType.FLOAT else "sd"
+
+
+def _s_d(ir_type: IRType) -> str:
+	"""Return 's' for float, 'd' for double (for ucomis/movaps etc.)."""
+	return "s" if ir_type == IRType.FLOAT else "d"
 
 
 class CodeGenerator:
@@ -35,6 +57,8 @@ class CodeGenerator:
 		self._lines: list[str] = []
 		self._stack_map: dict[str, int] = {}
 		self._stack_size: int = 0
+		self._float_consts: list[tuple[str, float, IRType]] = []
+		self._float_const_counter: int = 0
 
 	# ------------------------------------------------------------------
 	# Public API
@@ -43,6 +67,8 @@ class CodeGenerator:
 	def generate(self, program: IRProgram) -> str:
 		"""Generate assembly for an entire IR program."""
 		self._lines = []
+		self._float_consts = []
+		self._float_const_counter = 0
 
 		# Emit .data section for initialized globals
 		initialized = [g for g in program.globals if g.initializer is not None]
@@ -79,6 +105,22 @@ class CodeGenerator:
 		self._emit(".section .text")
 		for func in program.functions:
 			self._generate_function(func)
+
+		# Emit float constant pool in .rodata
+		if self._float_consts:
+			self._emit(".section .rodata")
+			for label, value, ir_type in self._float_consts:
+				if ir_type == IRType.FLOAT:
+					self._emit("\t.align 4")
+					self._emit(f"{label}:")
+					bits = struct.unpack("<I", struct.pack("<f", value))[0]
+					self._emit_instr(f".long {bits}")
+				else:
+					self._emit("\t.align 8")
+					self._emit(f"{label}:")
+					bits = struct.unpack("<Q", struct.pack("<d", value))[0]
+					self._emit_instr(f".quad {bits}")
+
 		return "\n".join(self._lines) + "\n"
 
 	# ------------------------------------------------------------------
@@ -100,10 +142,21 @@ class CodeGenerator:
 		"""Return the stack offset (relative to %rbp) for a temp."""
 		return self._stack_map[name]
 
+	def _alloc_float_const(self, value: float, ir_type: IRType) -> str:
+		"""Allocate a label for a float constant in .rodata."""
+		label = f".LFC{self._float_const_counter}"
+		self._float_const_counter += 1
+		self._float_consts.append((label, value, ir_type))
+		return label
+
 	def _load_value(self, value: IRValue, reg: str) -> None:
-		"""Emit code to load an IRValue into *reg*."""
+		"""Emit code to load an IRValue into an integer *reg*."""
 		if isinstance(value, IRConst):
 			self._emit_instr(f"movq ${value.value}, {reg}")
+		elif isinstance(value, IRFloatConst):
+			# Load float const into integer register via stack (unusual but handles edge cases)
+			label = self._alloc_float_const(value.value, value.ir_type)
+			self._emit_instr(f"leaq {label}(%rip), {reg}")
 		elif isinstance(value, IRTemp):
 			offset = self._get_offset(value.name)
 			self._emit_instr(f"movq {offset}(%rbp), {reg}")
@@ -112,10 +165,32 @@ class CodeGenerator:
 		else:
 			raise ValueError(f"Unsupported IRValue type: {type(value).__name__}")
 
+	def _load_float_value(self, value: IRValue, xmm: str, ir_type: IRType) -> None:
+		"""Emit code to load an IRValue into an XMM register."""
+		suffix = _ss_sd(ir_type)
+		if isinstance(value, IRFloatConst):
+			label = self._alloc_float_const(value.value, value.ir_type)
+			self._emit_instr(f"mov{suffix} {label}(%rip), {xmm}")
+		elif isinstance(value, IRTemp):
+			offset = self._get_offset(value.name)
+			self._emit_instr(f"mov{suffix} {offset}(%rbp), {xmm}")
+		elif isinstance(value, IRConst):
+			# Load integer constant as float: move to GP reg, then to XMM via stack
+			label = self._alloc_float_const(float(value.value), ir_type)
+			self._emit_instr(f"mov{suffix} {label}(%rip), {xmm}")
+		else:
+			raise ValueError(f"Cannot load {type(value).__name__} into XMM register")
+
 	def _store_to_temp(self, reg: str, dest: IRTemp) -> None:
-		"""Store *reg* into *dest*'s stack slot."""
+		"""Store integer *reg* into *dest*'s stack slot."""
 		offset = self._get_offset(dest.name)
 		self._emit_instr(f"movq {reg}, {offset}(%rbp)")
+
+	def _store_float_to_temp(self, xmm: str, dest: IRTemp, ir_type: IRType) -> None:
+		"""Store XMM register into *dest*'s stack slot."""
+		offset = self._get_offset(dest.name)
+		suffix = _ss_sd(ir_type)
+		self._emit_instr(f"mov{suffix} {xmm}, {offset}(%rbp)")
 
 	# ------------------------------------------------------------------
 	# Temp allocation (scan phase)
@@ -165,6 +240,9 @@ class CodeGenerator:
 			temps.add(instr.dest.name)
 		elif isinstance(instr, IRCondJump):
 			self._collect_value_temp(instr.condition, temps)
+		elif isinstance(instr, IRConvert):
+			temps.add(instr.dest.name)
+			self._collect_value_temp(instr.source, temps)
 
 	@staticmethod
 	def _collect_value_temp(value: IRValue, temps: set[str]) -> None:
@@ -191,26 +269,37 @@ class CodeGenerator:
 			self._emit_instr(f"subq ${frame_size}, %rsp")
 
 		# Copy register-passed params to their stack slots
+		int_idx = 0
+		float_idx = 0
 		for i, param in enumerate(func.params):
 			offset = self._get_offset(param.name)
-			if i < len(_ARG_REGS):
-				self._emit_instr(f"movq {_ARG_REGS[i]}, {offset}(%rbp)")
+			param_type = func.param_types[i] if i < len(func.param_types) else IRType.INT
+			if _is_float(param_type):
+				if float_idx < len(_FLOAT_ARG_REGS):
+					suffix = _ss_sd(param_type)
+					self._emit_instr(f"mov{suffix} {_FLOAT_ARG_REGS[float_idx]}, {offset}(%rbp)")
+				float_idx += 1
 			else:
-				# Params beyond the first 6 sit above the saved rbp/return addr
-				src_offset = 16 + (i - len(_ARG_REGS)) * 8
-				self._emit_instr(f"movq {src_offset}(%rbp), %rax")
-				self._emit_instr(f"movq %rax, {offset}(%rbp)")
+				if int_idx < len(_ARG_REGS):
+					self._emit_instr(f"movq {_ARG_REGS[int_idx]}, {offset}(%rbp)")
+				else:
+					src_offset = 16 + (int_idx - len(_ARG_REGS)) * 8
+					self._emit_instr(f"movq {src_offset}(%rbp), %rax")
+					self._emit_instr(f"movq %rax, {offset}(%rbp)")
+				int_idx += 1
 
 		# Body
 		for instr in func.body:
 			self._generate_instruction(instr)
 
-		# Implicit epilogue: avoid fall-through when the last instruction
-		# is not already a return.
+		# Implicit epilogue
 		last_is_return = func.body and isinstance(func.body[-1], IRReturn)
 		if not last_is_return:
 			if func.return_type != IRType.VOID:
-				self._emit_instr("movq $0, %rax")
+				if _is_float(func.return_type):
+					self._emit_instr("xorps %xmm0, %xmm0")
+				else:
+					self._emit_instr("movq $0, %rax")
 			self._emit_instr("movq %rbp, %rsp")
 			self._emit_instr("popq %rbp")
 			self._emit_instr("ret")
@@ -221,15 +310,27 @@ class CodeGenerator:
 
 	def _generate_instruction(self, instr: object) -> None:
 		if isinstance(instr, IRBinOp):
-			self._gen_binop(instr)
+			if _is_float(instr.ir_type):
+				self._gen_float_binop(instr)
+			else:
+				self._gen_binop(instr)
 		elif isinstance(instr, IRUnaryOp):
-			self._gen_unaryop(instr)
+			if _is_float(instr.ir_type):
+				self._gen_float_unaryop(instr)
+			else:
+				self._gen_unaryop(instr)
 		elif isinstance(instr, IRCopy):
-			self._gen_copy(instr)
+			if _is_float(instr.ir_type):
+				self._gen_float_copy(instr)
+			else:
+				self._gen_copy(instr)
 		elif isinstance(instr, IRLoad):
 			self._gen_load(instr)
 		elif isinstance(instr, IRStore):
-			self._gen_store(instr)
+			if _is_float(instr.ir_type):
+				self._gen_float_store(instr)
+			else:
+				self._gen_store(instr)
 		elif isinstance(instr, IRLabelInstr):
 			self._emit(f"{instr.name}:")
 		elif isinstance(instr, IRJump):
@@ -239,16 +340,21 @@ class CodeGenerator:
 		elif isinstance(instr, IRCall):
 			self._gen_call(instr)
 		elif isinstance(instr, IRReturn):
-			self._gen_return(instr)
+			if _is_float(instr.ir_type):
+				self._gen_float_return(instr)
+			else:
+				self._gen_return(instr)
 		elif isinstance(instr, IRAlloc):
 			self._gen_alloc(instr)
+		elif isinstance(instr, IRConvert):
+			self._gen_convert(instr)
 		elif isinstance(instr, IRParam):
 			pass  # args are conveyed via IRCall.args; IRParam is a no-op here
 		else:
 			raise ValueError(f"Unknown instruction type: {type(instr).__name__}")
 
 	# ------------------------------------------------------------------
-	# Individual instruction generators
+	# Integer instruction generators
 	# ------------------------------------------------------------------
 
 	def _gen_binop(self, instr: IRBinOp) -> None:
@@ -312,8 +418,13 @@ class CodeGenerator:
 
 	def _gen_load(self, instr: IRLoad) -> None:
 		self._load_value(instr.address, "%rax")
-		self._emit_instr("movq (%rax), %rax")
-		self._store_to_temp("%rax", instr.dest)
+		if _is_float(instr.ir_type):
+			suffix = _ss_sd(instr.ir_type)
+			self._emit_instr(f"mov{suffix} (%rax), %xmm0")
+			self._store_float_to_temp("%xmm0", instr.dest, instr.ir_type)
+		else:
+			self._emit_instr("movq (%rax), %rax")
+			self._store_to_temp("%rax", instr.dest)
 
 	def _gen_store(self, instr: IRStore) -> None:
 		self._load_value(instr.value, "%rcx")
@@ -327,26 +438,39 @@ class CodeGenerator:
 		self._emit_instr(f"jmp {instr.false_label}")
 
 	def _gen_call(self, instr: IRCall) -> None:
-		stack_args = instr.args[len(_ARG_REGS):]
-		num_stack_args = len(stack_args)
+		# Separate args into integer and float based on arg_types
+		int_args: list[tuple[int, IRValue]] = []
+		float_args: list[tuple[int, IRValue, IRType]] = []
+		for i, arg in enumerate(instr.args):
+			arg_type = instr.arg_types[i] if i < len(instr.arg_types) else IRType.INT
+			if _is_float(arg_type):
+				float_args.append((i, arg, arg_type))
+			else:
+				int_args.append((i, arg))
 
-		# Pad for 16-byte alignment when an odd number of args are pushed
+		# Handle stack args for integer args beyond register count
+		stack_int_args = int_args[len(_ARG_REGS):]
+		num_stack_args = len(stack_int_args)
+
 		needs_padding = num_stack_args > 0 and num_stack_args % 2 != 0
 		if needs_padding:
 			self._emit_instr("subq $8, %rsp")
 
-		# Push stack args in reverse order (rightmost first)
-		for arg in reversed(stack_args):
+		for _, arg in reversed(stack_int_args):
 			self._load_value(arg, "%rax")
 			self._emit_instr("pushq %rax")
 
-		# Load register args
-		for i, arg in enumerate(instr.args[: len(_ARG_REGS)]):
-			self._load_value(arg, _ARG_REGS[i])
+		# Load float register args
+		for idx, (_, arg, arg_type) in enumerate(float_args):
+			if idx < len(_FLOAT_ARG_REGS):
+				self._load_float_value(arg, _FLOAT_ARG_REGS[idx], arg_type)
+
+		# Load integer register args
+		for idx, (_, arg) in enumerate(int_args[:len(_ARG_REGS)]):
+			self._load_value(arg, _ARG_REGS[idx])
 
 		self._emit_instr(f"call {instr.function_name}")
 
-		# Clean up pushed stack args (+ alignment padding)
 		if num_stack_args > 0:
 			cleanup = num_stack_args * 8
 			if needs_padding:
@@ -354,12 +478,14 @@ class CodeGenerator:
 			self._emit_instr(f"addq ${cleanup}, %rsp")
 
 		if instr.dest is not None:
-			self._store_to_temp("%rax", instr.dest)
+			if _is_float(instr.return_type):
+				self._store_float_to_temp("%xmm0", instr.dest, instr.return_type)
+			else:
+				self._store_to_temp("%rax", instr.dest)
 
 	def _gen_return(self, instr: IRReturn) -> None:
 		if instr.value is not None:
 			self._load_value(instr.value, "%rax")
-		# Epilogue
 		self._emit_instr("movq %rbp, %rsp")
 		self._emit_instr("popq %rbp")
 		self._emit_instr("ret")
@@ -369,3 +495,105 @@ class CodeGenerator:
 		self._emit_instr(f"subq ${aligned}, %rsp")
 		self._emit_instr("movq %rsp, %rax")
 		self._store_to_temp("%rax", instr.dest)
+
+	# ------------------------------------------------------------------
+	# Float/SSE instruction generators
+	# ------------------------------------------------------------------
+
+	def _gen_float_binop(self, instr: IRBinOp) -> None:
+		suffix = _ss_sd(instr.ir_type)
+		self._load_float_value(instr.left, "%xmm0", instr.ir_type)
+		self._load_float_value(instr.right, "%xmm1", instr.ir_type)
+
+		op = instr.op
+		if op == "+":
+			self._emit_instr(f"add{suffix} %xmm1, %xmm0")
+		elif op == "-":
+			self._emit_instr(f"sub{suffix} %xmm1, %xmm0")
+		elif op == "*":
+			self._emit_instr(f"mul{suffix} %xmm1, %xmm0")
+		elif op == "/":
+			self._emit_instr(f"div{suffix} %xmm1, %xmm0")
+		elif op in ("<", ">", "<=", ">=", "==", "!="):
+			sd = _s_d(instr.ir_type)
+			self._emit_instr(f"ucomis{sd} %xmm1, %xmm0")
+			cmp_map = {
+				"<": "setb", ">": "seta", "<=": "setbe", ">=": "setae",
+				"==": "sete", "!=": "setne",
+			}
+			self._emit_instr(f"{cmp_map[op]} %al")
+			self._emit_instr("movzbq %al, %rax")
+			self._store_to_temp("%rax", instr.dest)
+			return
+		else:
+			raise ValueError(f"Unsupported float binary operator: {op}")
+
+		self._store_float_to_temp("%xmm0", instr.dest, instr.ir_type)
+
+	def _gen_float_unaryop(self, instr: IRUnaryOp) -> None:
+		suffix = _ss_sd(instr.ir_type)
+		self._load_float_value(instr.operand, "%xmm0", instr.ir_type)
+
+		if instr.op == "-":
+			# Negate: 0.0 - x
+			sd = _s_d(instr.ir_type)
+			self._emit_instr(f"xorp{sd} %xmm1, %xmm1")
+			self._emit_instr(f"sub{suffix} %xmm0, %xmm1")
+			self._emit_instr(f"movap{sd} %xmm1, %xmm0")
+		else:
+			raise ValueError(f"Unsupported float unary operator: {instr.op}")
+
+		self._store_float_to_temp("%xmm0", instr.dest, instr.ir_type)
+
+	def _gen_float_copy(self, instr: IRCopy) -> None:
+		self._load_float_value(instr.source, "%xmm0", instr.ir_type)
+		self._store_float_to_temp("%xmm0", instr.dest, instr.ir_type)
+
+	def _gen_float_store(self, instr: IRStore) -> None:
+		suffix = _ss_sd(instr.ir_type)
+		self._load_float_value(instr.value, "%xmm0", instr.ir_type)
+		self._load_value(instr.address, "%rax")
+		self._emit_instr(f"mov{suffix} %xmm0, (%rax)")
+
+	def _gen_float_return(self, instr: IRReturn) -> None:
+		if instr.value is not None:
+			self._load_float_value(instr.value, "%xmm0", instr.ir_type)
+		self._emit_instr("movq %rbp, %rsp")
+		self._emit_instr("popq %rbp")
+		self._emit_instr("ret")
+
+	def _gen_convert(self, instr: IRConvert) -> None:
+		"""Generate type conversion instructions."""
+		from_type = instr.from_type
+		to_type = instr.to_type
+
+		if from_type == IRType.INT and to_type == IRType.FLOAT:
+			self._load_value(instr.source, "%rax")
+			self._emit_instr("cvtsi2ss %eax, %xmm0")
+			self._store_float_to_temp("%xmm0", instr.dest, IRType.FLOAT)
+		elif from_type == IRType.INT and to_type == IRType.DOUBLE:
+			self._load_value(instr.source, "%rax")
+			self._emit_instr("cvtsi2sd %eax, %xmm0")
+			self._store_float_to_temp("%xmm0", instr.dest, IRType.DOUBLE)
+		elif from_type == IRType.FLOAT and to_type == IRType.INT:
+			self._load_float_value(instr.source, "%xmm0", IRType.FLOAT)
+			self._emit_instr("cvttss2si %xmm0, %eax")
+			self._emit_instr("movslq %eax, %rax")
+			self._store_to_temp("%rax", instr.dest)
+		elif from_type == IRType.DOUBLE and to_type == IRType.INT:
+			self._load_float_value(instr.source, "%xmm0", IRType.DOUBLE)
+			self._emit_instr("cvttsd2si %xmm0, %eax")
+			self._emit_instr("movslq %eax, %rax")
+			self._store_to_temp("%rax", instr.dest)
+		elif from_type == IRType.FLOAT and to_type == IRType.DOUBLE:
+			self._load_float_value(instr.source, "%xmm0", IRType.FLOAT)
+			self._emit_instr("cvtss2sd %xmm0, %xmm0")
+			self._store_float_to_temp("%xmm0", instr.dest, IRType.DOUBLE)
+		elif from_type == IRType.DOUBLE and to_type == IRType.FLOAT:
+			self._load_float_value(instr.source, "%xmm0", IRType.DOUBLE)
+			self._emit_instr("cvtsd2ss %xmm0, %xmm0")
+			self._store_float_to_temp("%xmm0", instr.dest, IRType.FLOAT)
+		else:
+			# Fallback: just copy
+			self._load_value(instr.source, "%rax")
+			self._store_to_temp("%rax", instr.dest)

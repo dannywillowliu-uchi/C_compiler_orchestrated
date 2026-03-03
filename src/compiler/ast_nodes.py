@@ -81,6 +81,9 @@ class ASTVisitor:
 	def visit_int_literal(self, node: IntLiteral) -> Any:
 		return None
 
+	def visit_float_literal(self, node: FloatLiteral) -> Any:
+		return None
+
 	def visit_string_literal(self, node: StringLiteral) -> Any:
 		return None
 
@@ -164,6 +167,17 @@ class IntLiteral(ASTNode):
 
 	def accept(self, visitor: ASTVisitor) -> Any:
 		return visitor.visit_int_literal(self)
+
+
+@dataclass
+class FloatLiteral(ASTNode):
+	"""Floating-point literal, e.g. 3.14."""
+
+	value: float = 0.0
+	suffix: str = ""  # "f" for float, "" for double
+
+	def accept(self, visitor: ASTVisitor) -> Any:
+		return visitor.visit_float_literal(self)
 
 
 @dataclass

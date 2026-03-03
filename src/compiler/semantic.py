@@ -20,6 +20,7 @@ from compiler.ast_nodes import (
 	DoWhileStmt,
 	EnumDecl,
 	ExprStmt,
+	FloatLiteral,
 	ForStmt,
 	FunctionCall,
 	FunctionDecl,
@@ -423,6 +424,11 @@ class SemanticAnalyzer(ASTVisitor):
 
 	def visit_int_literal(self, node: IntLiteral) -> TypeSpec:
 		return TypeSpec(base_type="int")
+
+	def visit_float_literal(self, node: FloatLiteral) -> TypeSpec:
+		if node.suffix == "f":
+			return TypeSpec(base_type="float")
+		return TypeSpec(base_type="double")
 
 	def visit_string_literal(self, node: StringLiteral) -> TypeSpec:
 		return TypeSpec(base_type="char", pointer_count=1)
