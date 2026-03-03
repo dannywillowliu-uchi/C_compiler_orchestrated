@@ -173,6 +173,110 @@ class TestArithmeticPrecedence:
 		assert expr.op == "&&"
 
 
+# -- Bitwise operator precedence --------------------------------------------
+
+
+class TestBitwisePrecedence:
+	def test_bitwise_and(self) -> None:
+		func = parse_single_func("int f(int a, int b) { return a & b; }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, BinaryOp)
+		assert expr.op == "&"
+		assert isinstance(expr.left, Identifier) and expr.left.name == "a"
+		assert isinstance(expr.right, Identifier) and expr.right.name == "b"
+
+	def test_bitwise_or(self) -> None:
+		func = parse_single_func("int f(int a, int b) { return a | b; }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, BinaryOp)
+		assert expr.op == "|"
+
+	def test_bitwise_xor(self) -> None:
+		func = parse_single_func("int f(int a, int b) { return a ^ b; }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, BinaryOp)
+		assert expr.op == "^"
+
+	def test_left_shift(self) -> None:
+		func = parse_single_func("int f(int x) { return x << 2; }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, BinaryOp)
+		assert expr.op == "<<"
+		assert isinstance(expr.left, Identifier) and expr.left.name == "x"
+		assert isinstance(expr.right, IntLiteral) and expr.right.value == 2
+
+	def test_right_shift(self) -> None:
+		func = parse_single_func("int f(int x) { return x >> 3; }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, BinaryOp)
+		assert expr.op == ">>"
+
+	def test_and_or_precedence(self) -> None:
+		# a & b | c  =>  (a & b) | c  (& binds tighter than |)
+		func = parse_single_func("int f(int a, int b, int c) { return a & b | c; }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, BinaryOp)
+		assert expr.op == "|"
+		assert isinstance(expr.left, BinaryOp)
+		assert expr.left.op == "&"
+
+	def test_xor_between_and_or(self) -> None:
+		# a | b ^ c  =>  a | (b ^ c)  (^ binds tighter than |)
+		func = parse_single_func("int f(int a, int b, int c) { return a | b ^ c; }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, BinaryOp)
+		assert expr.op == "|"
+		assert isinstance(expr.right, BinaryOp)
+		assert expr.right.op == "^"
+
+	def test_shift_before_relational(self) -> None:
+		# x << 2 < 10  =>  (x << 2) < 10  (shift binds tighter than relational)
+		func = parse_single_func("int f(int x) { return x << 2 < 10; }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, BinaryOp)
+		assert expr.op == "<"
+		assert isinstance(expr.left, BinaryOp)
+		assert expr.left.op == "<<"
+
+	def test_and_after_equality(self) -> None:
+		# (a ^ b) == 0  =>  (== (^ a b) 0)
+		func = parse_single_func("int f(int a, int b) { return (a ^ b) == 0; }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, BinaryOp)
+		assert expr.op == "=="
+		assert isinstance(expr.left, BinaryOp)
+		assert expr.left.op == "^"
+		assert isinstance(expr.right, IntLiteral) and expr.right.value == 0
+
+	def test_bitwise_and_vs_address_of(self) -> None:
+		# Unary & (address-of) should still work
+		func = parse_single_func("int f(int x) { return &x; }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, UnaryOp)
+		assert expr.op == "&"
+
+	def test_shift_left_associativity(self) -> None:
+		# a << 1 << 2  =>  (a << 1) << 2
+		func = parse_single_func("int f(int a) { return a << 1 << 2; }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, BinaryOp)
+		assert expr.op == "<<"
+		assert isinstance(expr.left, BinaryOp)
+		assert expr.left.op == "<<"
+		assert isinstance(expr.right, IntLiteral) and expr.right.value == 2
+
+	def test_full_bitwise_chain(self) -> None:
+		# a & b ^ c | d  =>  ((a & b) ^ c) | d
+		func = parse_single_func("int f(int a, int b, int c, int d) { return a & b ^ c | d; }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, BinaryOp)
+		assert expr.op == "|"
+		assert isinstance(expr.left, BinaryOp)
+		assert expr.left.op == "^"
+		assert isinstance(expr.left.left, BinaryOp)
+		assert expr.left.left.op == "&"
+
+
 # -- Variable declarations ---------------------------------------------------
 
 
