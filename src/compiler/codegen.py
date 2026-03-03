@@ -205,6 +205,16 @@ class CodeGenerator:
 		for instr in func.body:
 			self._generate_instruction(instr)
 
+		# Implicit epilogue: avoid fall-through when the last instruction
+		# is not already a return.
+		last_is_return = func.body and isinstance(func.body[-1], IRReturn)
+		if not last_is_return:
+			if func.return_type != IRType.VOID:
+				self._emit_instr("movq $0, %rax")
+			self._emit_instr("movq %rbp, %rsp")
+			self._emit_instr("popq %rbp")
+			self._emit_instr("ret")
+
 	# ------------------------------------------------------------------
 	# Instruction dispatch
 	# ------------------------------------------------------------------
