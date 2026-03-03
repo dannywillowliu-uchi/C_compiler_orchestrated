@@ -207,13 +207,100 @@ class IRGenerator(ASTVisitor):
 		return IRTemp(node.name)
 
 	def visit_binary_op(self, node: BinaryOp) -> IRTemp:
+		if node.op == "&&":
+			return self._emit_short_circuit_and(node)
+		if node.op == "||":
+			return self._emit_short_circuit_or(node)
 		left = self.visit(node.left)
 		right = self.visit(node.right)
 		dest = self._new_temp()
 		self._emit(IRBinOp(dest=dest, left=left, op=node.op, right=right))
 		return dest
 
+	def _emit_short_circuit_and(self, node: BinaryOp) -> IRTemp:
+		"""a && b: if a is falsy, result is 0; otherwise result is !!b."""
+		result = self._new_temp()
+		eval_right = self._new_label("and_right")
+		false_label = self._new_label("and_false")
+		end_label = self._new_label("and_end")
+
+		left = self.visit(node.left)
+		self._emit(IRCondJump(condition=left, true_label=eval_right, false_label=false_label))
+
+		# Left was truthy -> evaluate right
+		self._emit(IRLabelInstr(name=eval_right))
+		right = self.visit(node.right)
+		norm = self._new_temp()
+		self._emit(IRBinOp(dest=norm, left=right, op="!=", right=IRConst(0)))
+		self._emit(IRCopy(dest=result, source=norm))
+		self._emit(IRJump(target=end_label))
+
+		# Left was falsy -> result = 0
+		self._emit(IRLabelInstr(name=false_label))
+		self._emit(IRCopy(dest=result, source=IRConst(0)))
+		self._emit(IRJump(target=end_label))
+
+		self._emit(IRLabelInstr(name=end_label))
+		return result
+
+	def _emit_short_circuit_or(self, node: BinaryOp) -> IRTemp:
+		"""a || b: if a is truthy, result is 1; otherwise result is !!b."""
+		result = self._new_temp()
+		eval_right = self._new_label("or_right")
+		true_label = self._new_label("or_true")
+		end_label = self._new_label("or_end")
+
+		left = self.visit(node.left)
+		self._emit(IRCondJump(condition=left, true_label=true_label, false_label=eval_right))
+
+		# Left was falsy -> evaluate right
+		self._emit(IRLabelInstr(name=eval_right))
+		right = self.visit(node.right)
+		norm = self._new_temp()
+		self._emit(IRBinOp(dest=norm, left=right, op="!=", right=IRConst(0)))
+		self._emit(IRCopy(dest=result, source=norm))
+		self._emit(IRJump(target=end_label))
+
+		# Left was truthy -> result = 1
+		self._emit(IRLabelInstr(name=true_label))
+		self._emit(IRCopy(dest=result, source=IRConst(1)))
+		self._emit(IRJump(target=end_label))
+
+		self._emit(IRLabelInstr(name=end_label))
+		return result
+
 	def visit_unary_op(self, node: UnaryOp) -> IRTemp:
+		if node.op == "*":
+			# Pointer dereference: load from the pointer value
+			ptr = self.visit(node.operand)
+			dest = self._new_temp()
+			self._emit(IRLoad(dest=dest, address=ptr))
+			return dest
+		if node.op == "&":
+			# Address-of: return the stack address of the variable
+			if isinstance(node.operand, Identifier):
+				src = self._locals.get(node.operand.name)
+				if src is not None:
+					return src
+			operand = self.visit(node.operand)
+			return operand
+		if node.op in ("++", "--"):
+			# Prefix ++/--: load, add/sub 1, store back
+			if isinstance(node.operand, Identifier):
+				target = self._locals.get(node.operand.name)
+				if target is not None:
+					current = self._new_temp()
+					self._emit(IRCopy(dest=current, source=target))
+					result = self._new_temp()
+					delta_op = "+" if node.op == "++" else "-"
+					self._emit(IRBinOp(dest=result, left=current, op=delta_op, right=IRConst(1)))
+					self._emit(IRCopy(dest=target, source=result))
+					return result
+			operand = self.visit(node.operand)
+			result = self._new_temp()
+			delta_op = "+" if node.op == "++" else "-"
+			self._emit(IRBinOp(dest=result, left=operand, op=delta_op, right=IRConst(1)))
+			return result
 		operand = self.visit(node.operand)
 		dest = self._new_temp()
 		self._emit(IRUnaryOp(dest=dest, op=node.op, operand=operand))
@@ -223,6 +310,11 @@ class IRGenerator(ASTVisitor):
 		val = self.visit(node.value)
 		if isinstance(node.target, ArraySubscript):
 			addr = self._compute_array_addr(node.target)
+			self._emit(IRStore(address=addr, value=val))
+			return val if isinstance(val, IRTemp) else self._new_temp()
+		if isinstance(node.target, UnaryOp) and node.target.op == "*":
+			# *p = v -> store through pointer
+			addr = self.visit(node.target.operand)
 			self._emit(IRStore(address=addr, value=val))
 			return val if isinstance(val, IRTemp) else self._new_temp()
 		if isinstance(node.target, Identifier):
