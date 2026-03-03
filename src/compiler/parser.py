@@ -11,8 +11,12 @@ from compiler.ast_nodes import (
 	Assignment,
 	ASTNode,
 	BinaryOp,
+	BreakStmt,
 	CharLiteral,
+	CompoundAssignment,
 	CompoundStmt,
+	ContinueStmt,
+	DoWhileStmt,
 	ExprStmt,
 	ForStmt,
 	FunctionCall,
@@ -74,6 +78,14 @@ _BINOP_STR: dict[TokenType, str] = {
 	TokenType.GREATER_EQUAL: ">=",
 	TokenType.AND: "&&",
 	TokenType.OR: "||",
+}
+
+_COMPOUND_ASSIGN: dict[TokenType, str] = {
+	TokenType.PLUS_ASSIGN: "+=",
+	TokenType.MINUS_ASSIGN: "-=",
+	TokenType.STAR_ASSIGN: "*=",
+	TokenType.SLASH_ASSIGN: "/=",
+	TokenType.PERCENT_ASSIGN: "%=",
 }
 
 _TYPE_KEYWORDS: set[TokenType] = {TokenType.INT, TokenType.CHAR, TokenType.VOID}
@@ -234,6 +246,12 @@ class Parser:
 			return self._parse_while_stmt()
 		if self._check(TokenType.FOR):
 			return self._parse_for_stmt()
+		if self._check(TokenType.DO):
+			return self._parse_do_while_stmt()
+		if self._check(TokenType.BREAK):
+			return self._parse_break_stmt()
+		if self._check(TokenType.CONTINUE):
+			return self._parse_continue_stmt()
 		if self._check(*_TYPE_KEYWORDS):
 			return self._parse_var_decl_stmt()
 		return self._parse_expr_stmt()
@@ -315,6 +333,29 @@ class Parser:
 		body = self._parse_statement()
 		return ForStmt(init=init, condition=condition, update=update, body=body, loc=self._loc(tok))
 
+	def _parse_do_while_stmt(self) -> DoWhileStmt:
+		"""Parse 'do stmt while (cond);'."""
+		tok = self._advance()  # consume 'do'
+		body = self._parse_statement()
+		self._expect(TokenType.WHILE, "Expected 'while' after do body")
+		self._expect(TokenType.LPAREN, "Expected '(' after 'while'")
+		condition = self._parse_expression()
+		self._expect(TokenType.RPAREN, "Expected ')' after do-while condition")
+		self._expect(TokenType.SEMICOLON, "Expected ';' after do-while statement")
+		return DoWhileStmt(body=body, condition=condition, loc=self._loc(tok))
+
+	def _parse_break_stmt(self) -> BreakStmt:
+		"""Parse 'break;'."""
+		tok = self._advance()  # consume 'break'
+		self._expect(TokenType.SEMICOLON, "Expected ';' after 'break'")
+		return BreakStmt(loc=self._loc(tok))
+
+	def _parse_continue_stmt(self) -> ContinueStmt:
+		"""Parse 'continue;'."""
+		tok = self._advance()  # consume 'continue'
+		self._expect(TokenType.SEMICOLON, "Expected ';' after 'continue'")
+		return ContinueStmt(loc=self._loc(tok))
+
 	def _parse_var_decl_stmt(self) -> VarDecl:
 		"""Parse a local variable declaration: type name [= expr]; or type name[size][...];"""
 		type_spec = self._parse_type_spec()
@@ -352,11 +393,17 @@ class Parser:
 		return self._parse_assignment()
 
 	def _parse_assignment(self) -> ASTNode:
-		"""Parse assignment: expr = expr (right-associative)."""
+		"""Parse assignment or compound assignment (right-associative)."""
 		left = self._parse_binop(1)
 		if self._match(TokenType.ASSIGN):
-			value = self._parse_assignment()  # right-associative
+			value = self._parse_assignment()
 			return Assignment(target=left, value=value, loc=left.loc)
+		if self._current().type in _COMPOUND_ASSIGN:
+			op_tok = self._advance()
+			value = self._parse_assignment()
+			return CompoundAssignment(
+				target=left, op=_COMPOUND_ASSIGN[op_tok.type], value=value, loc=left.loc
+			)
 		return left
 
 	def _parse_binop(self, min_prec: int) -> ASTNode:
@@ -379,8 +426,16 @@ class Parser:
 		return left
 
 	def _parse_unary(self) -> ASTNode:
-		"""Parse unary prefix operators: - ! ~ * &."""
+		"""Parse unary prefix operators: - ! ~ * & ++ --."""
 		tok = self._current()
+		if tok.type == TokenType.INCREMENT:
+			self._advance()
+			operand = self._parse_unary()
+			return UnaryOp(op="++", operand=operand, prefix=True, loc=self._loc(tok))
+		if tok.type == TokenType.DECREMENT:
+			self._advance()
+			operand = self._parse_unary()
+			return UnaryOp(op="--", operand=operand, prefix=True, loc=self._loc(tok))
 		if tok.type == TokenType.MINUS:
 			self._advance()
 			operand = self._parse_unary()

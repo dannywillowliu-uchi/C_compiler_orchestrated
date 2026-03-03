@@ -6,8 +6,12 @@ from compiler.ast_nodes import (
 	ArraySubscript,
 	Assignment,
 	BinaryOp,
+	BreakStmt,
 	CharLiteral,
+	CompoundAssignment,
 	CompoundStmt,
+	ContinueStmt,
+	DoWhileStmt,
 	ExprStmt,
 	ForStmt,
 	FunctionCall,
@@ -692,3 +696,241 @@ class TestArraySubscript:
 		assert isinstance(expr, BinaryOp)
 		assert isinstance(expr.left, ArraySubscript)
 		assert isinstance(expr.right, ArraySubscript)
+
+
+# -- Break statement ---------------------------------------------------------
+
+
+class TestBreakStmt:
+	def test_break_in_while(self) -> None:
+		src = "int f() { while (1) { break; } }"
+		func = parse_single_func(src)
+		loop = body_stmts(func)[0]
+		assert isinstance(loop, WhileStmt)
+		inner = loop.body.statements[0]
+		assert isinstance(inner, BreakStmt)
+
+	def test_break_in_for(self) -> None:
+		src = "int f() { for (int i = 0; i < 10; i = i + 1) { break; } }"
+		func = parse_single_func(src)
+		loop = body_stmts(func)[0]
+		assert isinstance(loop, ForStmt)
+		inner = loop.body.statements[0]
+		assert isinstance(inner, BreakStmt)
+
+	def test_break_with_if(self) -> None:
+		src = "int f() { while (1) { if (x) break; } }"
+		func = parse_single_func(src)
+		loop = body_stmts(func)[0]
+		assert isinstance(loop, WhileStmt)
+		if_stmt = loop.body.statements[0]
+		assert isinstance(if_stmt, IfStmt)
+		assert isinstance(if_stmt.then_branch, BreakStmt)
+
+	def test_break_missing_semicolon(self) -> None:
+		with pytest.raises(ParseError, match="Expected ';' after 'break'"):
+			parse("int f() { while (1) { break } }")
+
+
+# -- Continue statement ------------------------------------------------------
+
+
+class TestContinueStmt:
+	def test_continue_in_while(self) -> None:
+		src = "int f() { while (1) { continue; } }"
+		func = parse_single_func(src)
+		loop = body_stmts(func)[0]
+		assert isinstance(loop, WhileStmt)
+		inner = loop.body.statements[0]
+		assert isinstance(inner, ContinueStmt)
+
+	def test_continue_in_for(self) -> None:
+		src = "int f() { for (int i = 0; i < 10; i = i + 1) { continue; } }"
+		func = parse_single_func(src)
+		loop = body_stmts(func)[0]
+		assert isinstance(loop, ForStmt)
+		inner = loop.body.statements[0]
+		assert isinstance(inner, ContinueStmt)
+
+	def test_continue_with_if(self) -> None:
+		src = "int f() { while (1) { if (x) continue; } }"
+		func = parse_single_func(src)
+		loop = body_stmts(func)[0]
+		if_stmt = loop.body.statements[0]
+		assert isinstance(if_stmt, IfStmt)
+		assert isinstance(if_stmt.then_branch, ContinueStmt)
+
+	def test_continue_missing_semicolon(self) -> None:
+		with pytest.raises(ParseError, match="Expected ';' after 'continue'"):
+			parse("int f() { while (1) { continue } }")
+
+
+# -- Do-while statement ------------------------------------------------------
+
+
+class TestDoWhileStmt:
+	def test_simple_do_while(self) -> None:
+		src = "int f() { do { x = x + 1; } while (x < 10); }"
+		func = parse_single_func(src)
+		stmt = body_stmts(func)[0]
+		assert isinstance(stmt, DoWhileStmt)
+		assert isinstance(stmt.body, CompoundStmt)
+		assert isinstance(stmt.condition, BinaryOp)
+		assert stmt.condition.op == "<"
+
+	def test_do_while_single_stmt(self) -> None:
+		src = "int f() { do x = x + 1; while (x < 10); }"
+		func = parse_single_func(src)
+		stmt = body_stmts(func)[0]
+		assert isinstance(stmt, DoWhileStmt)
+		assert isinstance(stmt.body, ExprStmt)
+
+	def test_do_while_with_break(self) -> None:
+		src = "int f() { do { if (x) break; } while (1); }"
+		func = parse_single_func(src)
+		stmt = body_stmts(func)[0]
+		assert isinstance(stmt, DoWhileStmt)
+		body_inner = stmt.body.statements[0]
+		assert isinstance(body_inner, IfStmt)
+		assert isinstance(body_inner.then_branch, BreakStmt)
+
+	def test_do_while_with_continue(self) -> None:
+		src = "int f() { do { continue; } while (x); }"
+		func = parse_single_func(src)
+		stmt = body_stmts(func)[0]
+		assert isinstance(stmt, DoWhileStmt)
+		assert isinstance(stmt.body.statements[0], ContinueStmt)
+
+	def test_do_while_missing_while(self) -> None:
+		with pytest.raises(ParseError, match="Expected 'while'"):
+			parse("int f() { do { x = 1; } (x < 10); }")
+
+	def test_do_while_missing_semicolon(self) -> None:
+		with pytest.raises(ParseError, match="Expected ';' after do-while"):
+			parse("int f() { do { x = 1; } while (x < 10) }")
+
+	def test_nested_do_while(self) -> None:
+		src = "int f() { do { do { x = 1; } while (a); } while (b); }"
+		func = parse_single_func(src)
+		outer = body_stmts(func)[0]
+		assert isinstance(outer, DoWhileStmt)
+		inner = outer.body.statements[0]
+		assert isinstance(inner, DoWhileStmt)
+
+
+# -- Compound assignment -----------------------------------------------------
+
+
+class TestCompoundAssignment:
+	def test_plus_assign(self) -> None:
+		func = parse_single_func("int f() { x += 1; }")
+		stmt = body_stmts(func)[0]
+		assert isinstance(stmt, ExprStmt)
+		expr = stmt.expression
+		assert isinstance(expr, CompoundAssignment)
+		assert isinstance(expr.target, Identifier)
+		assert expr.target.name == "x"
+		assert expr.op == "+="
+		assert isinstance(expr.value, IntLiteral)
+		assert expr.value.value == 1
+
+	def test_minus_assign(self) -> None:
+		func = parse_single_func("int f() { x -= 5; }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, CompoundAssignment)
+		assert expr.op == "-="
+
+	def test_star_assign(self) -> None:
+		func = parse_single_func("int f() { x *= 2; }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, CompoundAssignment)
+		assert expr.op == "*="
+
+	def test_slash_assign(self) -> None:
+		func = parse_single_func("int f() { x /= 3; }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, CompoundAssignment)
+		assert expr.op == "/="
+
+	def test_percent_assign(self) -> None:
+		func = parse_single_func("int f() { x %= 4; }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, CompoundAssignment)
+		assert expr.op == "%="
+
+	def test_compound_assign_with_expression(self) -> None:
+		func = parse_single_func("int f() { x += 1 + 2; }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, CompoundAssignment)
+		assert expr.op == "+="
+		assert isinstance(expr.value, BinaryOp)
+
+	def test_compound_assign_array(self) -> None:
+		func = parse_single_func("int f() { arr[0] += 1; }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, CompoundAssignment)
+		assert isinstance(expr.target, ArraySubscript)
+		assert expr.op == "+="
+
+	def test_compound_assign_in_for_update(self) -> None:
+		src = "int f() { for (int i = 0; i < 10; i += 1) { return i; } }"
+		func = parse_single_func(src)
+		stmt = body_stmts(func)[0]
+		assert isinstance(stmt, ForStmt)
+		assert isinstance(stmt.update, CompoundAssignment)
+		assert stmt.update.op == "+="
+
+
+# -- Prefix increment/decrement ---------------------------------------------
+
+
+class TestPrefixIncDec:
+	def test_prefix_increment(self) -> None:
+		func = parse_single_func("int f() { ++x; }")
+		stmt = body_stmts(func)[0]
+		assert isinstance(stmt, ExprStmt)
+		expr = stmt.expression
+		assert isinstance(expr, UnaryOp)
+		assert expr.op == "++"
+		assert expr.prefix is True
+		assert isinstance(expr.operand, Identifier)
+		assert expr.operand.name == "x"
+
+	def test_prefix_decrement(self) -> None:
+		func = parse_single_func("int f() { --x; }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, UnaryOp)
+		assert expr.op == "--"
+		assert expr.prefix is True
+
+	def test_prefix_increment_in_expression(self) -> None:
+		func = parse_single_func("int f() { return ++x + 1; }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, BinaryOp)
+		assert expr.op == "+"
+		assert isinstance(expr.left, UnaryOp)
+		assert expr.left.op == "++"
+
+	def test_prefix_increment_in_for(self) -> None:
+		src = "int f() { for (int i = 0; i < 10; ++i) { return i; } }"
+		func = parse_single_func(src)
+		stmt = body_stmts(func)[0]
+		assert isinstance(stmt, ForStmt)
+		assert isinstance(stmt.update, UnaryOp)
+		assert stmt.update.op == "++"
+
+	def test_prefix_decrement_in_while(self) -> None:
+		src = "int f() { while (--n) { return n; } }"
+		func = parse_single_func(src)
+		stmt = body_stmts(func)[0]
+		assert isinstance(stmt, WhileStmt)
+		assert isinstance(stmt.condition, UnaryOp)
+		assert stmt.condition.op == "--"
+
+	def test_double_prefix_increment(self) -> None:
+		func = parse_single_func("int f() { ++ ++x; }")
+		expr = body_stmts(func)[0].expression
+		assert isinstance(expr, UnaryOp)
+		assert expr.op == "++"
+		assert isinstance(expr.operand, UnaryOp)
+		assert expr.operand.op == "++"
