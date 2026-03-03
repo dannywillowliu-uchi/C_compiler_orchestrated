@@ -1,0 +1,222 @@
+"""Intermediate representation as three-address code for the C compiler."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from enum import Enum, auto
+from typing import Optional
+
+
+class IRType(Enum):
+	"""Primitive types in the IR."""
+	INT = auto()
+	CHAR = auto()
+	VOID = auto()
+	POINTER = auto()
+
+
+# ---------------------------------------------------------------------------
+# Values
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class IRValue:
+	"""Base class for IR values (operands)."""
+
+	def __str__(self) -> str:
+		raise NotImplementedError
+
+
+@dataclass(frozen=True)
+class IRConst(IRValue):
+	"""A constant integer or character value."""
+	value: int
+
+	def __str__(self) -> str:
+		return str(self.value)
+
+
+@dataclass(frozen=True)
+class IRTemp(IRValue):
+	"""A temporary variable with a unique name."""
+	name: str
+
+	def __str__(self) -> str:
+		return self.name
+
+
+@dataclass(frozen=True)
+class IRLabel(IRValue):
+	"""A label name used as a jump target."""
+	name: str
+
+	def __str__(self) -> str:
+		return self.name
+
+
+# ---------------------------------------------------------------------------
+# Instructions
+# ---------------------------------------------------------------------------
+
+@dataclass
+class IRInstruction:
+	"""Base class for all IR instructions."""
+
+	def __str__(self) -> str:
+		raise NotImplementedError
+
+
+@dataclass
+class IRBinOp(IRInstruction):
+	"""dest = left op right"""
+	dest: IRTemp
+	left: IRValue
+	op: str
+	right: IRValue
+
+	def __str__(self) -> str:
+		return f"{self.dest} = {self.left} {self.op} {self.right}"
+
+
+@dataclass
+class IRUnaryOp(IRInstruction):
+	"""dest = op operand"""
+	dest: IRTemp
+	op: str
+	operand: IRValue
+
+	def __str__(self) -> str:
+		return f"{self.dest} = {self.op} {self.operand}"
+
+
+@dataclass
+class IRCopy(IRInstruction):
+	"""dest = source"""
+	dest: IRTemp
+	source: IRValue
+
+	def __str__(self) -> str:
+		return f"{self.dest} = {self.source}"
+
+
+@dataclass
+class IRLoad(IRInstruction):
+	"""dest = *address"""
+	dest: IRTemp
+	address: IRValue
+
+	def __str__(self) -> str:
+		return f"{self.dest} = *{self.address}"
+
+
+@dataclass
+class IRStore(IRInstruction):
+	"""*address = value"""
+	address: IRValue
+	value: IRValue
+
+	def __str__(self) -> str:
+		return f"*{self.address} = {self.value}"
+
+
+@dataclass
+class IRLabelInstr(IRInstruction):
+	"""A label marker in the instruction stream."""
+	name: str
+
+	def __str__(self) -> str:
+		return f"{self.name}:"
+
+
+@dataclass
+class IRJump(IRInstruction):
+	"""Unconditional jump to target label."""
+	target: str
+
+	def __str__(self) -> str:
+		return f"jump {self.target}"
+
+
+@dataclass
+class IRCondJump(IRInstruction):
+	"""Conditional jump: if condition goto true_label else goto false_label."""
+	condition: IRValue
+	true_label: str
+	false_label: str
+
+	def __str__(self) -> str:
+		return f"if {self.condition} goto {self.true_label} else goto {self.false_label}"
+
+
+@dataclass
+class IRCall(IRInstruction):
+	"""dest = call function_name(args)"""
+	dest: Optional[IRTemp]
+	function_name: str
+	args: list[IRValue] = field(default_factory=list)
+
+	def __str__(self) -> str:
+		args_str = ", ".join(str(a) for a in self.args)
+		if self.dest is not None:
+			return f"{self.dest} = call {self.function_name}({args_str})"
+		return f"call {self.function_name}({args_str})"
+
+
+@dataclass
+class IRReturn(IRInstruction):
+	"""Return from function with optional value."""
+	value: Optional[IRValue] = None
+
+	def __str__(self) -> str:
+		if self.value is not None:
+			return f"return {self.value}"
+		return "return"
+
+
+@dataclass
+class IRParam(IRInstruction):
+	"""Push a parameter for an upcoming call."""
+	value: IRValue
+
+	def __str__(self) -> str:
+		return f"param {self.value}"
+
+
+@dataclass
+class IRAlloc(IRInstruction):
+	"""Stack allocation: dest = alloc size bytes."""
+	dest: IRTemp
+	size: int
+
+	def __str__(self) -> str:
+		return f"{self.dest} = alloc {self.size}"
+
+
+# ---------------------------------------------------------------------------
+# Program structure
+# ---------------------------------------------------------------------------
+
+@dataclass
+class IRFunction:
+	"""A function in the IR: name, parameters, body, and return type."""
+	name: str
+	params: list[IRTemp]
+	body: list[IRInstruction]
+	return_type: IRType
+
+	def __str__(self) -> str:
+		params_str = ", ".join(str(p) for p in self.params)
+		header = f"function {self.name}({params_str}) -> {self.return_type.name}"
+		lines = [header]
+		for instr in self.body:
+			lines.append(f"  {instr}")
+		return "\n".join(lines)
+
+
+@dataclass
+class IRProgram:
+	"""Top-level container: a list of IR functions."""
+	functions: list[IRFunction] = field(default_factory=list)
+
+	def __str__(self) -> str:
+		return "\n\n".join(str(f) for f in self.functions)
