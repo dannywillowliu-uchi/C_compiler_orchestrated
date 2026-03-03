@@ -1,7 +1,17 @@
 [project]
 name = "c-compiler-orchestrated"
 version = "0.1.0"
-description = "Add your description here"
+description = "A C compiler built from scratch using autonomous AI agents"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100

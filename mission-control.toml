@@ -1,0 +1,84 @@
+[target]
+name = "C_compiler_orchestrated"
+path = "/Users/dannyliu/personal_projects/C_compiler_orchestrated"
+branch = "main"
+objective = """Build a functioning C compiler from scratch in Python. The compiler should take C source code as input and produce x86-64 assembly output.
+
+Implement the standard compiler pipeline:
+1. Lexer/Tokenizer - tokenize C source into tokens
+2. Preprocessor - handle #include, #define, #ifdef etc.
+3. Parser - parse tokens into an AST (support C89/C90 subset at minimum)
+4. Semantic analysis - type checking, symbol table management
+5. IR generation - produce an intermediate representation
+6. Code generation - emit x86-64 assembly from the IR
+
+Start with a minimal subset of C (integers, basic arithmetic, functions, if/else, while/for loops, pointers, arrays, structs) and expand from there. Each phase should have comprehensive tests.
+
+The compiler should be invocable as: python -m compiler input.c -o output.s
+
+Use .venv/bin/python for all Python commands.
+"""
+
+[target.verification]
+command = ".venv/bin/python -m pytest -q && .venv/bin/ruff check src/ tests/"
+timeout = 300
+setup_command = "uv sync --extra dev"
+setup_timeout = 120
+
+[scheduler]
+session_timeout = 3600
+model = "opus"
+
+[scheduler.parallel]
+num_workers = 4
+pool_dir = "/Users/dannyliu/personal_projects/.mc-pool-compiler"
+warm_clones = 4
+
+[scheduler.budget]
+max_per_session_usd = 8.0
+max_per_run_usd = 200.0
+
+[rounds]
+max_rounds = 20
+stall_threshold = 7
+cooldown_between_rounds = 30
+
+[planner]
+max_depth = 1
+max_children_per_node = 4
+budget_per_call_usd = 5.0
+
+[planner.deliberation]
+max_rounds = 1
+critic_model = "haiku"
+
+[continuous]
+max_wall_time_seconds = 86400
+min_ambition_score = 2
+max_replan_attempts = 3
+verify_before_merge = false
+enforce_acceptance_criteria = false
+reconcile_interval = 5
+layer_drain_timeout_base = 5400
+layer_drain_timeout_per_unit = 600
+
+[green_branch]
+working_branch = "mc/working"
+green_branch = "mc/green"
+fixup_max_attempts = 5
+auto_push = true
+push_branch = "main"
+
+[discovery]
+enabled = false
+
+[heartbeat]
+interval = 300
+idle_threshold = 5
+
+[deliberation]
+max_rounds = 1
+critic_model = "haiku"
+
+[backend]
+type = "local"
