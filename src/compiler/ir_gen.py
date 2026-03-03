@@ -477,6 +477,7 @@ class IRGenerator(ASTVisitor):
 		self._emit(IRJump(target=continue_label))
 
 	def visit_compound_assignment(self, node: CompoundAssignment) -> None:
+		arith_op = node.op[:-1] if node.op.endswith("=") else node.op
 		if isinstance(node.target, ArraySubscript):
 			addr = self._compute_array_addr(node.target)
 			# Load current value
@@ -485,7 +486,7 @@ class IRGenerator(ASTVisitor):
 			# Compute new value
 			rhs = self.visit(node.value)
 			result = self._new_temp()
-			self._emit(IRBinOp(dest=result, left=current, op=node.op, right=rhs))
+			self._emit(IRBinOp(dest=result, left=current, op=arith_op, right=rhs))
 			# Store back (recompute address since addr temp may have been clobbered)
 			addr2 = self._compute_array_addr(node.target)
 			self._emit(IRStore(address=addr2, value=result))
@@ -499,7 +500,7 @@ class IRGenerator(ASTVisitor):
 			# Compute new value
 			rhs = self.visit(node.value)
 			result = self._new_temp()
-			self._emit(IRBinOp(dest=result, left=current, op=node.op, right=rhs))
+			self._emit(IRBinOp(dest=result, left=current, op=arith_op, right=rhs))
 			# Write back
 			self._emit(IRCopy(dest=target_temp, source=result))
 
@@ -588,8 +589,11 @@ class IRGenerator(ASTVisitor):
 	def visit_sizeof_expr(self, node: SizeofExpr) -> IRConst:
 		if node.type_operand is not None:
 			ts = node.type_operand
-			if ts.base_type in self._structs and ts.pointer_count == 0:
-				size = self._compute_struct_size(ts.base_type)
+			struct_key = ts.base_type
+			if struct_key.startswith("struct "):
+				struct_key = struct_key[len("struct "):]
+			if struct_key in self._structs and ts.pointer_count == 0:
+				size = self._compute_struct_size(struct_key)
 			else:
 				size = _resolve_size(ts)
 			return IRConst(size)
@@ -674,7 +678,10 @@ class IRGenerator(ASTVisitor):
 		if isinstance(node, Identifier):
 			ts = self._local_types.get(node.name)
 			if ts is not None:
-				return ts.base_type
+				name = ts.base_type
+				if name.startswith("struct "):
+					name = name[len("struct "):]
+				return name
 		return ""
 
 	def _compute_field_offset(self, struct_name: str, field_name: str) -> int:

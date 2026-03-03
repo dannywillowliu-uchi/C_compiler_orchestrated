@@ -647,3 +647,679 @@ class TestPrefixIncrementDecrement:
 		assert "addq" in asm
 		assert "jmp" in asm
 		assert "ret" in asm
+
+
+class TestCompoundAssignment:
+	"""(14) Compound assignment operators: +=, -=, *=, /=, %=."""
+
+	def test_plus_assign(self) -> None:
+		source = """
+		int f() {
+			int x;
+			x = 10;
+			x += 5;
+			return x;
+		}
+		"""
+		asm = compile_source(source)
+		assert "f:" in asm
+		assert "addq" in asm
+		assert "ret" in asm
+
+	def test_minus_assign(self) -> None:
+		source = """
+		int f() {
+			int x;
+			x = 10;
+			x -= 3;
+			return x;
+		}
+		"""
+		asm = compile_source(source)
+		assert "f:" in asm
+		assert "subq" in asm
+		assert "ret" in asm
+
+	def test_star_assign(self) -> None:
+		source = """
+		int f() {
+			int x;
+			x = 4;
+			x *= 3;
+			return x;
+		}
+		"""
+		asm = compile_source(source)
+		assert "f:" in asm
+		assert "imulq" in asm
+		assert "ret" in asm
+
+	def test_slash_assign(self) -> None:
+		source = """
+		int f() {
+			int x;
+			x = 20;
+			x /= 4;
+			return x;
+		}
+		"""
+		asm = compile_source(source)
+		assert "f:" in asm
+		assert "idivq" in asm
+		assert "ret" in asm
+
+	def test_percent_assign(self) -> None:
+		source = """
+		int f() {
+			int x;
+			x = 17;
+			x %= 5;
+			return x;
+		}
+		"""
+		asm = compile_source(source)
+		assert "f:" in asm
+		assert "idivq" in asm
+		# Modulo result comes from %rdx
+		assert "movq %rdx, %rax" in asm
+		assert "ret" in asm
+
+	def test_compound_assign_in_loop(self) -> None:
+		source = """
+		int f() {
+			int sum;
+			int i;
+			sum = 0;
+			for (i = 1; i <= 5; i = i + 1) {
+				sum += i;
+			}
+			return sum;
+		}
+		"""
+		asm = compile_source(source)
+		assert "f:" in asm
+		assert "addq" in asm
+		assert "jmp" in asm
+		assert "ret" in asm
+
+
+class TestSwitchCaseIntegration:
+	"""(15) Switch/case with multiple cases, default, fallthrough, and break."""
+
+	def test_switch_with_cases_and_default(self) -> None:
+		source = """
+		int f(int x) {
+			switch (x) {
+				case 1: return 10;
+				case 2: return 20;
+				default: return 0;
+			}
+		}
+		"""
+		asm = compile_source(source)
+		assert "f:" in asm
+		# Case comparisons generate == checks
+		assert "sete" in asm
+		# Conditional jumps for case matching
+		assert "jne" in asm
+		# Multiple return paths
+		assert asm.count("ret") >= 3
+
+	def test_switch_with_break(self) -> None:
+		source = """
+		int f(int x) {
+			int result;
+			result = 0;
+			switch (x) {
+				case 1:
+					result = 10;
+					break;
+				case 2:
+					result = 20;
+					break;
+				default:
+					result = 99;
+					break;
+			}
+			return result;
+		}
+		"""
+		asm = compile_source(source)
+		assert "f:" in asm
+		assert "sete" in asm
+		# break generates jumps to switch_end
+		assert asm.count("jmp") >= 3
+		assert "ret" in asm
+
+	def test_switch_without_default(self) -> None:
+		source = """
+		int f(int x) {
+			switch (x) {
+				case 0: return 1;
+				case 1: return 2;
+			}
+			return -1;
+		}
+		"""
+		asm = compile_source(source)
+		assert "f:" in asm
+		assert "sete" in asm
+		assert "jne" in asm
+		assert "ret" in asm
+
+	def test_switch_fallthrough(self) -> None:
+		"""Cases without break fall through to the next case body."""
+		source = """
+		int f(int x) {
+			int r;
+			r = 0;
+			switch (x) {
+				case 1:
+					r = r + 10;
+				case 2:
+					r = r + 20;
+					break;
+				default:
+					r = 99;
+					break;
+			}
+			return r;
+		}
+		"""
+		asm = compile_source(source)
+		assert "f:" in asm
+		# Case labels present
+		assert "case" in asm.lower() or "sete" in asm
+		assert "ret" in asm
+
+
+class TestTernaryExpression:
+	"""(16) Ternary conditional expressions."""
+
+	def test_ternary_in_return(self) -> None:
+		source = "int f(int x) { return x > 0 ? 1 : -1; }"
+		asm = compile_source(source)
+		assert "f:" in asm
+		# Condition comparison
+		assert "cmpq" in asm
+		# Conditional jump for ternary
+		assert "jne" in asm
+		# Both branches present
+		assert "$1" in asm
+		assert "negq" in asm
+		assert "ret" in asm
+
+	def test_ternary_in_assignment(self) -> None:
+		source = """
+		int f(int a, int b) {
+			int max;
+			max = a > b ? a : b;
+			return max;
+		}
+		"""
+		asm = compile_source(source)
+		assert "f:" in asm
+		assert "cmpq" in asm
+		assert "jne" in asm
+		assert "jmp" in asm
+		assert "ret" in asm
+
+	def test_nested_ternary(self) -> None:
+		source = """
+		int classify(int x) {
+			return x > 0 ? 1 : (x < 0 ? -1 : 0);
+		}
+		"""
+		asm = compile_source(source)
+		assert "classify:" in asm
+		# Multiple ternary branches produce multiple cmpq and jne
+		assert asm.count("jne") >= 2
+		assert "ret" in asm
+
+	def test_ternary_with_expressions(self) -> None:
+		source = """
+		int f(int a, int b) {
+			return a > b ? a + b : a - b;
+		}
+		"""
+		asm = compile_source(source)
+		assert "f:" in asm
+		assert "addq" in asm
+		assert "subq" in asm
+		assert "ret" in asm
+
+
+class TestStructMemberAccess:
+	"""(17) Struct definition, dot access, and member offset computation."""
+
+	def test_struct_first_field(self) -> None:
+		source = """
+		struct Point {
+			int x;
+			int y;
+		};
+		int f() {
+			struct Point p;
+			return p.x;
+		}
+		"""
+		asm = compile_source(source)
+		assert "f:" in asm
+		# First field offset is 0
+		assert "$0" in asm
+		# Load from computed address
+		assert "movq (%rax), %rax" in asm
+		assert "ret" in asm
+
+	def test_struct_second_field_offset(self) -> None:
+		source = """
+		struct Point {
+			int x;
+			int y;
+		};
+		int f() {
+			struct Point p;
+			return p.y;
+		}
+		"""
+		asm = compile_source(source)
+		assert "f:" in asm
+		# Second field: offset 4 (int x is 4 bytes)
+		assert "$4" in asm
+		assert "addq" in asm
+		assert "movq (%rax), %rax" in asm
+		assert "ret" in asm
+
+	def test_struct_arrow_access(self) -> None:
+		source = """
+		struct Pair {
+			int a;
+			int b;
+		};
+		int f(struct Pair *p) {
+			return p->a;
+		}
+		"""
+		asm = compile_source(source)
+		assert "f:" in asm
+		# Arrow access on first field, offset 0
+		assert "$0" in asm
+		assert "movq (%rax), %rax" in asm
+		assert "ret" in asm
+
+	def test_struct_arrow_second_field(self) -> None:
+		source = """
+		struct Pair {
+			int a;
+			int b;
+		};
+		int f(struct Pair *p) {
+			return p->b;
+		}
+		"""
+		asm = compile_source(source)
+		assert "f:" in asm
+		# Second field offset = 4
+		assert "$4" in asm
+		assert "addq" in asm
+		assert "movq (%rax), %rax" in asm
+		assert "ret" in asm
+
+	def test_struct_allocation(self) -> None:
+		source = """
+		struct RGB {
+			int r;
+			int g;
+			int b;
+		};
+		int f() {
+			struct RGB c;
+			return c.r;
+		}
+		"""
+		asm = compile_source(source)
+		assert "f:" in asm
+		# Struct allocated on stack via subq
+		assert "subq" in asm
+		assert "ret" in asm
+
+
+class TestPostfixOperators:
+	"""(18) Postfix ++ and -- with old-value-returned semantics."""
+
+	def test_postfix_increment_returns_old(self) -> None:
+		source = """
+		int f() {
+			int x;
+			int y;
+			x = 5;
+			y = x++;
+			return y;
+		}
+		"""
+		asm = compile_source(source)
+		assert "f:" in asm
+		# Increment generates addq with $1
+		assert "addq" in asm
+		assert "$1" in asm
+		assert "ret" in asm
+
+	def test_postfix_decrement(self) -> None:
+		source = """
+		int f() {
+			int x;
+			x = 10;
+			x--;
+			return x;
+		}
+		"""
+		asm = compile_source(source)
+		assert "f:" in asm
+		assert "subq" in asm
+		assert "$1" in asm
+		assert "ret" in asm
+
+	def test_postfix_in_loop(self) -> None:
+		source = """
+		int f() {
+			int i;
+			int s;
+			s = 0;
+			for (i = 0; i < 5; i++) {
+				s = s + i;
+			}
+			return s;
+		}
+		"""
+		asm = compile_source(source)
+		assert "f:" in asm
+		assert "addq" in asm
+		assert "jmp" in asm
+		assert "ret" in asm
+
+	def test_postfix_on_array_element(self) -> None:
+		source = """
+		int f() {
+			int arr[3];
+			arr[0] = 10;
+			arr[0]++;
+			return arr[0];
+		}
+		"""
+		asm = compile_source(source)
+		assert "f:" in asm
+		# Array element postfix: load, increment, store
+		assert "addq" in asm
+		assert "ret" in asm
+
+	def test_postfix_increment_and_decrement(self) -> None:
+		source = """
+		int f() {
+			int a;
+			int b;
+			a = 5;
+			b = 10;
+			a++;
+			b--;
+			return a + b;
+		}
+		"""
+		asm = compile_source(source)
+		assert "f:" in asm
+		assert "addq" in asm
+		assert "subq" in asm
+		assert "ret" in asm
+
+
+class TestBitwiseOperators:
+	"""(19) Bitwise operators: &, |, ^, <<, >>."""
+
+	def test_bitwise_and(self) -> None:
+		source = "int f() { return 0xFF & 0x0F; }"
+		asm = compile_source(source)
+		assert "f:" in asm
+		assert "andq" in asm
+		assert "ret" in asm
+
+	def test_bitwise_or(self) -> None:
+		source = "int f() { return 0xF0 | 0x0F; }"
+		asm = compile_source(source)
+		assert "f:" in asm
+		assert "orq" in asm
+		assert "ret" in asm
+
+	def test_bitwise_xor(self) -> None:
+		source = "int f() { return 0xFF ^ 0x0F; }"
+		asm = compile_source(source)
+		assert "f:" in asm
+		assert "xorq" in asm
+		assert "ret" in asm
+
+	def test_left_shift(self) -> None:
+		source = "int f() { return 1 << 4; }"
+		asm = compile_source(source)
+		assert "f:" in asm
+		assert "salq" in asm
+		assert "ret" in asm
+
+	def test_right_shift(self) -> None:
+		source = "int f() { return 128 >> 3; }"
+		asm = compile_source(source)
+		assert "f:" in asm
+		assert "sarq" in asm
+		assert "ret" in asm
+
+	def test_bitwise_in_expression(self) -> None:
+		source = """
+		int f(int a, int b) {
+			return (a & b) | (a ^ b);
+		}
+		"""
+		asm = compile_source(source)
+		assert "f:" in asm
+		assert "andq" in asm
+		assert "orq" in asm
+		assert "xorq" in asm
+		assert "ret" in asm
+
+	def test_shift_in_expression(self) -> None:
+		source = """
+		int f(int x) {
+			return (x << 2) + (x >> 1);
+		}
+		"""
+		asm = compile_source(source)
+		assert "f:" in asm
+		assert "salq" in asm
+		assert "sarq" in asm
+		assert "addq" in asm
+		assert "ret" in asm
+
+
+class TestNestedControlFlow:
+	"""(20) Nested control flow: loops inside loops, if inside switch, etc."""
+
+	def test_for_inside_while(self) -> None:
+		source = """
+		int f() {
+			int total;
+			int i;
+			int j;
+			total = 0;
+			i = 0;
+			while (i < 3) {
+				for (j = 0; j < 3; j = j + 1) {
+					total = total + 1;
+				}
+				i = i + 1;
+			}
+			return total;
+		}
+		"""
+		asm = compile_source(source)
+		assert "f:" in asm
+		# Multiple loop constructs produce multiple cmpq and jmp
+		assert asm.count("cmpq") >= 2
+		assert asm.count("jmp") >= 2
+		assert "addq" in asm
+		assert "ret" in asm
+
+	def test_if_inside_for(self) -> None:
+		source = """
+		int count_positive(int a, int b, int c) {
+			int arr[3];
+			int count;
+			int i;
+			arr[0] = a;
+			arr[1] = b;
+			arr[2] = c;
+			count = 0;
+			for (i = 0; i < 3; i = i + 1) {
+				if (arr[i] > 0) {
+					count = count + 1;
+				}
+			}
+			return count;
+		}
+		"""
+		asm = compile_source(source)
+		assert "count_positive:" in asm
+		assert "cmpq" in asm
+		assert "jne" in asm
+		assert "jmp" in asm
+		assert "ret" in asm
+
+	def test_nested_if_else_chain(self) -> None:
+		source = """
+		int classify(int x) {
+			if (x > 100) {
+				return 3;
+			} else {
+				if (x > 10) {
+					return 2;
+				} else {
+					if (x > 0) {
+						return 1;
+					} else {
+						return 0;
+					}
+				}
+			}
+		}
+		"""
+		asm = compile_source(source)
+		assert "classify:" in asm
+		assert asm.count("cmpq") >= 3
+		assert asm.count("ret") >= 4
+		assert "jne" in asm
+
+	def test_while_with_break_and_continue(self) -> None:
+		source = """
+		int f() {
+			int i;
+			int sum;
+			i = 0;
+			sum = 0;
+			while (i < 100) {
+				i = i + 1;
+				if (i > 10) {
+					break;
+				}
+				sum = sum + i;
+			}
+			return sum;
+		}
+		"""
+		asm = compile_source(source)
+		assert "f:" in asm
+		# break generates jmp to loop end
+		assert asm.count("jmp") >= 2
+		assert "cmpq" in asm
+		assert "addq" in asm
+		assert "ret" in asm
+
+
+class TestDoWhileLoop:
+	"""(21) Do-while loops with basic usage, break, and continue."""
+
+	def test_basic_do_while(self) -> None:
+		source = """
+		int f() {
+			int x;
+			x = 0;
+			do {
+				x = x + 1;
+			} while (x < 5);
+			return x;
+		}
+		"""
+		asm = compile_source(source)
+		assert "f:" in asm
+		# Body label appears before condition check
+		assert "do_body" in asm
+		assert "do_cond" in asm
+		# Condition check jumps back to body
+		assert "jne" in asm
+		assert "addq" in asm
+		assert "ret" in asm
+
+	def test_do_while_single_iteration(self) -> None:
+		"""Do-while always executes body at least once."""
+		source = """
+		int f() {
+			int x;
+			x = 100;
+			do {
+				x = x + 1;
+			} while (x < 5);
+			return x;
+		}
+		"""
+		asm = compile_source(source)
+		assert "f:" in asm
+		assert "do_body" in asm
+		assert "do_cond" in asm
+		assert "addq" in asm
+		assert "ret" in asm
+
+	def test_do_while_with_break(self) -> None:
+		source = """
+		int f() {
+			int x;
+			x = 0;
+			do {
+				x = x + 1;
+				if (x > 3) {
+					break;
+				}
+			} while (x < 10);
+			return x;
+		}
+		"""
+		asm = compile_source(source)
+		assert "f:" in asm
+		assert "do_body" in asm
+		# break jumps to do_end
+		assert "do_end" in asm
+		assert asm.count("jmp") >= 2
+		assert "ret" in asm
+
+	def test_do_while_accumulator(self) -> None:
+		source = """
+		int f(int n) {
+			int sum;
+			sum = 0;
+			do {
+				sum = sum + n;
+				n = n - 1;
+			} while (n > 0);
+			return sum;
+		}
+		"""
+		asm = compile_source(source)
+		assert "f:" in asm
+		assert "addq" in asm
+		assert "subq" in asm
+		assert "do_body" in asm
+		assert "do_cond" in asm
+		assert "ret" in asm
