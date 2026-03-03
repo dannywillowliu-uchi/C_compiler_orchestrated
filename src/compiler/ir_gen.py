@@ -8,6 +8,7 @@ from compiler.ast_nodes import (
 	Assignment,
 	BinaryOp,
 	BreakStmt,
+	CaseClause,
 	CharLiteral,
 	CompoundAssignment,
 	CompoundStmt,
@@ -20,10 +21,17 @@ from compiler.ast_nodes import (
 	Identifier,
 	IfStmt,
 	IntLiteral,
+	MemberAccess,
 	ParamDecl,
+	PostfixExpr,
 	Program,
 	ReturnStmt,
+	SizeofExpr,
 	StringLiteral,
+	StructDecl,
+	StructMember,
+	SwitchStmt,
+	TernaryExpr,
 	TypeSpec,
 	UnaryOp,
 	VarDecl,
@@ -87,6 +95,7 @@ class IRGenerator(ASTVisitor):
 		self._local_array: dict[str, list[int]] = {}
 		self._functions: list[IRFunction] = []
 		self._loop_stack: list[tuple[str, str]] = []  # (continue_label, break_label)
+		self._structs: dict[str, list[StructMember]] = {}  # struct name -> members
 
 	# ------------------------------------------------------------------
 	# Helpers
@@ -485,3 +494,175 @@ class IRGenerator(ASTVisitor):
 
 	def visit_type_spec(self, node: TypeSpec) -> None:
 		pass
+
+	# ------------------------------------------------------------------
+	# Switch / Case
+	# ------------------------------------------------------------------
+
+	def visit_switch_stmt(self, node: SwitchStmt) -> None:
+		expr_val = self.visit(node.expression)
+		end_label = self._new_label("switch_end")
+
+		# Push switch onto loop stack so break jumps to end_label
+		self._loop_stack.append((end_label, end_label))
+
+		# Build case labels and default label
+		case_labels: list[tuple[CaseClause, str]] = []
+		default_label: str | None = None
+		for clause in node.cases:
+			lbl = self._new_label("case")
+			if clause.value is None:
+				default_label = lbl
+			case_labels.append((clause, lbl))
+
+		# Emit jump table: compare expr to each case value
+		for clause, lbl in case_labels:
+			if clause.value is not None:
+				case_val = self.visit(clause.value)
+				cmp = self._new_temp()
+				self._emit(IRBinOp(dest=cmp, left=expr_val, op="==", right=case_val))
+				next_check = self._new_label("case_check")
+				self._emit(IRCondJump(condition=cmp, true_label=lbl, false_label=next_check))
+				self._emit(IRLabelInstr(name=next_check))
+
+		# After all checks, jump to default or end
+		if default_label is not None:
+			self._emit(IRJump(target=default_label))
+		else:
+			self._emit(IRJump(target=end_label))
+
+		# Emit case bodies (fallthrough by default, break exits)
+		for clause, lbl in case_labels:
+			self._emit(IRLabelInstr(name=lbl))
+			for stmt in clause.statements:
+				self.visit(stmt)
+
+		self._emit(IRLabelInstr(name=end_label))
+		self._loop_stack.pop()
+
+	def visit_case_clause(self, node: CaseClause) -> None:
+		# Case clauses are handled inline by visit_switch_stmt
+		pass
+
+	# ------------------------------------------------------------------
+	# Ternary expression
+	# ------------------------------------------------------------------
+
+	def visit_ternary_expr(self, node: TernaryExpr) -> IRTemp:
+		cond = self.visit(node.condition)
+		result = self._new_temp()
+		true_label = self._new_label("tern_true")
+		false_label = self._new_label("tern_false")
+		end_label = self._new_label("tern_end")
+
+		self._emit(IRCondJump(condition=cond, true_label=true_label, false_label=false_label))
+
+		self._emit(IRLabelInstr(name=true_label))
+		true_val = self.visit(node.true_expr)
+		self._emit(IRCopy(dest=result, source=true_val))
+		self._emit(IRJump(target=end_label))
+
+		self._emit(IRLabelInstr(name=false_label))
+		false_val = self.visit(node.false_expr)
+		self._emit(IRCopy(dest=result, source=false_val))
+		self._emit(IRJump(target=end_label))
+
+		self._emit(IRLabelInstr(name=end_label))
+		return result
+
+	# ------------------------------------------------------------------
+	# Sizeof expression
+	# ------------------------------------------------------------------
+
+	def visit_sizeof_expr(self, node: SizeofExpr) -> IRConst:
+		if node.type_operand is not None:
+			ts = node.type_operand
+			if ts.base_type in self._structs and ts.pointer_count == 0:
+				size = self._compute_struct_size(ts.base_type)
+			else:
+				size = _resolve_size(ts)
+			return IRConst(size)
+		# sizeof(expr) -- compute based on expression type heuristic
+		# For simplicity, default to 4 (int-sized)
+		return IRConst(4)
+
+	def _compute_struct_size(self, name: str) -> int:
+		members = self._structs.get(name, [])
+		total = 0
+		for m in members:
+			total += _resolve_size(m.type_spec)
+		return total
+
+	# ------------------------------------------------------------------
+	# Postfix increment/decrement
+	# ------------------------------------------------------------------
+
+	def visit_postfix_expr(self, node: PostfixExpr) -> IRTemp:
+		# Load current value (this is the result -- old value)
+		if isinstance(node.operand, Identifier):
+			target = self._locals.get(node.operand.name)
+			if target is not None:
+				old_val = self._new_temp()
+				self._emit(IRCopy(dest=old_val, source=target))
+				new_val = self._new_temp()
+				delta_op = "+" if node.op == "++" else "-"
+				self._emit(IRBinOp(dest=new_val, left=old_val, op=delta_op, right=IRConst(1)))
+				self._emit(IRCopy(dest=target, source=new_val))
+				return old_val
+		if isinstance(node.operand, ArraySubscript):
+			addr = self._compute_array_addr(node.operand)
+			old_val = self._new_temp()
+			self._emit(IRLoad(dest=old_val, address=addr))
+			new_val = self._new_temp()
+			delta_op = "+" if node.op == "++" else "-"
+			self._emit(IRBinOp(dest=new_val, left=old_val, op=delta_op, right=IRConst(1)))
+			addr2 = self._compute_array_addr(node.operand)
+			self._emit(IRStore(address=addr2, value=new_val))
+			return old_val
+		# Fallback: evaluate operand, compute new val (side effect may be lost)
+		operand = self.visit(node.operand)
+		old_val = self._new_temp()
+		self._emit(IRCopy(dest=old_val, source=operand))
+		new_val = self._new_temp()
+		delta_op = "+" if node.op == "++" else "-"
+		self._emit(IRBinOp(dest=new_val, left=old_val, op=delta_op, right=IRConst(1)))
+		return old_val
+
+	# ------------------------------------------------------------------
+	# Struct declarations and member access
+	# ------------------------------------------------------------------
+
+	def visit_struct_decl(self, node: StructDecl) -> None:
+		self._structs[node.name] = list(node.members)
+
+	def visit_member_access(self, node: MemberAccess) -> IRTemp:
+		base = self.visit(node.object)
+
+		# If arrow access, base is already a pointer -- use it directly
+		# If dot access, base is the struct value (its address in our IR)
+		# In both cases, compute offset and add to base
+		struct_name = self._resolve_struct_name(node.object)
+		offset = self._compute_field_offset(struct_name, node.member)
+
+		addr = self._new_temp()
+		self._emit(IRBinOp(dest=addr, left=base, op="+", right=IRConst(offset)))
+		dest = self._new_temp()
+		self._emit(IRLoad(dest=dest, address=addr))
+		return dest
+
+	def _resolve_struct_name(self, node: object) -> str:
+		"""Try to determine the struct type name from an AST node."""
+		if isinstance(node, Identifier):
+			ts = self._local_types.get(node.name)
+			if ts is not None:
+				return ts.base_type
+		return ""
+
+	def _compute_field_offset(self, struct_name: str, field_name: str) -> int:
+		members = self._structs.get(struct_name, [])
+		offset = 0
+		for m in members:
+			if m.name == field_name:
+				return offset
+			offset += _resolve_size(m.type_spec)
+		return offset
