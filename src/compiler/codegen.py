@@ -5,6 +5,7 @@ from __future__ import annotations
 import struct
 
 from compiler.ir import (
+	IRAddrOf,
 	IRAlloc,
 	IRBinOp,
 	IRCall,
@@ -355,6 +356,9 @@ class CodeGenerator:
 				self._collect_value_temp(instr.value, temps)
 		elif isinstance(instr, IRParam):
 			self._collect_value_temp(instr.value, temps)
+		elif isinstance(instr, IRAddrOf):
+			temps.add(instr.dest.name)
+			temps.add(instr.source.name)
 		elif isinstance(instr, IRAlloc):
 			temps.add(instr.dest.name)
 		elif isinstance(instr, IRCondJump):
@@ -495,6 +499,8 @@ class CodeGenerator:
 				self._gen_float_return(instr)
 			else:
 				self._gen_return(instr)
+		elif isinstance(instr, IRAddrOf):
+			self._gen_addr_of(instr)
 		elif isinstance(instr, IRAlloc):
 			self._gen_alloc(instr)
 		elif isinstance(instr, IRConvert):
@@ -695,6 +701,11 @@ class CodeGenerator:
 		aligned = self._align16(instr.size)
 		self._emit_instr(f"subq ${aligned}, %rsp")
 		self._emit_instr("movq %rsp, %rax")
+		self._store_to_temp("%rax", instr.dest)
+
+	def _gen_addr_of(self, instr: IRAddrOf) -> None:
+		offset = self._get_offset(instr.source.name)
+		self._emit_instr(f"leaq {offset}(%rbp), %rax")
 		self._store_to_temp("%rax", instr.dest)
 
 	# ------------------------------------------------------------------

@@ -270,6 +270,16 @@ class IRConvert(IRInstruction):
 
 
 @dataclass
+class IRAddrOf(IRInstruction):
+	"""dest = &source (take address of a stack-allocated variable)."""
+	dest: IRTemp
+	source: IRTemp
+
+	def __str__(self) -> str:
+		return f"{self.dest} = &{self.source}"
+
+
+@dataclass
 class IRAlloc(IRInstruction):
 	"""Stack allocation: dest = alloc size bytes."""
 	dest: IRTemp

@@ -5,6 +5,7 @@ elimination, and loop-invariant code motion."""
 from __future__ import annotations
 
 from compiler.ir import (
+	IRAddrOf,
 	IRAlloc,
 	IRBinOp,
 	IRCall,
@@ -564,7 +565,7 @@ class IROptimizer:
 
 	def _get_dest(self, instr: IRInstruction) -> IRTemp | None:
 		"""Return the destination temp written by an instruction, if any."""
-		if isinstance(instr, (IRBinOp, IRUnaryOp, IRCopy, IRLoad, IRAlloc, IRConvert)):
+		if isinstance(instr, (IRAddrOf, IRBinOp, IRUnaryOp, IRCopy, IRLoad, IRAlloc, IRConvert)):
 			return instr.dest
 		if isinstance(instr, IRCall):
 			return instr.dest
@@ -572,6 +573,8 @@ class IROptimizer:
 
 	def _get_uses(self, instr: IRInstruction) -> list[IRValue]:
 		"""Return all values read by an instruction."""
+		if isinstance(instr, IRAddrOf):
+			return [instr.source]
 		if isinstance(instr, IRBinOp):
 			return [instr.left, instr.right]
 		if isinstance(instr, IRUnaryOp):

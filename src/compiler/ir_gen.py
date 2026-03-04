@@ -49,6 +49,7 @@ from compiler.ast_nodes import (
 	WhileStmt,
 )
 from compiler.ir import (
+	IRAddrOf,
 	IRAlloc,
 	IRBinOp,
 	IRCall,
@@ -467,6 +468,8 @@ class IRGenerator(ASTVisitor):
 		else:
 			var_ir_type = _resolve_ir_type(node.type_spec)
 		self._set_temp_type(dest, var_ir_type)
+		if var_ir_type == IRType.POINTER and node.type_spec.pointer_count > 0:
+			self._temp_pointee_size[dest.name] = self._pointee_size_from_type(node.type_spec)
 		if node.array_sizes is not None and len(node.array_sizes) > 0:
 			element_size = _resolve_size(node.type_spec)
 			total_elements = 1
@@ -742,14 +745,32 @@ class IRGenerator(ASTVisitor):
 				self._set_temp_type(dest, IRType.POINTER)
 				self._emit(IRCopy(dest=dest, source=IRGlobalRef(mangled), ir_type=IRType.POINTER))
 				return dest
-			# Address-of: return the stack address of the variable
+			# Address-of: emit IRAddrOf to get the stack address of the variable
 			if isinstance(node.operand, Identifier):
 				src = self._locals.get(node.operand.name)
 				if src is not None:
+					dest = self._new_temp()
+					self._set_temp_type(dest, IRType.POINTER)
 					ts = self._local_types.get(node.operand.name)
 					if ts is not None:
-						self._temp_pointee_size[src.name] = self._resolve_member_size(ts)
-					return src
+						self._temp_pointee_size[dest.name] = self._resolve_member_size(ts)
+					self._emit(IRAddrOf(dest=dest, source=src))
+					return dest
+			# Address-of array subscript: return the computed address without loading
+			if isinstance(node.operand, ArraySubscript):
+				addr = self._compute_array_addr(node.operand)
+				dest = self._new_temp()
+				self._set_temp_type(dest, IRType.POINTER)
+				self._emit(IRCopy(dest=dest, source=addr, ir_type=IRType.POINTER))
+				# Determine pointee size from array base
+				base = node.operand
+				while isinstance(base, ArraySubscript):
+					base = base.array
+				if isinstance(base, Identifier):
+					ts = self._local_types.get(base.name)
+					if ts is not None:
+						self._temp_pointee_size[dest.name] = self._resolve_member_size(ts)
+				return dest
 			operand = self.visit(node.operand)
 			return operand
 		if node.op in ("++", "--"):
