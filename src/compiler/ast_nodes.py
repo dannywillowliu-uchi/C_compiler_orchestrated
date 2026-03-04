@@ -163,6 +163,9 @@ class TypeSpec(ASTNode):
 	qualifiers: list[str] = field(default_factory=list)
 	signedness: str | None = None
 	width_modifier: str | None = None
+	is_function_pointer: bool = False
+	func_ptr_return_type: TypeSpec | None = None
+	func_ptr_params: list[TypeSpec] = field(default_factory=list)
 
 	def accept(self, visitor: ASTVisitor) -> Any:
 		return visitor.visit_type_spec(self)

@@ -264,6 +264,8 @@ class CodeGenerator:
 				temps.add(instr.dest.name)
 			for arg in instr.args:
 				self._collect_value_temp(arg, temps)
+			if instr.func_value is not None:
+				self._collect_value_temp(instr.func_value, temps)
 		elif isinstance(instr, IRReturn):
 			if instr.value is not None:
 				self._collect_value_temp(instr.value, temps)
@@ -525,7 +527,11 @@ class CodeGenerator:
 		for idx, (_, arg) in enumerate(int_args[:len(_ARG_REGS)]):
 			self._load_value(arg, _ARG_REGS[idx])
 
-		self._emit_instr(f"call {instr.function_name}")
+		if instr.indirect and instr.func_value is not None:
+			self._load_value(instr.func_value, "%rax")
+			self._emit_instr("call *%rax")
+		else:
+			self._emit_instr(f"call {instr.function_name}")
 
 		if num_stack_args > 0:
 			cleanup = num_stack_args * 8

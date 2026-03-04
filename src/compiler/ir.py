@@ -182,12 +182,18 @@ class IRCall(IRInstruction):
 	args: list[IRValue] = field(default_factory=list)
 	arg_types: list[IRType] = field(default_factory=list)
 	return_type: IRType = IRType.INT
+	indirect: bool = False
+	func_value: Optional[IRValue] = None
 
 	def __str__(self) -> str:
 		args_str = ", ".join(str(a) for a in self.args)
+		if self.indirect and self.func_value is not None:
+			target = f"*{self.func_value}"
+		else:
+			target = self.function_name
 		if self.dest is not None:
-			return f"{self.dest} = call {self.function_name}({args_str})"
-		return f"call {self.function_name}({args_str})"
+			return f"{self.dest} = call {target}({args_str})"
+		return f"call {target}({args_str})"
 
 
 @dataclass
