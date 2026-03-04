@@ -666,12 +666,11 @@ class TestEdgeCases:
 		toks = tokenize("a >>= 1")
 		assert toks[1].type == TokenType.RSHIFT_ASSIGN
 
-	def test_multiple_strings(self) -> None:
+	def test_multiple_strings_concatenated(self) -> None:
 		toks = tokenize('"a" "b"')
 		str_toks = [t for t in toks if t.type == TokenType.STRING_LITERAL]
-		assert len(str_toks) == 2
-		assert str_toks[0].value == '"a"'
-		assert str_toks[1].value == '"b"'
+		assert len(str_toks) == 1
+		assert str_toks[0].value == '"ab"'
 
 	def test_hash_in_source(self) -> None:
 		toks = tokenize("#include")
@@ -704,6 +703,114 @@ class TestEdgeCases:
 
 
 # ── Acceptance criteria ──────────────────────────────────────────────────────
+
+
+# ── String Literal Concatenation (C standard phase 6) ────────────────────────
+
+
+class TestStringConcatenation:
+	def test_simple_concatenation(self) -> None:
+		tok = first_token('"hello" " " "world"')
+		assert tok.type == TokenType.STRING_LITERAL
+		assert tok.value == '"hello world"'
+
+	def test_two_strings(self) -> None:
+		tok = first_token('"foo" "bar"')
+		assert tok.value == '"foobar"'
+
+	def test_concatenation_across_whitespace(self) -> None:
+		tok = first_token('"a"   "b"')
+		assert tok.value == '"ab"'
+
+	def test_concatenation_across_newlines(self) -> None:
+		tok = first_token('"a"\n"b"')
+		assert tok.value == '"ab"'
+
+	def test_concatenation_across_mixed_whitespace(self) -> None:
+		tok = first_token('"a" \t\n  "b"')
+		assert tok.value == '"ab"'
+
+	def test_single_string_no_op(self) -> None:
+		tok = first_token('"hello"')
+		assert tok.value == '"hello"'
+
+	def test_empty_string_concatenation(self) -> None:
+		tok = first_token('"" ""')
+		assert tok.value == '""'
+
+	def test_empty_plus_nonempty(self) -> None:
+		tok = first_token('"" "hello"')
+		assert tok.value == '"hello"'
+
+	def test_nonempty_plus_empty(self) -> None:
+		tok = first_token('"hello" ""')
+		assert tok.value == '"hello"'
+
+	def test_three_strings(self) -> None:
+		tok = first_token('"a" "b" "c"')
+		assert tok.value == '"abc"'
+
+	def test_preserves_first_token_position(self) -> None:
+		toks = tokenize('x = "a" "b";')
+		str_tok = [t for t in toks if t.type == TokenType.STRING_LITERAL][0]
+		assert str_tok.value == '"ab"'
+		assert str_tok.column == 5
+
+	def test_concatenation_with_escape_newline(self) -> None:
+		tok = first_token(r'"hello\n" "world"')
+		assert tok.value == r'"hello\nworld"'
+
+	def test_concatenation_with_escape_tab(self) -> None:
+		tok = first_token(r'"a\t" "b"')
+		assert tok.value == r'"a\tb"'
+
+	def test_concatenation_with_escape_null(self) -> None:
+		tok = first_token(r'"a\0" "b"')
+		assert tok.value == r'"a\0b"'
+
+	def test_concatenation_with_escape_backslash(self) -> None:
+		tok = first_token(r'"a\\" "b"')
+		assert tok.value == r'"a\\b"'
+
+	def test_concatenation_with_escaped_quote(self) -> None:
+		tok = first_token(r'"a\"" "b"')
+		assert tok.value == r'"a\"b"'
+
+	def test_concatenation_with_escape_single_quote(self) -> None:
+		tok = first_token(r'"a\'" "b"')
+		assert tok.value == r'"a\'b"'
+
+	def test_concatenation_with_hex_escape(self) -> None:
+		tok = first_token(r'"a\x41" "b"')
+		assert tok.value == r'"a\x41b"'
+
+	def test_concatenation_with_octal_escape(self) -> None:
+		tok = first_token(r'"a\101" "b"')
+		assert tok.value == r'"a\101b"'
+
+	def test_concatenation_with_escape_r(self) -> None:
+		tok = first_token(r'"a\r" "b"')
+		assert tok.value == r'"a\rb"'
+
+	def test_mixed_escapes_across_parts(self) -> None:
+		tok = first_token(r'"hello\n" "\tworld\0"')
+		assert tok.value == r'"hello\n\tworld\0"'
+
+	def test_non_adjacent_strings_not_concatenated(self) -> None:
+		toks = tokenize('"a" , "b"')
+		str_toks = [t for t in toks if t.type == TokenType.STRING_LITERAL]
+		assert len(str_toks) == 2
+		assert str_toks[0].value == '"a"'
+		assert str_toks[1].value == '"b"'
+
+	def test_string_in_expression_context(self) -> None:
+		toks = tokenize('printf("hello" " " "world");')
+		str_tok = [t for t in toks if t.type == TokenType.STRING_LITERAL][0]
+		assert str_tok.value == '"hello world"'
+
+	def test_token_count_after_concatenation(self) -> None:
+		toks = tokenize('"a" "b" "c"')
+		assert len(toks) == 2  # one STRING_LITERAL + EOF
 
 
 class TestAcceptanceCriteria:

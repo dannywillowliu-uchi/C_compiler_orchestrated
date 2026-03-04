@@ -374,8 +374,37 @@ class Lexer:
 			# Operators and punctuation
 			self.tokens.append(self._read_operator_or_punctuation())
 
+		self.tokens = self._concatenate_string_literals(self.tokens)
 		self.tokens.append(self._make_token(TokenType.EOF, "", self.line, self.column))
 		return self.tokens
+
+	@staticmethod
+	def _concatenate_string_literals(tokens: list[Token]) -> list[Token]:
+		"""Merge adjacent STRING_LITERAL tokens (C standard phase 6)."""
+		if not tokens:
+			return tokens
+		result: list[Token] = []
+		i = 0
+		while i < len(tokens):
+			if tokens[i].type != TokenType.STRING_LITERAL:
+				result.append(tokens[i])
+				i += 1
+				continue
+			# Collect run of consecutive string literals
+			first = tokens[i]
+			parts = [first.value[1:-1]]  # strip quotes
+			i += 1
+			while i < len(tokens) and tokens[i].type == TokenType.STRING_LITERAL:
+				parts.append(tokens[i].value[1:-1])
+				i += 1
+			merged_value = '"' + "".join(parts) + '"'
+			result.append(Token(
+				type=TokenType.STRING_LITERAL,
+				value=merged_value,
+				line=first.line,
+				column=first.column,
+			))
+		return result
 
 	def _read_number_starting_with_dot(self) -> Token:
 		"""Handle floats that start with a dot like .5, .123e10."""
