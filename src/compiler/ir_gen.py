@@ -2009,15 +2009,27 @@ class IRGenerator(ASTVisitor):
 		return dest
 
 	def visit_cast_expr(self, node: CastExpr) -> IRTemp:
-		"""Handle casts, including int<->float conversions."""
+		"""Handle casts, including int<->float and integer narrowing conversions."""
 		val = self.visit(node.operand)
 		val_type = self._value_ir_type(val)
-		target_ir_type = _resolve_ir_type(node.target_type)
+		target_type = node.target_type
+		target_ir_type = _resolve_ir_type(target_type)
 		dest = self._new_temp()
 		self._set_temp_type(dest, target_ir_type)
+		# Track pointee size for pointer casts (e.g., (int*) means pointee size 4)
+		if target_ir_type == IRType.POINTER:
+			pointee_ts = TypeSpec(
+				base_type=target_type.base_type,
+				pointer_count=target_type.pointer_count - 1,
+				width_modifier=target_type.width_modifier,
+			)
+			self._temp_pointee_size[dest.name] = self._resolve_member_size(pointee_ts)
 		if self._is_float_type(target_ir_type) != self._is_float_type(val_type):
 			self._emit(IRConvert(dest=dest, source=val, from_type=val_type, to_type=target_ir_type))
 		elif self._is_float_type(target_ir_type) and self._is_float_type(val_type) and target_ir_type != val_type:
+			self._emit(IRConvert(dest=dest, source=val, from_type=val_type, to_type=target_ir_type))
+		elif target_ir_type != val_type and not self._is_float_type(target_ir_type):
+			# Integer narrowing/widening: use IRConvert for proper truncation
 			self._emit(IRConvert(dest=dest, source=val, from_type=val_type, to_type=target_ir_type))
 		else:
 			self._emit(IRCopy(dest=dest, source=val, ir_type=target_ir_type))
