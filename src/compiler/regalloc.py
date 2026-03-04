@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from compiler.cfg import CFG
 from compiler.ir import (
+	IRAddrOf,
 	IRBinOp,
 	IRCall,
 	IRConvert,
@@ -173,8 +174,11 @@ class RegisterAllocator:
 		move_edges = _collect_move_edges(self._func)
 		use_counts = _count_temp_uses(self._func)
 
-		# Build integer-only interference subgraph
-		int_temps = {t for t in interference if t not in float_temps}
+		# Temps whose address is taken must stay on the stack
+		addr_taken = {instr.source.name for instr in self._func.body if isinstance(instr, IRAddrOf)}
+
+		# Build integer-only interference subgraph (exclude floats and address-taken)
+		int_temps = {t for t in interference if t not in float_temps and t not in addr_taken}
 		int_graph: dict[str, set[str]] = {}
 		for t in int_temps:
 			int_graph[t] = interference[t] & int_temps
