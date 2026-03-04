@@ -70,6 +70,8 @@ class IRValue:
 class IRConst(IRValue):
 	"""A constant integer or character value."""
 	value: int
+	ir_type: IRType = IRType.INT
+	is_unsigned: bool = False
 
 	def __str__(self) -> str:
 		return str(self.value)

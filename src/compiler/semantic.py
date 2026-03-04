@@ -367,6 +367,24 @@ class SemanticAnalyzer(ASTVisitor):
 				self._error(f"duplicate '{q}' qualifier", node)
 			seen.add(q)
 
+	def _check_type_modifiers(self, ts: TypeSpec, node: ASTNode) -> None:
+		"""Reject illegal type modifier combinations."""
+		base = ts.base_type
+		sign = ts.signedness
+		width = ts.width_modifier
+
+		# signed/unsigned cannot apply to float or double
+		if sign in ("signed", "unsigned") and base in ("float", "double"):
+			self._error(f"'{sign}' cannot be used with '{base}'", node)
+
+		# short cannot combine with long
+		if width == "short":
+			if base in ("float", "double", "long"):
+				self._error(f"'short' cannot be used with '{base}'", node)
+		elif width in ("long", "long long"):
+			if base in ("short", "char"):
+				self._error(f"'{width}' cannot be used with '{base}'", node)
+
 	# --- Visitor methods ---
 
 	def visit_program(self, node: Program) -> None:
@@ -376,6 +394,7 @@ class SemanticAnalyzer(ASTVisitor):
 	def visit_function_decl(self, node: FunctionDecl) -> TypeSpec:
 		node.return_type = self._resolve_type(node.return_type)
 		self._check_duplicate_qualifiers(node.return_type, node)
+		self._check_type_modifiers(node.return_type, node)
 		for p in node.params:
 			p.type_spec = self._resolve_type(p.type_spec)
 		param_types = [p.type_spec for p in node.params]
@@ -435,6 +454,7 @@ class SemanticAnalyzer(ASTVisitor):
 
 	def visit_param_decl(self, node: ParamDecl) -> TypeSpec:
 		node.type_spec = self._resolve_type(node.type_spec)
+		self._check_type_modifiers(node.type_spec, node)
 		if node.type_spec.is_function_pointer:
 			sym = Symbol(
 				name=node.name,
@@ -454,6 +474,7 @@ class SemanticAnalyzer(ASTVisitor):
 	def visit_var_decl(self, node: VarDecl) -> TypeSpec:
 		node.type_spec = self._resolve_type(node.type_spec)
 		self._check_duplicate_qualifiers(node.type_spec, node)
+		self._check_type_modifiers(node.type_spec, node)
 
 		is_fp = node.type_spec.is_function_pointer
 
