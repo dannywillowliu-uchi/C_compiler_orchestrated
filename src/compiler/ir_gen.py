@@ -73,6 +73,7 @@ from compiler.ir import (
 	IRType,
 	IRUnaryOp,
 	IRValue,
+	ir_type_is_integer,
 )
 
 _TYPE_MAP: dict[str, IRType] = {
@@ -448,6 +449,7 @@ class IRGenerator(ASTVisitor):
 			if p_ir_type == IRType.POINTER and param.type_spec.pointer_count > 0:
 				self._temp_pointee_size[p_temp.name] = self._pointee_size_from_type(param.type_spec)
 
+		self._is_function_body = True
 		self.visit(node.body)
 
 		self._functions.append(
@@ -1164,8 +1166,24 @@ class IRGenerator(ASTVisitor):
 		self._emit(IRReturn(value=val, ir_type=val_type))
 
 	def visit_compound_stmt(self, node: CompoundStmt) -> None:
+		is_function_body = getattr(self, "_is_function_body", False)
+		if is_function_body:
+			self._is_function_body = False
+			for stmt in node.statements:
+				self.visit(stmt)
+			return
+		saved_locals = dict(self._locals)
+		saved_types = dict(self._local_types)
+		saved_arrays = dict(self._local_array)
+		saved_static = dict(self._static_local_map)
+		saved_fptr = set(self._func_ptr_locals)
 		for stmt in node.statements:
 			self.visit(stmt)
+		self._locals = saved_locals
+		self._local_types = saved_types
+		self._local_array = saved_arrays
+		self._static_local_map = saved_static
+		self._func_ptr_locals = saved_fptr
 
 	def visit_if_stmt(self, node: IfStmt) -> None:
 		cond = self.visit(node.condition)
@@ -2165,10 +2183,11 @@ class IRGenerator(ASTVisitor):
 			self._emit(IRConvert(dest=dest, source=val, from_type=val_type, to_type=target_ir_type))
 		elif self._is_float_type(target_ir_type) and self._is_float_type(val_type) and target_ir_type != val_type:
 			self._emit(IRConvert(dest=dest, source=val, from_type=val_type, to_type=target_ir_type))
-		elif val_type != target_ir_type:
-			self._emit(IRConvert(dest=dest, source=val, from_type=val_type, to_type=target_ir_type))
 		else:
-			self._emit(IRCopy(dest=dest, source=val, ir_type=target_ir_type))
+			if ir_type_is_integer(val_type) and ir_type_is_integer(target_ir_type) and val_type != target_ir_type:
+				self._emit(IRConvert(dest=dest, source=val, from_type=val_type, to_type=target_ir_type))
+			else:
+				self._emit(IRCopy(dest=dest, source=val, ir_type=target_ir_type))
 		return dest
 
 	def visit_comma_expr(self, node: CommaExpr) -> IRValue:
