@@ -749,13 +749,14 @@ class IRGenerator(ASTVisitor):
 					return result
 			if isinstance(node.operand, MemberAccess):
 				addr = self._compute_member_addr(node.operand)
+				member_type = self._member_ir_type(node.operand)
 				current = self._new_temp()
-				self._emit(IRLoad(dest=current, address=addr))
+				self._emit(IRLoad(dest=current, address=addr, ir_type=member_type))
 				result = self._new_temp()
 				delta_op = "+" if node.op == "++" else "-"
 				self._emit(IRBinOp(dest=result, left=current, op=delta_op, right=IRConst(1)))
 				addr2 = self._compute_member_addr(node.operand)
-				self._emit(IRStore(address=addr2, value=result))
+				self._emit(IRStore(address=addr2, value=result, ir_type=member_type))
 				return result
 			operand = self.visit(node.operand)
 			result = self._new_temp()
@@ -810,8 +811,8 @@ class IRGenerator(ASTVisitor):
 			return val if isinstance(val, IRTemp) else self._new_temp()
 		if isinstance(node.target, MemberAccess):
 			addr = self._compute_member_addr(node.target)
-			val_type = self._value_ir_type(val)
-			self._emit(IRStore(address=addr, value=val, ir_type=val_type))
+			member_type = self._member_ir_type(node.target)
+			self._emit(IRStore(address=addr, value=val, ir_type=member_type))
 			return val if isinstance(val, IRTemp) else self._new_temp()
 		if isinstance(node.target, Identifier):
 			target_temp = self._locals.get(node.target.name)
@@ -1079,13 +1080,14 @@ class IRGenerator(ASTVisitor):
 			self._emit(IRStore(address=addr2, value=result))
 		elif isinstance(node.target, MemberAccess):
 			addr = self._compute_member_addr(node.target)
+			member_type = self._member_ir_type(node.target)
 			current = self._new_temp()
-			self._emit(IRLoad(dest=current, address=addr))
+			self._emit(IRLoad(dest=current, address=addr, ir_type=member_type))
 			rhs = self.visit(node.value)
 			result = self._new_temp()
 			self._emit(IRBinOp(dest=result, left=current, op=arith_op, right=rhs))
 			addr2 = self._compute_member_addr(node.target)
-			self._emit(IRStore(address=addr2, value=result))
+			self._emit(IRStore(address=addr2, value=result, ir_type=member_type))
 		elif isinstance(node.target, UnaryOp) and node.target.op == "*":
 			addr = self.visit(node.target.operand)
 			current = self._new_temp()
@@ -1405,13 +1407,14 @@ class IRGenerator(ASTVisitor):
 			return old_val
 		if isinstance(node.operand, MemberAccess):
 			addr = self._compute_member_addr(node.operand)
+			member_type = self._member_ir_type(node.operand)
 			old_val = self._new_temp()
-			self._emit(IRLoad(dest=old_val, address=addr))
+			self._emit(IRLoad(dest=old_val, address=addr, ir_type=member_type))
 			new_val = self._new_temp()
 			delta_op = "+" if node.op == "++" else "-"
 			self._emit(IRBinOp(dest=new_val, left=old_val, op=delta_op, right=IRConst(1)))
 			addr2 = self._compute_member_addr(node.operand)
-			self._emit(IRStore(address=addr2, value=new_val))
+			self._emit(IRStore(address=addr2, value=new_val, ir_type=member_type))
 			return old_val
 		if isinstance(node.operand, UnaryOp) and node.operand.op == "*":
 			addr = self.visit(node.operand.operand)
@@ -1555,6 +1558,35 @@ class IRGenerator(ASTVisitor):
 				values.append(0)
 		return values
 
+	def _resolve_member_type_spec(self, node: MemberAccess) -> TypeSpec | None:
+		"""Resolve the TypeSpec of the accessed member from struct/union definitions."""
+		type_name = self._resolve_aggregate_name(node.object)
+		if not type_name:
+			return None
+		members = self._structs.get(type_name) or self._unions.get(type_name, [])
+		for m in members:
+			if m.name == node.member:
+				return m.type_spec
+		return None
+
+	def _member_is_aggregate(self, ts: TypeSpec | None) -> bool:
+		"""Check if a TypeSpec refers to a struct or union (not a pointer to one)."""
+		if ts is None or ts.pointer_count > 0:
+			return False
+		base = ts.base_type
+		if base.startswith("struct "):
+			return base[len("struct "):] in self._structs
+		if base.startswith("union "):
+			return base[len("union "):] in self._unions
+		return False
+
+	def _member_ir_type(self, node: MemberAccess) -> IRType:
+		"""Resolve the IRType for a struct/union member access."""
+		ts = self._resolve_member_type_spec(node)
+		if ts is not None:
+			return _resolve_ir_type(ts)
+		return IRType.INT
+
 	def _compute_member_addr(self, node: MemberAccess) -> IRTemp:
 		"""Compute the memory address of a struct/union member."""
 		base = self.visit(node.object)
@@ -1573,8 +1605,14 @@ class IRGenerator(ASTVisitor):
 
 	def visit_member_access(self, node: MemberAccess) -> IRTemp:
 		addr = self._compute_member_addr(node)
+		member_ts = self._resolve_member_type_spec(node)
+		# For struct/union-typed members, return the address directly (no scalar load)
+		if self._member_is_aggregate(member_ts):
+			return addr
+		member_type = _resolve_ir_type(member_ts) if member_ts is not None else IRType.INT
 		dest = self._new_temp()
-		self._emit(IRLoad(dest=dest, address=addr))
+		self._set_temp_type(dest, member_type)
+		self._emit(IRLoad(dest=dest, address=addr, ir_type=member_type))
 		return dest
 
 	def visit_cast_expr(self, node: CastExpr) -> IRTemp:
