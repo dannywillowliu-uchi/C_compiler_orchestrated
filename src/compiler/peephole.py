@@ -54,6 +54,14 @@ class PeepholeOptimizer:
 		self._addq_imm_reg_re = re.compile(
 			r"^\taddq\s+(%\w+),\s+(%\w+)$"
 		)
+		# General mov self-move pattern (handles movl, movw, movb in addition to movq)
+		self._mov_any_reg_re = re.compile(
+			r"^\tmov[lwb]\s+(%\w+),\s+(%\w+)$"
+		)
+		# movl $0, %reg -> xorl %reg, %reg
+		self._movl_zero_re = re.compile(
+			r"^\tmovl\s+\$0,\s+(%\w+)$"
+		)
 		# Strength reduction patterns
 		self._imulq_imm_re = re.compile(
 			r"^\timulq\s+\$(\d+),\s+(%\w+)$"
@@ -178,6 +186,14 @@ class PeepholeOptimizer:
 					i += 2
 					continue
 
+				# Redundant consecutive load elimination
+				opt = self._try_redundant_load(lines[i], lines[i + 1])
+				if opt is not None:
+					result.extend(opt)
+					changed = True
+					i += 2
+					continue
+
 			# cmpq $0, %reg -> testq %reg, %reg
 			opt = self._try_cmp_zero_to_test(lines[i])
 			if opt is not None:
@@ -194,6 +210,14 @@ class PeepholeOptimizer:
 				i += 1
 				continue
 
+			# movl $0, %reg -> xorl %reg, %reg
+			opt = self._try_movl_zero_to_xorl(lines[i])
+			if opt is not None:
+				result.append(opt)
+				changed = True
+				i += 1
+				continue
+
 			# Strength reduction: imulq by power of 2 -> shlq
 			opt = self._try_strength_reduction_mul(lines[i])
 			if opt is not None:
@@ -203,7 +227,7 @@ class PeepholeOptimizer:
 				i += 1
 				continue
 
-			# Self-move elimination
+			# Self-move elimination (movq and movl/movw/movb)
 			if self._is_self_move(lines[i]):
 				changed = True
 				i += 1
@@ -324,11 +348,14 @@ class PeepholeOptimizer:
 		return None
 
 	def _is_self_move(self, line: str) -> bool:
-		"""Check for movq %reg, %reg (self-move)."""
+		"""Check for mov %reg, %reg self-moves (movq, movl, movw, movb)."""
 		m = self._movq_reg_re.match(line)
-		if m is None:
-			return False
-		return m.group(1) == m.group(2)
+		if m is not None:
+			return m.group(1) == m.group(2)
+		m = self._mov_any_reg_re.match(line)
+		if m is not None:
+			return m.group(1) == m.group(2)
+		return False
 
 	def _is_noop_arith(self, line: str) -> bool:
 		"""Check for addq $0, %reg or subq $0, %reg."""
@@ -349,6 +376,14 @@ class PeepholeOptimizer:
 			return None
 		reg = m.group(1)
 		return f"\txorq {reg}, {reg}"
+
+	def _try_movl_zero_to_xorl(self, line: str) -> str | None:
+		"""Replace 'movl $0, %reg' with 'xorl %reg, %reg' (shorter, breaks dep chains)."""
+		m = self._movl_zero_re.match(line)
+		if m is None:
+			return None
+		reg = m.group(1)
+		return f"\txorl {reg}, {reg}"
 
 	def _try_reverse_move(self, line1: str, line2: str) -> list[str] | None:
 		"""Eliminate movq %rA, %rB followed by movq %rB, %rA (reverse copy is redundant)."""
@@ -464,6 +499,15 @@ class PeepholeOptimizer:
 		if not self._is_reg_dead_in_window(lines, idx + 2, mov_dst):
 			return None
 		return [f"\taddq ${imm}, {add_dst}"]
+
+	def _try_redundant_load(self, line1: str, line2: str) -> list[str] | None:
+		"""Eliminate redundant consecutive load of the same memory to the same register."""
+		if line1 != line2:
+			return None
+		m = re.match(r"^\tmov[lqwb]\s+-?\d+\(%\w+\),\s+%\w+$", line1)
+		if m is not None:
+			return [line1]
+		return None
 
 	def _is_reg_dead_in_window(self, lines: list[str], start_idx: int, reg: str) -> bool:
 		"""Check if reg is dead (overwritten before read) in a forward window."""
