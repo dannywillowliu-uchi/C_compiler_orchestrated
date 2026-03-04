@@ -251,6 +251,7 @@ class IRGlobalVar:
 	initializer: Optional[int] = None  # None => uninitialized (.bss)
 	initializer_values: list[int] = field(default_factory=list)
 	total_size: int = 0  # Total allocation size for arrays/structs
+	storage_class: Optional[str] = None  # "static", "extern", or None (default/global)
 
 	def __str__(self) -> str:
 		if self.initializer_values:
@@ -278,6 +279,8 @@ class IRFunction:
 	body: list[IRInstruction]
 	return_type: IRType
 	param_types: list[IRType] = field(default_factory=list)
+	storage_class: Optional[str] = None  # "static", "extern", or None (default/global)
+	is_prototype: bool = False  # True if declaration-only (no body)
 
 	def __str__(self) -> str:
 		params_str = ", ".join(str(p) for p in self.params)
