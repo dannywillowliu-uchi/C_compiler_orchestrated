@@ -91,11 +91,20 @@ _FLOAT_TYPES = {IRType.FLOAT, IRType.DOUBLE}
 def _resolve_ir_type(ts: TypeSpec) -> IRType:
 	if ts.pointer_count > 0:
 		return IRType.POINTER
+	# Width modifiers: long/long long -> POINTER-sized int (INT for now, no INT64)
+	if ts.width_modifier in ("long", "long long"):
+		return IRType.INT
+	if ts.width_modifier == "short":
+		return IRType.INT
 	return _TYPE_MAP.get(ts.base_type, IRType.INT)
 
 
 def _resolve_size(ts: TypeSpec) -> int:
 	if ts.pointer_count > 0:
+		return 8
+	if ts.width_modifier == "short":
+		return 2
+	if ts.width_modifier in ("long", "long long"):
 		return 8
 	return _SIZE_MAP.get(ts.base_type, 4)
 

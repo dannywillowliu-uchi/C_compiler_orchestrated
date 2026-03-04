@@ -115,7 +115,16 @@ _COMPOUND_ASSIGN: dict[TokenType, str] = {
 _TYPE_KEYWORDS: set[TokenType] = {
 	TokenType.INT, TokenType.CHAR, TokenType.VOID, TokenType.STRUCT, TokenType.ENUM,
 	TokenType.FLOAT, TokenType.DOUBLE, TokenType.UNION,
+	TokenType.LONG, TokenType.SHORT, TokenType.SIGNED, TokenType.UNSIGNED,
 }
+
+_QUALIFIER_KEYWORDS: set[TokenType] = {TokenType.CONST, TokenType.VOLATILE}
+
+_STORAGE_CLASS_KEYWORDS: set[TokenType] = {
+	TokenType.STATIC, TokenType.EXTERN, TokenType.AUTO, TokenType.REGISTER,
+}
+
+_TYPE_SPECIFIER_START: set[TokenType] = _TYPE_KEYWORDS | _QUALIFIER_KEYWORDS | _STORAGE_CLASS_KEYWORDS
 
 
 class Parser:
@@ -125,6 +134,7 @@ class Parser:
 		self.tokens = tokens
 		self.pos = 0
 		self._typedef_names: set[str] = set()
+		self._last_storage_class: str | None = None
 
 	@classmethod
 	def from_source(cls, source: str) -> Parser:
@@ -177,7 +187,7 @@ class Parser:
 	def _is_type_start(self, offset: int = 0) -> bool:
 		"""Check if the token at the given offset starts a type specifier."""
 		tok = self._peek(offset)
-		if tok.type in _TYPE_KEYWORDS:
+		if tok.type in _TYPE_SPECIFIER_START:
 			return True
 		return tok.type == TokenType.IDENTIFIER and tok.value in self._typedef_names
 
@@ -196,23 +206,35 @@ class Parser:
 		if self._check(TokenType.TYPEDEF):
 			return self._parse_typedef_decl()
 
+		# Check for standalone struct/enum/union definitions (skip past storage class/qualifiers)
+		peek_offset = 0
+		while self._peek(peek_offset).type in (_STORAGE_CLASS_KEYWORDS | _QUALIFIER_KEYWORDS):
+			peek_offset += 1
+
 		# Check for enum definition: enum name { ... };
-		if self._check(TokenType.ENUM) and self._peek(1).type == TokenType.IDENTIFIER and self._peek(2).type == TokenType.LBRACE:
-			return self._parse_enum_decl()
+		if self._peek(peek_offset).type == TokenType.ENUM and self._peek(peek_offset + 1).type == TokenType.IDENTIFIER and self._peek(peek_offset + 2).type == TokenType.LBRACE:
+			if peek_offset == 0:
+				return self._parse_enum_decl()
 
 		# Check for struct definition: struct name { ... };
-		if self._check(TokenType.STRUCT) and self._peek(1).type == TokenType.IDENTIFIER and self._peek(2).type == TokenType.LBRACE:
-			return self._parse_struct_decl()
+		if self._peek(peek_offset).type == TokenType.STRUCT and self._peek(peek_offset + 1).type == TokenType.IDENTIFIER and self._peek(peek_offset + 2).type == TokenType.LBRACE:
+			if peek_offset == 0:
+				return self._parse_struct_decl()
 
 		# Check for union definition: union name { ... };
-		if self._check(TokenType.UNION) and self._peek(1).type == TokenType.IDENTIFIER and self._peek(2).type == TokenType.LBRACE:
-			return self._parse_union_decl()
+		if self._peek(peek_offset).type == TokenType.UNION and self._peek(peek_offset + 1).type == TokenType.IDENTIFIER and self._peek(peek_offset + 2).type == TokenType.LBRACE:
+			if peek_offset == 0:
+				return self._parse_union_decl()
 
+		self._last_storage_class = None
 		type_spec = self._parse_type_spec()
+		storage_class = self._last_storage_class
 		name_tok = self._expect(TokenType.IDENTIFIER, "Expected declaration name")
 
 		if self._check(TokenType.LPAREN):
-			return self._parse_function_decl(type_spec, name_tok)
+			decl = self._parse_function_decl(type_spec, name_tok)
+			decl.storage_class = storage_class
+			return decl
 
 		# Global variable declaration (possibly array)
 		array_sizes: list[ASTNode] | None = None
@@ -231,36 +253,102 @@ class Parser:
 			name=name_tok.value,
 			initializer=initializer,
 			array_sizes=array_sizes,
+			storage_class=storage_class,
 			loc=self._loc(name_tok),
 		)
 
 	# -- Type specifier ------------------------------------------------------
 
-	def _parse_type_spec(self) -> TypeSpec:
-		"""Parse a type specifier: int, char, void, struct name, typedef name with optional pointer '*'s."""
+	def _parse_type_spec(self, allow_storage_class: bool = False) -> TypeSpec:
+		"""Parse a type specifier with optional qualifiers, signedness, width modifiers, and storage class.
+
+		Returns a TypeSpec. Storage class is stored on self._last_storage_class
+		for the caller to attach to the declaration node.
+		"""
+		start_tok = self._current()
+		qualifiers: list[str] = []
+		storage_class: str | None = None
+		signedness: str | None = None
+		width_modifier: str | None = None
+		base_type: str | None = None
+
+		# Collect qualifiers, storage classes, signedness, and width modifiers
+		while True:
+			tok = self._current()
+			if tok.type in _QUALIFIER_KEYWORDS:
+				self._advance()
+				qualifiers.append(tok.value)
+			elif tok.type in _STORAGE_CLASS_KEYWORDS:
+				self._advance()
+				if storage_class is not None:
+					raise self._error(f"Multiple storage classes: '{storage_class}' and '{tok.value}'")
+				storage_class = tok.value
+			elif tok.type == TokenType.SIGNED:
+				self._advance()
+				signedness = "signed"
+			elif tok.type == TokenType.UNSIGNED:
+				self._advance()
+				signedness = "unsigned"
+			elif tok.type == TokenType.LONG:
+				self._advance()
+				if width_modifier == "long":
+					width_modifier = "long long"
+				else:
+					width_modifier = "long"
+			elif tok.type == TokenType.SHORT:
+				self._advance()
+				width_modifier = "short"
+			else:
+				break
+
+		# Now parse the base type
 		tok = self._current()
 		if tok.type == TokenType.IDENTIFIER and tok.value in self._typedef_names:
 			self._advance()
 			base_type = tok.value
-		elif tok.type not in _TYPE_KEYWORDS:
-			raise self._error(f"Expected type specifier, got {tok.type.name} ({tok.value!r})")
-		else:
+		elif tok.type in _QUALIFIER_KEYWORDS:
+			# Post-base qualifiers (e.g. "int const" - unusual but valid C)
+			pass
+		elif tok.type in {TokenType.INT, TokenType.CHAR, TokenType.VOID, TokenType.FLOAT, TokenType.DOUBLE}:
 			self._advance()
-			if tok.type == TokenType.STRUCT:
-				name_tok = self._expect(TokenType.IDENTIFIER, "Expected struct name")
-				base_type = f"struct {name_tok.value}"
-			elif tok.type == TokenType.UNION:
-				name_tok = self._expect(TokenType.IDENTIFIER, "Expected union name")
-				base_type = f"union {name_tok.value}"
-			elif tok.type == TokenType.ENUM:
-				name_tok = self._expect(TokenType.IDENTIFIER, "Expected enum name")
-				base_type = f"enum {name_tok.value}"
+			base_type = tok.value
+		elif tok.type == TokenType.STRUCT:
+			self._advance()
+			name_tok = self._expect(TokenType.IDENTIFIER, "Expected struct name")
+			base_type = f"struct {name_tok.value}"
+		elif tok.type == TokenType.UNION:
+			self._advance()
+			name_tok = self._expect(TokenType.IDENTIFIER, "Expected union name")
+			base_type = f"union {name_tok.value}"
+		elif tok.type == TokenType.ENUM:
+			self._advance()
+			name_tok = self._expect(TokenType.IDENTIFIER, "Expected enum name")
+			base_type = f"enum {name_tok.value}"
+
+		# Collect any trailing qualifiers (e.g. "int const *")
+		while self._check(*_QUALIFIER_KEYWORDS):
+			qualifiers.append(self._advance().value)
+
+		# If no explicit base type but we have signedness/width, default to int
+		if base_type is None:
+			if signedness is not None or width_modifier is not None:
+				base_type = "int"
 			else:
-				base_type = tok.value
+				raise self._error(f"Expected type specifier, got {self._current().type.name} ({self._current().value!r})")
+
 		pointer_count = 0
 		while self._match(TokenType.STAR):
 			pointer_count += 1
-		return TypeSpec(base_type=base_type, pointer_count=pointer_count, loc=self._loc(tok))
+
+		self._last_storage_class = storage_class
+		return TypeSpec(
+			base_type=base_type,
+			pointer_count=pointer_count,
+			qualifiers=qualifiers,
+			signedness=signedness,
+			width_modifier=width_modifier,
+			loc=self._loc(start_tok),
+		)
 
 	# -- Struct declaration --------------------------------------------------
 
@@ -544,6 +632,9 @@ class Parser:
 			return self._parse_var_decl_stmt()
 		if self._check(*_TYPE_KEYWORDS):
 			return self._parse_var_decl_stmt()
+		# Qualifiers and storage classes start a variable declaration
+		if self._check(*_QUALIFIER_KEYWORDS) or self._check(*_STORAGE_CLASS_KEYWORDS):
+			return self._parse_var_decl_stmt()
 		# Typedef name used as type for variable declaration
 		if self._check(TokenType.IDENTIFIER) and self._current().value in self._typedef_names:
 			return self._parse_var_decl_stmt()
@@ -690,7 +781,9 @@ class Parser:
 
 	def _parse_var_decl_stmt(self) -> VarDecl:
 		"""Parse a local variable declaration: type name [= expr]; or type name[size][...];"""
+		self._last_storage_class = None
 		type_spec = self._parse_type_spec()
+		storage_class = self._last_storage_class
 		name_tok = self._expect(TokenType.IDENTIFIER, "Expected variable name")
 		array_sizes: list[ASTNode] | None = None
 		if self._check(TokenType.LBRACKET):
@@ -708,6 +801,7 @@ class Parser:
 			name=name_tok.value,
 			initializer=initializer,
 			array_sizes=array_sizes,
+			storage_class=storage_class,
 			loc=self._loc(name_tok),
 		)
 

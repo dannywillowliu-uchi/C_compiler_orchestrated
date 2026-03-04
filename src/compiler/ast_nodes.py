@@ -157,6 +157,9 @@ class TypeSpec(ASTNode):
 
 	base_type: str = ""
 	pointer_count: int = 0
+	qualifiers: list[str] = field(default_factory=list)
+	signedness: str | None = None
+	width_modifier: str | None = None
 
 	def accept(self, visitor: ASTVisitor) -> Any:
 		return visitor.visit_type_spec(self)
@@ -551,6 +554,7 @@ class VarDecl(ASTNode):
 	name: str = ""
 	initializer: ASTNode | None = None
 	array_sizes: list[ASTNode] | None = None
+	storage_class: str | None = None
 
 	def accept(self, visitor: ASTVisitor) -> Any:
 		return visitor.visit_var_decl(self)
@@ -564,6 +568,7 @@ class FunctionDecl(ASTNode):
 	name: str = ""
 	params: list[ParamDecl] = field(default_factory=list)
 	body: CompoundStmt | None = None
+	storage_class: str | None = None
 
 	def accept(self, visitor: ASTVisitor) -> Any:
 		return visitor.visit_function_decl(self)

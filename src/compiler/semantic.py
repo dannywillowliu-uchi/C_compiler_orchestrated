@@ -71,6 +71,7 @@ class Symbol:
 	is_array: bool = False
 	array_sizes: list[int] = field(default_factory=list)
 	is_prototype: bool = False
+	storage_class: str | None = None
 
 
 class SymbolTable:
@@ -121,6 +122,21 @@ _ARITHMETIC_OPS = {"+", "-", "*", "/", "%"}
 _COMPARISON_OPS = {"<", ">", "<=", ">=", "==", "!="}
 _LOGICAL_OPS = {"&&", "||"}
 _BITWISE_OPS = {"&", "|", "^", "<<", ">>"}
+
+
+def _type_size(ts: TypeSpec) -> int:
+	"""Compute size in bytes for a type considering width modifiers."""
+	if ts.pointer_count > 0:
+		return 8
+	wm = ts.width_modifier
+	if wm == "short":
+		return 2
+	if wm == "long":
+		return 8
+	if wm == "long long":
+		return 8
+	base_sizes = {"int": 4, "char": 1, "float": 4, "double": 8, "short": 2, "long": 8, "void": 0}
+	return base_sizes.get(ts.base_type, 4)
 
 
 def _is_numeric(ts: TypeSpec) -> bool:
@@ -217,6 +233,14 @@ class SemanticAnalyzer(ASTVisitor):
 			)
 		return ts
 
+	def _check_duplicate_qualifiers(self, ts: TypeSpec, node: ASTNode) -> None:
+		"""Warn on duplicate qualifiers like 'const const'."""
+		seen: set[str] = set()
+		for q in ts.qualifiers:
+			if q in seen:
+				self._error(f"duplicate '{q}' qualifier", node)
+			seen.add(q)
+
 	# --- Visitor methods ---
 
 	def visit_program(self, node: Program) -> None:
@@ -225,6 +249,7 @@ class SemanticAnalyzer(ASTVisitor):
 
 	def visit_function_decl(self, node: FunctionDecl) -> TypeSpec:
 		node.return_type = self._resolve_type(node.return_type)
+		self._check_duplicate_qualifiers(node.return_type, node)
 		for p in node.params:
 			p.type_spec = self._resolve_type(p.type_spec)
 		param_types = [p.type_spec for p in node.params]
@@ -269,6 +294,7 @@ class SemanticAnalyzer(ASTVisitor):
 
 	def visit_var_decl(self, node: VarDecl) -> TypeSpec:
 		node.type_spec = self._resolve_type(node.type_spec)
+		self._check_duplicate_qualifiers(node.type_spec, node)
 		if node.initializer is not None:
 			init_type = self.visit(node.initializer)
 			if init_type is not None and not _types_compatible(node.type_spec, init_type):
@@ -292,6 +318,7 @@ class SemanticAnalyzer(ASTVisitor):
 			scope_depth=self.symbols.depth,
 			is_array=is_array,
 			array_sizes=array_size_vals,
+			storage_class=node.storage_class,
 		)
 		existing = self.symbols.lookup_current_scope(node.name)
 		if existing is not None:
