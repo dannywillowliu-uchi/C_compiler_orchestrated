@@ -1,4 +1,4 @@
-"""Tests for integer literal suffix tracking through lexer, parser, and AST."""
+"""Tests for integer literal suffix tracking through lexer, parser, AST, and IR."""
 
 import pytest
 
@@ -6,6 +6,8 @@ from compiler.lexer import Lexer
 from compiler.parser import Parser
 from compiler.tokens import IntegerSuffix, TokenType
 from compiler.ast_nodes import IntLiteral, ExprStmt, Program
+from compiler.ir import IRConst, IRType
+from compiler.ir_gen import IRGenerator
 
 
 # --- Lexer suffix detection ---
@@ -262,3 +264,79 @@ class TestExistingIntegerParsing:
 		assert isinstance(ret.expression, IntLiteral)
 		assert ret.expression.value == 42
 		assert ret.expression.suffix == "ull"
+
+
+# --- IR type from suffix ---
+
+
+class TestIRTypesFromSuffix:
+	"""Verify that visit_int_literal produces the correct IR type based on suffix."""
+
+	def _ir_const_for(self, suffix: str) -> IRConst:
+		"""Build a minimal program and extract the IRConst for a literal with the given suffix."""
+		source = f"int main() {{ return 42{suffix}; }}"
+		program = Parser.from_source(source).parse()
+		gen = IRGenerator()
+		ir_prog = gen.generate(program)
+		# Find the return instruction's value
+		func = ir_prog.functions[0]
+		for instr in func.body:
+			from compiler.ir import IRReturn
+			if isinstance(instr, IRReturn) and isinstance(instr.value, IRConst):
+				return instr.value
+		pytest.fail("No IRConst found in return")
+
+	def test_no_suffix_gives_int(self) -> None:
+		c = self._ir_const_for("")
+		assert c.ir_type == IRType.INT
+		assert c.is_unsigned is False
+
+	def test_u_suffix_gives_unsigned_int(self) -> None:
+		c = self._ir_const_for("u")
+		assert c.ir_type == IRType.INT
+		assert c.is_unsigned is True
+
+	def test_U_suffix_gives_unsigned_int(self) -> None:
+		c = self._ir_const_for("U")
+		assert c.ir_type == IRType.INT
+		assert c.is_unsigned is True
+
+	def test_l_suffix_gives_long(self) -> None:
+		c = self._ir_const_for("l")
+		assert c.ir_type == IRType.LONG
+		assert c.is_unsigned is False
+
+	def test_L_suffix_gives_long(self) -> None:
+		c = self._ir_const_for("L")
+		assert c.ir_type == IRType.LONG
+		assert c.is_unsigned is False
+
+	def test_ul_suffix_gives_unsigned_long(self) -> None:
+		c = self._ir_const_for("ul")
+		assert c.ir_type == IRType.LONG
+		assert c.is_unsigned is True
+
+	def test_UL_suffix_gives_unsigned_long(self) -> None:
+		c = self._ir_const_for("UL")
+		assert c.ir_type == IRType.LONG
+		assert c.is_unsigned is True
+
+	def test_ll_suffix_gives_long(self) -> None:
+		c = self._ir_const_for("ll")
+		assert c.ir_type == IRType.LONG
+		assert c.is_unsigned is False
+
+	def test_LL_suffix_gives_long(self) -> None:
+		c = self._ir_const_for("LL")
+		assert c.ir_type == IRType.LONG
+		assert c.is_unsigned is False
+
+	def test_ull_suffix_gives_unsigned_long(self) -> None:
+		c = self._ir_const_for("ull")
+		assert c.ir_type == IRType.LONG
+		assert c.is_unsigned is True
+
+	def test_ULL_suffix_gives_unsigned_long(self) -> None:
+		c = self._ir_const_for("ULL")
+		assert c.ir_type == IRType.LONG
+		assert c.is_unsigned is True

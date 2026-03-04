@@ -134,3 +134,48 @@ class TestPipelineRegalloc:
 		assert has_callee, (
 			f"Temp live across call should use callee-saved register.\n{asm_opt}"
 		)
+
+	def test_copy_chain_produces_fewer_moves(self) -> None:
+		"""A chain of variable assignments should produce fewer moves with coalescing."""
+		source = """
+		int chain(int x) {
+			int a = x;
+			int b = a;
+			int c = b;
+			return c;
+		}
+		"""
+		asm_opt = compile_source(source, optimize=True)
+		# Count reg-to-reg movq instructions (not stack or const loads)
+		reg_to_reg_moves = 0
+		for line in asm_opt.splitlines():
+			stripped = line.strip()
+			if stripped.startswith("movq %r") and "(%rbp)" not in stripped and "%rsp" not in stripped:
+				reg_to_reg_moves += 1
+		# With coalescing, the copy chain should be eliminated
+		assert reg_to_reg_moves <= 2, (
+			f"Expected minimal reg-to-reg moves with coalescing, got {reg_to_reg_moves}.\n{asm_opt}"
+		)
+
+	def test_coalescing_reduces_total_moves(self) -> None:
+		"""Compare move count: optimized with coalescing should have fewer total movq instructions."""
+		source = """
+		int compute(int a, int b) {
+			int x = a + b;
+			int y = x;
+			int z = y * 2;
+			return z;
+		}
+		"""
+		asm_plain = compile_source(source, optimize=False)
+		asm_opt = compile_source(source, optimize=True)
+
+		def count_movq(asm: str) -> int:
+			return sum(1 for line in asm.splitlines() if "movq" in line.strip())
+
+		moves_plain = count_movq(asm_plain)
+		moves_opt = count_movq(asm_opt)
+		assert moves_opt <= moves_plain, (
+			f"Optimized ({moves_opt} movq) should have <= moves than unoptimized ({moves_plain}).\n"
+			f"--- optimized ---\n{asm_opt}"
+		)

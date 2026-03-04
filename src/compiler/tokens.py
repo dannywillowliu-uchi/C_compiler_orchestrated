@@ -29,6 +29,7 @@ class TokenType(Enum):
 
 	# C89 Keywords
 	AUTO = auto()
+	BOOL = auto()
 	BREAK = auto()
 	CASE = auto()
 	CHAR = auto()
@@ -120,6 +121,7 @@ class TokenType(Enum):
 
 # Map keyword strings to their token types
 KEYWORDS: dict[str, TokenType] = {
+	"_Bool": TokenType.BOOL,
 	"auto": TokenType.AUTO,
 	"break": TokenType.BREAK,
 	"case": TokenType.CASE,

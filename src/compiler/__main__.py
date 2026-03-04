@@ -16,9 +16,9 @@ from compiler.regalloc import allocate_registers
 from compiler.semantic import SemanticAnalyzer, SemanticError
 
 
-def compile_source(source: str, optimize: bool = False) -> str:
+def compile_source(source: str, optimize: bool = False, include_paths: list[str] | None = None) -> str:
 	"""Run C source through the full compiler pipeline, returning assembly."""
-	preprocessed = Preprocessor().process(source)
+	preprocessed = Preprocessor(include_paths=include_paths).process(source)
 	tokens = Lexer(preprocessed).tokenize()
 	ast = Parser(tokens).parse()
 	errors = SemanticAnalyzer().analyze(ast)
@@ -57,6 +57,7 @@ def main() -> None:
 	parser.add_argument("-c", dest="compile_only", action="store_true", help="compile and assemble to object file (do not link)")
 	parser.add_argument("-l", dest="libraries", action="append", default=[], metavar="LIB", help="link additional library (e.g. -lm)")
 	parser.add_argument("--keep-intermediates", action="store_true", help="keep intermediate .s and .o files")
+	parser.add_argument("-I", "--include-path", dest="include_paths", action="append", default=[], metavar="DIR", help="add directory to include search path")
 
 	args = parser.parse_args()
 
@@ -81,7 +82,7 @@ def main() -> None:
 
 	# Compile to assembly
 	try:
-		assembly = compile_source(source, optimize=args.optimize)
+		assembly = compile_source(source, optimize=args.optimize, include_paths=args.include_paths or None)
 	except SemanticError as e:
 		print(f"semantic error: {e}", file=sys.stderr)
 		sys.exit(1)
