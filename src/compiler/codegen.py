@@ -103,7 +103,11 @@ class CodeGenerator:
 		self._float_const_counter = 0
 
 		# Emit .data section for initialized globals
-		initialized = [g for g in program.globals if g.initializer is not None or g.initializer_values]
+		initialized = [
+			g for g in program.globals
+			if g.initializer is not None or g.initializer_values
+			or g.float_initializer is not None or g.string_label is not None
+		]
 		if initialized:
 			self._emit(".section .data")
 			for g in initialized:
@@ -113,8 +117,23 @@ class CodeGenerator:
 				if g.initializer_values:
 					for val in g.initializer_values:
 						self._emit_instr(f".quad {val}")
+				elif g.float_initializer is not None:
+					if g.ir_type == IRType.FLOAT:
+						bits = struct.unpack("<I", struct.pack("<f", g.float_initializer))[0]
+						self._emit_instr(f".long {bits}")
+					else:
+						bits = struct.unpack("<Q", struct.pack("<d", g.float_initializer))[0]
+						self._emit_instr(f".quad {bits}")
+				elif g.string_label is not None:
+					self._emit_instr(f".quad {g.string_label}")
 				elif g.ir_type == IRType.CHAR:
 					self._emit_instr(f".byte {g.initializer}")
+				elif g.ir_type == IRType.FLOAT:
+					bits = struct.unpack("<I", struct.pack("<f", float(g.initializer or 0)))[0]
+					self._emit_instr(f".long {bits}")
+				elif g.ir_type == IRType.DOUBLE:
+					bits = struct.unpack("<Q", struct.pack("<d", float(g.initializer or 0)))[0]
+					self._emit_instr(f".quad {bits}")
 				elif g.ir_type == IRType.INT:
 					self._emit_instr(f".long {g.initializer}")
 				else:
@@ -130,7 +149,9 @@ class CodeGenerator:
 		# Emit .bss section for uninitialized globals (skip extern-only declarations)
 		uninitialized = [
 			g for g in program.globals
-			if g.initializer is None and not g.initializer_values and g.storage_class != "extern"
+			if g.initializer is None and not g.initializer_values
+			and g.float_initializer is None and g.string_label is None
+			and g.storage_class != "extern"
 		]
 		if uninitialized:
 			self._emit(".section .bss")
@@ -140,7 +161,7 @@ class CodeGenerator:
 				self._emit(f"{g.name}:")
 				if g.ir_type == IRType.CHAR:
 					self._emit_instr(".zero 1")
-				elif g.ir_type == IRType.INT:
+				elif g.ir_type in (IRType.INT, IRType.FLOAT):
 					self._emit_instr(".zero 4")
 				else:
 					self._emit_instr(".zero 8")

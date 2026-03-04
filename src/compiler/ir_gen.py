@@ -154,6 +154,7 @@ class IRGenerator(ASTVisitor):
 		self._globals: list[IRGlobalVar] = []
 		self._global_names: set[str] = set()
 		self._in_function: bool = False
+		self._current_function_name: str = ""
 		self._loop_stack: list[tuple[str, str]] = []  # (continue_label, break_label)
 		self._structs: dict[str, list[StructMember]] = {}  # struct name -> members
 		self._unions: dict[str, list[StructMember]] = {}  # union name -> members
@@ -163,6 +164,7 @@ class IRGenerator(ASTVisitor):
 		self._func_ptr_locals: set[str] = set()
 		self._known_functions: set[str] = set()
 		self._user_labels: dict[str, str] = {}  # C label name -> IR label name
+		self._static_local_map: dict[str, str] = {}  # local name -> mangled global name
 
 	# ------------------------------------------------------------------
 	# Helpers
@@ -258,6 +260,8 @@ class IRGenerator(ASTVisitor):
 		old_in_function = self._in_function
 		old_func_ptr_locals = self._func_ptr_locals
 		old_user_labels = self._user_labels
+		old_function_name = self._current_function_name
+		old_static_local_map = self._static_local_map
 		self._instructions = []
 		self._locals = {}
 		self._local_types = {}
@@ -265,8 +269,10 @@ class IRGenerator(ASTVisitor):
 		self._temp_types = {}
 		self._temp_unsigned = {}
 		self._in_function = True
+		self._current_function_name = node.name
 		self._func_ptr_locals = set()
 		self._user_labels = {}
+		self._static_local_map = {}
 
 		params: list[IRTemp] = []
 		param_types: list[IRType] = []
@@ -303,42 +309,77 @@ class IRGenerator(ASTVisitor):
 		self._temp_types = old_temp_types
 		self._temp_unsigned = old_temp_unsigned
 		self._in_function = old_in_function
+		self._current_function_name = old_function_name
 		self._func_ptr_locals = old_func_ptr_locals
 		self._user_labels = old_user_labels
+		self._static_local_map = old_static_local_map
+
+	def _emit_global_var(self, name: str, node: VarDecl, storage_class: str | None = None) -> None:
+		"""Emit a global variable declaration with proper initializer handling."""
+		ir_type = _resolve_ir_type(node.type_spec) if not node.type_spec.is_function_pointer else IRType.POINTER
+		sc = storage_class if storage_class is not None else node.storage_class
+		if isinstance(node.initializer, InitializerList):
+			init_values = self._collect_init_values(node.initializer)
+			total_size = 0
+			if node.array_sizes:
+				element_size = _resolve_size(node.type_spec)
+				for se in node.array_sizes:
+					if isinstance(se, IntLiteral):
+						total_size = se.value * element_size
+			elif node.type_spec.base_type.startswith("struct "):
+				struct_name = node.type_spec.base_type[len("struct "):]
+				total_size = self._compute_struct_size(struct_name)
+			element_size = _resolve_size(node.type_spec) if node.array_sizes else 4
+			total_slots = total_size // element_size if element_size > 0 else len(init_values)
+			while len(init_values) < total_slots:
+				init_values.append(0)
+			self._globals.append(IRGlobalVar(
+				name=name, ir_type=ir_type,
+				initializer_values=init_values, total_size=total_size,
+				storage_class=sc,
+			))
+		else:
+			init_val: int | None = None
+			float_init: float | None = None
+			string_label: str | None = None
+			if node.initializer is not None:
+				if isinstance(node.initializer, IntLiteral):
+					init_val = node.initializer.value
+				elif isinstance(node.initializer, FloatLiteral):
+					float_init = node.initializer.value
+				elif isinstance(node.initializer, CharLiteral):
+					init_val = ord(node.initializer.value)
+				elif isinstance(node.initializer, StringLiteral):
+					label = f".str{self._string_counter}"
+					self._string_counter += 1
+					self._string_data.append(IRStringData(label=label, value=node.initializer.value))
+					string_label = label
+				elif isinstance(node.initializer, UnaryOp) and node.initializer.op == "-":
+					operand = node.initializer.operand
+					if isinstance(operand, IntLiteral):
+						init_val = -operand.value
+					elif isinstance(operand, FloatLiteral):
+						float_init = -operand.value
+			self._globals.append(IRGlobalVar(
+				name=name, ir_type=ir_type, initializer=init_val,
+				storage_class=sc, float_initializer=float_init,
+				string_label=string_label,
+			))
+		self._global_names.add(name)
 
 	def visit_var_decl(self, node: VarDecl) -> None:
 		if not self._in_function:
-			# Global variable declaration
-			ir_type = _resolve_ir_type(node.type_spec) if not node.type_spec.is_function_pointer else IRType.POINTER
-			if isinstance(node.initializer, InitializerList):
-				init_values = self._collect_init_values(node.initializer)
-				total_size = 0
-				if node.array_sizes:
-					element_size = _resolve_size(node.type_spec)
-					for se in node.array_sizes:
-						if isinstance(se, IntLiteral):
-							total_size = se.value * element_size
-				elif node.type_spec.base_type.startswith("struct "):
-					struct_name = node.type_spec.base_type[len("struct "):]
-					total_size = self._compute_struct_size(struct_name)
-				# Pad with zeros if needed
-				element_size = _resolve_size(node.type_spec) if node.array_sizes else 4
-				total_slots = total_size // element_size if element_size > 0 else len(init_values)
-				while len(init_values) < total_slots:
-					init_values.append(0)
-				self._globals.append(IRGlobalVar(
-					name=node.name, ir_type=ir_type,
-					initializer_values=init_values, total_size=total_size,
-					storage_class=node.storage_class,
-				))
-			else:
-				init_val: int | None = None
-				if node.initializer is not None and isinstance(node.initializer, IntLiteral):
-					init_val = node.initializer.value
-				self._globals.append(IRGlobalVar(name=node.name, ir_type=ir_type, initializer=init_val, storage_class=node.storage_class))
-			self._global_names.add(node.name)
+			self._emit_global_var(node.name, node)
 			if node.type_spec.is_function_pointer:
 				self._func_ptr_locals.add(node.name)
+			return
+
+		# Static local: emit as global with mangled name, reference via IRGlobalRef
+		if node.storage_class == "static":
+			mangled = f"{self._current_function_name}.{node.name}"
+			self._emit_global_var(mangled, node, storage_class="static")
+			self._static_local_map[node.name] = mangled
+			self._local_types[node.name] = node.type_spec
 			return
 
 		is_fp = node.type_spec.is_function_pointer
@@ -413,6 +454,14 @@ class IRGenerator(ASTVisitor):
 	def visit_identifier(self, node: Identifier) -> IRTemp | IRConst:
 		if node.name in self._enum_constants:
 			return IRConst(self._enum_constants[node.name])
+		# Static local: load from mangled global
+		if node.name in self._static_local_map:
+			mangled = self._static_local_map[node.name]
+			dest = self._new_temp()
+			ir_type = self._resolve_local_ir_type(node.name)
+			self._set_temp_type(dest, ir_type)
+			self._emit(IRLoad(dest=dest, address=IRGlobalRef(mangled), ir_type=ir_type))
+			return dest
 		src = self._locals.get(node.name)
 		if src is not None:
 			dest = self._new_temp()
@@ -547,6 +596,13 @@ class IRGenerator(ASTVisitor):
 				self._set_temp_type(dest, IRType.POINTER)
 				self._emit(IRCopy(dest=dest, source=IRGlobalRef(node.operand.name), ir_type=IRType.POINTER))
 				return dest
+			# Address-of static local
+			if isinstance(node.operand, Identifier) and node.operand.name in self._static_local_map:
+				mangled = self._static_local_map[node.operand.name]
+				dest = self._new_temp()
+				self._set_temp_type(dest, IRType.POINTER)
+				self._emit(IRCopy(dest=dest, source=IRGlobalRef(mangled), ir_type=IRType.POINTER))
+				return dest
 			# Address-of: return the stack address of the variable
 			if isinstance(node.operand, Identifier):
 				src = self._locals.get(node.operand.name)
@@ -555,6 +611,19 @@ class IRGenerator(ASTVisitor):
 			operand = self.visit(node.operand)
 			return operand
 		if node.op in ("++", "--"):
+			# Prefix ++/-- on static locals
+			if isinstance(node.operand, Identifier) and node.operand.name in self._static_local_map:
+				mangled = self._static_local_map[node.operand.name]
+				ir_type = self._resolve_local_ir_type(node.operand.name)
+				current = self._new_temp()
+				self._set_temp_type(current, ir_type)
+				self._emit(IRLoad(dest=current, address=IRGlobalRef(mangled), ir_type=ir_type))
+				result = self._new_temp()
+				self._set_temp_type(result, ir_type)
+				delta_op = "+" if node.op == "++" else "-"
+				self._emit(IRBinOp(dest=result, left=current, op=delta_op, right=IRConst(1), ir_type=ir_type))
+				self._emit(IRStore(address=IRGlobalRef(mangled), value=result, ir_type=ir_type))
+				return result
 			# Prefix ++/--: load, add/sub 1, store back
 			if isinstance(node.operand, Identifier):
 				target = self._locals.get(node.operand.name)
@@ -590,6 +659,23 @@ class IRGenerator(ASTVisitor):
 				self._emit(IRCopy(dest=target_temp, source=val, ir_type=IRType.POINTER))
 				return target_temp
 		val = self.visit(node.value)
+		# Static local assignment: store to mangled global
+		if isinstance(node.target, Identifier) and node.target.name in self._static_local_map:
+			mangled = self._static_local_map[node.target.name]
+			target_type = self._resolve_local_ir_type(node.target.name)
+			val_type = self._value_ir_type(val)
+			if self._is_float_type(target_type) and not self._is_float_type(val_type):
+				conv = self._new_temp()
+				self._set_temp_type(conv, target_type)
+				self._emit(IRConvert(dest=conv, source=val, from_type=val_type, to_type=target_type))
+				val = conv
+			elif not self._is_float_type(target_type) and self._is_float_type(val_type):
+				conv = self._new_temp()
+				self._set_temp_type(conv, target_type)
+				self._emit(IRConvert(dest=conv, source=val, from_type=val_type, to_type=target_type))
+				val = conv
+			self._emit(IRStore(address=IRGlobalRef(mangled), value=val, ir_type=target_type))
+			return val if isinstance(val, IRTemp) else self._new_temp()
 		if isinstance(node.target, ArraySubscript):
 			addr = self._compute_array_addr(node.target)
 			val_type = self._value_ir_type(val)
@@ -856,6 +942,17 @@ class IRGenerator(ASTVisitor):
 			# Store back (recompute address since addr temp may have been clobbered)
 			addr2 = self._compute_array_addr(node.target)
 			self._emit(IRStore(address=addr2, value=result))
+		elif isinstance(node.target, Identifier) and node.target.name in self._static_local_map:
+			mangled = self._static_local_map[node.target.name]
+			ir_type = self._resolve_local_ir_type(node.target.name)
+			current = self._new_temp()
+			self._set_temp_type(current, ir_type)
+			self._emit(IRLoad(dest=current, address=IRGlobalRef(mangled), ir_type=ir_type))
+			rhs = self.visit(node.value)
+			result = self._new_temp()
+			self._set_temp_type(result, ir_type)
+			self._emit(IRBinOp(dest=result, left=current, op=arith_op, right=rhs, ir_type=ir_type))
+			self._emit(IRStore(address=IRGlobalRef(mangled), value=result, ir_type=ir_type))
 		elif isinstance(node.target, Identifier):
 			target_temp = self._locals.get(node.target.name)
 			if target_temp is None:
@@ -1113,6 +1210,18 @@ class IRGenerator(ASTVisitor):
 
 	def visit_postfix_expr(self, node: PostfixExpr) -> IRTemp:
 		# Load current value (this is the result -- old value)
+		if isinstance(node.operand, Identifier) and node.operand.name in self._static_local_map:
+			mangled = self._static_local_map[node.operand.name]
+			ir_type = self._resolve_local_ir_type(node.operand.name)
+			old_val = self._new_temp()
+			self._set_temp_type(old_val, ir_type)
+			self._emit(IRLoad(dest=old_val, address=IRGlobalRef(mangled), ir_type=ir_type))
+			new_val = self._new_temp()
+			self._set_temp_type(new_val, ir_type)
+			delta_op = "+" if node.op == "++" else "-"
+			self._emit(IRBinOp(dest=new_val, left=old_val, op=delta_op, right=IRConst(1), ir_type=ir_type))
+			self._emit(IRStore(address=IRGlobalRef(mangled), value=new_val, ir_type=ir_type))
+			return old_val
 		if isinstance(node.operand, Identifier):
 			target = self._locals.get(node.operand.name)
 			if target is not None:
