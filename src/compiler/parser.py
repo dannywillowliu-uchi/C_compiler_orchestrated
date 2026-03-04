@@ -230,6 +230,22 @@ class Parser:
 		self._last_storage_class = None
 		type_spec = self._parse_type_spec()
 		storage_class = self._last_storage_class
+
+		# Check for function pointer declaration: type (*name)(params)
+		if self._is_func_ptr_start():
+			fp_type, name_tok = self._parse_func_ptr_type(type_spec)
+			initializer = None
+			if self._match(TokenType.ASSIGN):
+				initializer = self._parse_expression()
+			self._expect(TokenType.SEMICOLON, "Expected ';' after function pointer declaration")
+			return VarDecl(
+				type_spec=fp_type,
+				name=name_tok.value,
+				initializer=initializer,
+				storage_class=storage_class,
+				loc=self._loc(name_tok),
+			)
+
 		name_tok = self._expect(TokenType.IDENTIFIER, "Expected declaration name")
 
 		if self._check(TokenType.LPAREN):
@@ -543,8 +559,17 @@ class Parser:
 		else:
 			type_spec = self._parse_type_spec()
 
-		# Count additional pointer stars after the base type spec
-		# (already handled in _parse_type_spec)
+		# Check for function pointer typedef: typedef type (*alias)(params);
+		if self._is_func_ptr_start():
+			fp_type, alias_tok = self._parse_func_ptr_type(type_spec)
+			self._expect(TokenType.SEMICOLON, "Expected ';' after typedef declaration")
+			self._typedef_names.add(alias_tok.value)
+			return TypedefDecl(
+				type_spec=fp_type,
+				name=alias_tok.value,
+				loc=self._loc(tok),
+			)
+
 		alias_tok = self._expect(TokenType.IDENTIFIER, "Expected typedef name")
 		self._expect(TokenType.SEMICOLON, "Expected ';' after typedef declaration")
 		self._typedef_names.add(alias_tok.value)
@@ -553,6 +578,57 @@ class Parser:
 			name=alias_tok.value,
 			loc=self._loc(tok),
 		)
+
+	# -- Function pointer helpers --------------------------------------------
+
+	def _is_func_ptr_start(self) -> bool:
+		"""Check if the current position starts a function pointer declarator: ( * ..."""
+		return self._check(TokenType.LPAREN) and self._peek(1).type == TokenType.STAR
+
+	def _parse_func_ptr_type(self, return_type: TypeSpec) -> tuple[TypeSpec, Token]:
+		"""Parse '(*name)(param_types...)' given the return type was already parsed.
+
+		Returns (func_ptr_type_spec, name_token).
+		"""
+		self._expect(TokenType.LPAREN, "Expected '(' in function pointer declaration")
+		self._expect(TokenType.STAR, "Expected '*' in function pointer declaration")
+		name_tok = self._expect(TokenType.IDENTIFIER, "Expected function pointer name")
+		self._expect(TokenType.RPAREN, "Expected ')' after function pointer name")
+		self._expect(TokenType.LPAREN, "Expected '(' for function pointer parameter list")
+		param_types = self._parse_func_ptr_param_types()
+		self._expect(TokenType.RPAREN, "Expected ')' after function pointer parameters")
+		fp_type = TypeSpec(
+			base_type="__func_ptr",
+			is_function_pointer=True,
+			func_ptr_return_type=return_type,
+			func_ptr_params=param_types,
+			loc=return_type.loc,
+		)
+		return fp_type, name_tok
+
+	def _parse_func_ptr_param_types(self) -> list[TypeSpec]:
+		"""Parse comma-separated parameter types for a function pointer signature.
+
+		Supports both bare types 'int, int' and named params 'int a, int b'.
+		"""
+		types: list[TypeSpec] = []
+		if self._check(TokenType.RPAREN):
+			return types
+		if self._check(TokenType.VOID) and self._peek(1).type == TokenType.RPAREN:
+			self._advance()
+			return types
+		types.append(self._parse_func_ptr_single_param())
+		while self._match(TokenType.COMMA):
+			types.append(self._parse_func_ptr_single_param())
+		return types
+
+	def _parse_func_ptr_single_param(self) -> TypeSpec:
+		"""Parse a single parameter type (optionally with name) for a function pointer."""
+		ts = self._parse_type_spec()
+		# Consume optional parameter name
+		if self._check(TokenType.IDENTIFIER) and self._peek(0).value not in self._typedef_names:
+			self._advance()
+		return ts
 
 	# -- Function declaration ------------------------------------------------
 
@@ -593,8 +669,12 @@ class Parser:
 		return params
 
 	def _parse_param_decl(self) -> ParamDecl:
-		"""Parse a single parameter declaration: type name."""
+		"""Parse a single parameter declaration: type name or type (*name)(params)."""
 		type_spec = self._parse_type_spec()
+		# Check for function pointer parameter: type (*name)(params)
+		if self._is_func_ptr_start():
+			fp_type, name_tok = self._parse_func_ptr_type(type_spec)
+			return ParamDecl(type_spec=fp_type, name=name_tok.value, loc=self._loc(name_tok))
 		name_tok = self._expect(TokenType.IDENTIFIER, "Expected parameter name")
 		return ParamDecl(type_spec=type_spec, name=name_tok.value, loc=self._loc(name_tok))
 
@@ -790,6 +870,22 @@ class Parser:
 		self._last_storage_class = None
 		type_spec = self._parse_type_spec()
 		storage_class = self._last_storage_class
+
+		# Check for function pointer declaration: type (*name)(params)
+		if self._is_func_ptr_start():
+			fp_type, name_tok = self._parse_func_ptr_type(type_spec)
+			initializer = None
+			if self._match(TokenType.ASSIGN):
+				initializer = self._parse_expression()
+			self._expect(TokenType.SEMICOLON, "Expected ';' after function pointer declaration")
+			return VarDecl(
+				type_spec=fp_type,
+				name=name_tok.value,
+				initializer=initializer,
+				storage_class=storage_class,
+				loc=self._loc(name_tok),
+			)
+
 		name_tok = self._expect(TokenType.IDENTIFIER, "Expected variable name")
 		array_sizes: list[ASTNode] | None = None
 		if self._check(TokenType.LBRACKET):

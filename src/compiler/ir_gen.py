@@ -131,6 +131,8 @@ class IRGenerator(ASTVisitor):
 		self._string_data: list[IRStringData] = []
 		self._string_counter: int = 0
 		self._enum_constants: dict[str, int] = {}
+		self._func_ptr_locals: set[str] = set()
+		self._known_functions: set[str] = set()
 
 	# ------------------------------------------------------------------
 	# Helpers
@@ -196,18 +198,23 @@ class IRGenerator(ASTVisitor):
 	# ------------------------------------------------------------------
 
 	def visit_function_decl(self, node: FunctionDecl) -> None:
+		self._known_functions.add(node.name)
+		if node.body is None:
+			return
 		old_instructions = self._instructions
 		old_locals = self._locals
 		old_types = self._local_types
 		old_arrays = self._local_array
 		old_temp_types = self._temp_types
 		old_in_function = self._in_function
+		old_func_ptr_locals = self._func_ptr_locals
 		self._instructions = []
 		self._locals = {}
 		self._local_types = {}
 		self._local_array = {}
 		self._temp_types = {}
 		self._in_function = True
+		self._func_ptr_locals = set()
 
 		params: list[IRTemp] = []
 		param_types: list[IRType] = []
@@ -216,7 +223,11 @@ class IRGenerator(ASTVisitor):
 			params.append(p_temp)
 			self._locals[param.name] = p_temp
 			self._local_types[param.name] = param.type_spec
-			p_ir_type = _resolve_ir_type(param.type_spec)
+			if param.type_spec.is_function_pointer:
+				self._func_ptr_locals.add(param.name)
+				p_ir_type = IRType.POINTER
+			else:
+				p_ir_type = _resolve_ir_type(param.type_spec)
 			param_types.append(p_ir_type)
 			self._set_temp_type(p_temp, p_ir_type)
 
@@ -238,11 +249,12 @@ class IRGenerator(ASTVisitor):
 		self._local_array = old_arrays
 		self._temp_types = old_temp_types
 		self._in_function = old_in_function
+		self._func_ptr_locals = old_func_ptr_locals
 
 	def visit_var_decl(self, node: VarDecl) -> None:
 		if not self._in_function:
 			# Global variable declaration
-			ir_type = _resolve_ir_type(node.type_spec)
+			ir_type = _resolve_ir_type(node.type_spec) if not node.type_spec.is_function_pointer else IRType.POINTER
 			if isinstance(node.initializer, InitializerList):
 				init_values = self._collect_init_values(node.initializer)
 				total_size = 0
@@ -269,11 +281,19 @@ class IRGenerator(ASTVisitor):
 					init_val = node.initializer.value
 				self._globals.append(IRGlobalVar(name=node.name, ir_type=ir_type, initializer=init_val))
 			self._global_names.add(node.name)
+			if node.type_spec.is_function_pointer:
+				self._func_ptr_locals.add(node.name)
 			return
+
+		is_fp = node.type_spec.is_function_pointer
 		dest = self._new_temp()
 		self._locals[node.name] = dest
 		self._local_types[node.name] = node.type_spec
-		var_ir_type = _resolve_ir_type(node.type_spec)
+		if is_fp:
+			self._func_ptr_locals.add(node.name)
+			var_ir_type = IRType.POINTER
+		else:
+			var_ir_type = _resolve_ir_type(node.type_spec)
 		self._set_temp_type(dest, var_ir_type)
 		if node.array_sizes is not None and len(node.array_sizes) > 0:
 			element_size = _resolve_size(node.type_spec)
@@ -286,10 +306,14 @@ class IRGenerator(ASTVisitor):
 			self._local_array[node.name] = size_vals
 			self._emit(IRAlloc(dest=dest, size=element_size * total_elements))
 		else:
-			self._emit(IRAlloc(dest=dest, size=self._resolve_type_size(node.type_spec)))
+			alloc_size = 8 if is_fp else self._resolve_type_size(node.type_spec)
+			self._emit(IRAlloc(dest=dest, size=alloc_size))
 		if node.initializer is not None:
 			if isinstance(node.initializer, InitializerList):
 				self._emit_initializer_list(dest, node)
+			elif is_fp:
+				val = self._emit_func_ptr_value(node.initializer)
+				self._emit(IRCopy(dest=dest, source=val, ir_type=IRType.POINTER))
 			else:
 				val = self.visit(node.initializer)
 				val_type = self._value_ir_type(val)
@@ -455,6 +479,12 @@ class IRGenerator(ASTVisitor):
 			self._emit(IRLoad(dest=dest, address=ptr))
 			return dest
 		if node.op == "&":
+			# Address-of a function -> get function address
+			if isinstance(node.operand, Identifier) and node.operand.name in self._known_functions:
+				dest = self._new_temp()
+				self._set_temp_type(dest, IRType.POINTER)
+				self._emit(IRCopy(dest=dest, source=IRGlobalRef(node.operand.name), ir_type=IRType.POINTER))
+				return dest
 			# Address-of: return the stack address of the variable
 			if isinstance(node.operand, Identifier):
 				src = self._locals.get(node.operand.name)
@@ -490,6 +520,13 @@ class IRGenerator(ASTVisitor):
 		return dest
 
 	def visit_assignment(self, node: Assignment) -> IRTemp:
+		# Check if target is a function pointer variable
+		if isinstance(node.target, Identifier) and node.target.name in self._func_ptr_locals:
+			val = self._emit_func_ptr_value(node.value)
+			target_temp = self._locals.get(node.target.name)
+			if target_temp is not None:
+				self._emit(IRCopy(dest=target_temp, source=val, ir_type=IRType.POINTER))
+				return target_temp
 		val = self.visit(node.value)
 		if isinstance(node.target, ArraySubscript):
 			addr = self._compute_array_addr(node.target)
@@ -534,12 +571,50 @@ class IRGenerator(ASTVisitor):
 		self._emit(IRCopy(dest=dest, source=val))
 		return dest
 
+	def _emit_func_ptr_value(self, node: object) -> IRValue:
+		"""Emit IR to get a function address from an expression (func name, &func, or another fp)."""
+		if isinstance(node, Identifier):
+			# Bare function name -> address of function
+			if node.name in self._known_functions:
+				dest = self._new_temp()
+				self._set_temp_type(dest, IRType.POINTER)
+				self._emit(IRCopy(dest=dest, source=IRGlobalRef(node.name), ir_type=IRType.POINTER))
+				return dest
+			# Another function pointer variable
+			if node.name in self._func_ptr_locals:
+				src = self._locals.get(node.name)
+				if src is not None:
+					dest = self._new_temp()
+					self._set_temp_type(dest, IRType.POINTER)
+					self._emit(IRCopy(dest=dest, source=src, ir_type=IRType.POINTER))
+					return dest
+		if isinstance(node, UnaryOp) and node.op == "&":
+			if isinstance(node.operand, Identifier) and node.operand.name in self._known_functions:
+				dest = self._new_temp()
+				self._set_temp_type(dest, IRType.POINTER)
+				self._emit(IRCopy(dest=dest, source=IRGlobalRef(node.operand.name), ir_type=IRType.POINTER))
+				return dest
+		# Fallback: evaluate expression
+		return self.visit(node)
+
 	def visit_function_call(self, node: FunctionCall) -> IRTemp:
 		arg_vals = [self.visit(arg) for arg in node.arguments]
 		arg_types = [self._value_ir_type(av) for av in arg_vals]
 		for av in arg_vals:
 			self._emit(IRParam(value=av))
 		dest = self._new_temp()
+		# Check if this is an indirect call through a function pointer
+		if node.name in self._func_ptr_locals:
+			fp_temp = self._locals.get(node.name)
+			if fp_temp is not None:
+				func_val = self._new_temp()
+				self._set_temp_type(func_val, IRType.POINTER)
+				self._emit(IRCopy(dest=func_val, source=fp_temp, ir_type=IRType.POINTER))
+				self._emit(IRCall(
+					dest=dest, function_name=node.name, args=arg_vals,
+					arg_types=arg_types, indirect=True, func_value=func_val,
+				))
+				return dest
 		self._emit(IRCall(
 			dest=dest, function_name=node.name, args=arg_vals,
 			arg_types=arg_types,

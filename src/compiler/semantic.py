@@ -73,6 +73,7 @@ class Symbol:
 	array_sizes: list[int] = field(default_factory=list)
 	is_prototype: bool = False
 	storage_class: str | None = None
+	is_function_pointer: bool = False
 
 
 class SymbolTable:
@@ -226,8 +227,12 @@ class SemanticAnalyzer(ASTVisitor):
 
 	def _resolve_type(self, ts: TypeSpec) -> TypeSpec:
 		"""Resolve a type spec, following typedef chains to the underlying type."""
+		if ts.is_function_pointer:
+			return ts
 		if ts.base_type in self._typedef_types:
 			resolved = self._typedef_types[ts.base_type]
+			if resolved.is_function_pointer:
+				return resolved
 			return TypeSpec(
 				base_type=resolved.base_type,
 				pointer_count=resolved.pointer_count + ts.pointer_count,
@@ -290,23 +295,42 @@ class SemanticAnalyzer(ASTVisitor):
 
 	def visit_param_decl(self, node: ParamDecl) -> TypeSpec:
 		node.type_spec = self._resolve_type(node.type_spec)
-		self._define_symbol(node.name, node.type_spec, node)
+		if node.type_spec.is_function_pointer:
+			sym = Symbol(
+				name=node.name,
+				type_spec=node.type_spec,
+				scope_depth=self.symbols.depth,
+				is_function_pointer=True,
+			)
+			existing = self.symbols.lookup_current_scope(node.name)
+			if existing is not None:
+				self._error(f"redefinition of '{node.name}' in the same scope", node)
+			else:
+				self.symbols.define(sym)
+		else:
+			self._define_symbol(node.name, node.type_spec, node)
 		return node.type_spec
 
 	def visit_var_decl(self, node: VarDecl) -> TypeSpec:
 		node.type_spec = self._resolve_type(node.type_spec)
 		self._check_duplicate_qualifiers(node.type_spec, node)
+
+		is_fp = node.type_spec.is_function_pointer
+
 		if node.initializer is not None:
 			if isinstance(node.initializer, InitializerList):
 				self._check_initializer_list(node)
 			else:
-				init_type = self.visit(node.initializer)
-				if init_type is not None and not _types_compatible(node.type_spec, init_type):
-					self._error(
-						f"incompatible types in initialization of '{node.name}': "
-						f"'{node.type_spec.base_type}' and '{init_type.base_type}'",
-						node,
-					)
+				if is_fp:
+					self._check_func_ptr_initializer(node)
+				else:
+					init_type = self.visit(node.initializer)
+					if init_type is not None and not _types_compatible(node.type_spec, init_type):
+						self._error(
+							f"incompatible types in initialization of '{node.name}': "
+							f"'{node.type_spec.base_type}' and '{init_type.base_type}'",
+							node,
+						)
 		is_array = node.array_sizes is not None and len(node.array_sizes) > 0
 		array_size_vals: list[int] = []
 		if is_array:
@@ -332,6 +356,7 @@ class SemanticAnalyzer(ASTVisitor):
 			is_array=is_array,
 			array_sizes=array_size_vals,
 			storage_class=node.storage_class,
+			is_function_pointer=is_fp,
 		)
 		existing = self.symbols.lookup_current_scope(node.name)
 		if existing is not None:
@@ -339,6 +364,30 @@ class SemanticAnalyzer(ASTVisitor):
 			return node.type_spec
 		self.symbols.define(sym)
 		return node.type_spec
+
+	def _check_func_ptr_initializer(self, node: VarDecl) -> None:
+		"""Validate function pointer initializer (fp = func_name or fp = &func_name)."""
+		init = node.initializer
+		assert init is not None
+		# Allow bare function name: fp = add
+		if isinstance(init, Identifier):
+			sym = self.symbols.lookup(init.name)
+			if sym is None:
+				self._error(f"use of undeclared identifier '{init.name}'", init)
+			elif not sym.is_function and not sym.is_function_pointer:
+				self._error(f"'{init.name}' is not a function or function pointer", init)
+			return
+		# Allow address-of function: fp = &add
+		if isinstance(init, UnaryOp) and init.op == "&":
+			if isinstance(init.operand, Identifier):
+				sym = self.symbols.lookup(init.operand.name)
+				if sym is None:
+					self._error(f"use of undeclared identifier '{init.operand.name}'", init)
+				elif not sym.is_function:
+					self._error(f"'{init.operand.name}' is not a function", init)
+				return
+		# General expression -- just visit it
+		self.visit(init)
 
 	def _check_initializer_list(self, node: VarDecl) -> None:
 		"""Type-check an initializer list against the variable's type."""
@@ -514,6 +563,11 @@ class SemanticAnalyzer(ASTVisitor):
 		return _result_type(left_type, node.op, right_type)
 
 	def visit_unary_op(self, node: UnaryOp) -> TypeSpec | None:
+		# Special case: &function_name -> function pointer (address of function)
+		if node.op == "&" and isinstance(node.operand, Identifier):
+			sym = self.symbols.lookup(node.operand.name)
+			if sym is not None and sym.is_function:
+				return TypeSpec(base_type="void", pointer_count=1)
 		operand_type = self.visit(node.operand)
 		if operand_type is None:
 			return None
@@ -551,10 +605,36 @@ class SemanticAnalyzer(ASTVisitor):
 		if sym is None:
 			self._error(f"use of undeclared identifier '{node.name}'", node)
 			return None
+		# Function pointer variables return a pointer type for type-compat purposes
+		if sym.is_function_pointer:
+			return TypeSpec(base_type="void", pointer_count=1)
 		return sym.type_spec
 
 	def visit_assignment(self, node: Assignment) -> TypeSpec | None:
 		target_type = self.visit(node.target)
+		# Check if target is a function pointer
+		if isinstance(node.target, Identifier):
+			sym = self.symbols.lookup(node.target.name)
+			if sym is not None and sym.is_function_pointer:
+				# Validate the RHS is a function or function pointer
+				if isinstance(node.value, Identifier):
+					rhs_sym = self.symbols.lookup(node.value.name)
+					if rhs_sym is None:
+						self._error(f"use of undeclared identifier '{node.value.name}'", node.value)
+					elif not rhs_sym.is_function and not rhs_sym.is_function_pointer:
+						self._error(f"'{node.value.name}' is not a function or function pointer", node.value)
+					return target_type
+				if isinstance(node.value, UnaryOp) and node.value.op == "&":
+					if isinstance(node.value.operand, Identifier):
+						rhs_sym = self.symbols.lookup(node.value.operand.name)
+						if rhs_sym is None:
+							self._error(f"use of undeclared identifier '{node.value.operand.name}'", node.value)
+						elif not rhs_sym.is_function:
+							self._error(f"'{node.value.operand.name}' is not a function", node.value)
+						return target_type
+				# General expression
+				self.visit(node.value)
+				return target_type
 		value_type = self.visit(node.value)
 		if target_type is None or value_type is None:
 			return None
@@ -571,6 +651,19 @@ class SemanticAnalyzer(ASTVisitor):
 		if sym is None:
 			self._error(f"call to undeclared function '{node.name}'", node)
 			return None
+		# Handle indirect calls through function pointers
+		if sym.is_function_pointer or (sym.type_spec is not None and sym.type_spec.is_function_pointer):
+			fp_type = sym.type_spec
+			expected_params = fp_type.func_ptr_params
+			if len(node.arguments) != len(expected_params):
+				self._error(
+					f"function pointer '{node.name}' expects {len(expected_params)} arguments, "
+					f"got {len(node.arguments)}",
+					node,
+				)
+			for arg in node.arguments:
+				self.visit(arg)
+			return fp_type.func_ptr_return_type
 		if not sym.is_function:
 			self._error(f"'{node.name}' is not a function", node)
 			return None
