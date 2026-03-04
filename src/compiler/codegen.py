@@ -474,8 +474,6 @@ class CodeGenerator:
 				self._gen_float_unaryop(instr)
 			else:
 				self._gen_unaryop(instr)
-		elif isinstance(instr, IRAddrOf):
-			self._gen_addr_of(instr)
 		elif isinstance(instr, IRCopy):
 			if _is_float(instr.ir_type):
 				self._gen_float_copy(instr)
@@ -501,6 +499,8 @@ class CodeGenerator:
 				self._gen_float_return(instr)
 			else:
 				self._gen_return(instr)
+		elif isinstance(instr, IRAddrOf):
+			self._gen_addr_of(instr)
 		elif isinstance(instr, IRAlloc):
 			self._gen_alloc(instr)
 		elif isinstance(instr, IRConvert):
@@ -586,12 +586,6 @@ class CodeGenerator:
 
 		if op != "!":
 			self._truncate_narrow(instr.ir_type)
-		self._store_to_temp("%rax", instr.dest)
-
-	def _gen_addr_of(self, instr: IRAddrOf) -> None:
-		"""Generate leaq to get the stack address of source temp."""
-		offset = self._get_offset(instr.source.name)
-		self._emit_instr(f"leaq {offset}(%rbp), %rax")
 		self._store_to_temp("%rax", instr.dest)
 
 	def _gen_copy(self, instr: IRCopy) -> None:
@@ -707,6 +701,11 @@ class CodeGenerator:
 		aligned = self._align16(instr.size)
 		self._emit_instr(f"subq ${aligned}, %rsp")
 		self._emit_instr("movq %rsp, %rax")
+		self._store_to_temp("%rax", instr.dest)
+
+	def _gen_addr_of(self, instr: IRAddrOf) -> None:
+		offset = self._get_offset(instr.source.name)
+		self._emit_instr(f"leaq {offset}(%rbp), %rax")
 		self._store_to_temp("%rax", instr.dest)
 
 	# ------------------------------------------------------------------

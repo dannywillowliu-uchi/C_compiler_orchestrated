@@ -284,9 +284,6 @@ class IROptimizer:
 			no = resolve(instr.operand)
 			if no is not instr.operand:
 				return IRUnaryOp(dest=instr.dest, op=instr.op, operand=no)
-		elif isinstance(instr, IRAddrOf):
-			# Do not substitute source — IRAddrOf needs the actual stack slot
-			pass
 		elif isinstance(instr, IRCopy):
 			ns = resolve(instr.source)
 			if ns is not instr.source:
@@ -333,7 +330,7 @@ class IROptimizer:
 					used.add(val.name)
 		return [
 			instr for instr in body
-			if not (isinstance(instr, (IRBinOp, IRUnaryOp, IRCopy, IRConvert, IRAddrOf)) and instr.dest.name not in used)
+			if not (isinstance(instr, (IRBinOp, IRUnaryOp, IRCopy, IRConvert)) and instr.dest.name not in used)
 		]
 
 	# -- Strength Reduction --
@@ -568,7 +565,7 @@ class IROptimizer:
 
 	def _get_dest(self, instr: IRInstruction) -> IRTemp | None:
 		"""Return the destination temp written by an instruction, if any."""
-		if isinstance(instr, (IRBinOp, IRUnaryOp, IRCopy, IRLoad, IRAlloc, IRConvert, IRAddrOf)):
+		if isinstance(instr, (IRAddrOf, IRBinOp, IRUnaryOp, IRCopy, IRLoad, IRAlloc, IRConvert)):
 			return instr.dest
 		if isinstance(instr, IRCall):
 			return instr.dest
@@ -576,12 +573,12 @@ class IROptimizer:
 
 	def _get_uses(self, instr: IRInstruction) -> list[IRValue]:
 		"""Return all values read by an instruction."""
+		if isinstance(instr, IRAddrOf):
+			return [instr.source]
 		if isinstance(instr, IRBinOp):
 			return [instr.left, instr.right]
 		if isinstance(instr, IRUnaryOp):
 			return [instr.operand]
-		if isinstance(instr, IRAddrOf):
-			return [instr.source]
 		if isinstance(instr, IRCopy):
 			return [instr.source]
 		if isinstance(instr, IRLoad):
