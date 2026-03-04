@@ -10,6 +10,7 @@ from compiler.optimizer import IROptimizer
 from compiler.parser import Parser
 from compiler.peephole import PeepholeOptimizer
 from compiler.preprocessor import Preprocessor
+from compiler.regalloc import allocate_registers
 from compiler.semantic import SemanticAnalyzer, SemanticError
 
 
@@ -24,7 +25,8 @@ def compile_source(source: str, optimize: bool = False) -> str:
 	ir_program = IRGenerator().generate(ast)
 	if optimize:
 		ir_program = IROptimizer().optimize(ir_program)
-	assembly = CodeGenerator().generate(ir_program)
+	regalloc_maps = allocate_registers(ir_program) if optimize else None
+	assembly = CodeGenerator(regalloc_maps=regalloc_maps).generate(ir_program)
 	if optimize:
 		assembly = PeepholeOptimizer().optimize(assembly)
 	return assembly
