@@ -14,6 +14,7 @@ from compiler.ast_nodes import (
 	CaseClause,
 	CastExpr,
 	CharLiteral,
+	CommaExpr,
 	CompoundAssignment,
 	CompoundStmt,
 	ContinueStmt,
@@ -820,6 +821,10 @@ class SemanticAnalyzer(ASTVisitor):
 					node,
 				)
 		return target
+
+	def visit_comma_expr(self, node: CommaExpr) -> TypeSpec | None:
+		self.visit(node.left)
+		return self.visit(node.right)
 
 	def _is_lvalue(self, node: ASTNode) -> bool:
 		if isinstance(node, Identifier):

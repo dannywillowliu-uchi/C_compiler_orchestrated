@@ -150,6 +150,9 @@ class ASTVisitor:
 	def visit_initializer_list(self, node: InitializerList) -> Any:
 		return None
 
+	def visit_comma_expr(self, node: CommaExpr) -> Any:
+		return None
+
 
 # --- Type node ---
 
@@ -359,6 +362,17 @@ class InitializerList(ASTNode):
 
 	def accept(self, visitor: ASTVisitor) -> Any:
 		return visitor.visit_initializer_list(self)
+
+
+@dataclass
+class CommaExpr(ASTNode):
+	"""Comma operator: left, right. Evaluates both, returns right."""
+
+	left: ASTNode = field(default_factory=ASTNode)
+	right: ASTNode = field(default_factory=ASTNode)
+
+	def accept(self, visitor: ASTVisitor) -> Any:
+		return visitor.visit_comma_expr(self)
 
 
 # --- Statement nodes ---

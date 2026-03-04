@@ -15,6 +15,7 @@ from compiler.ast_nodes import (
 	CaseClause,
 	CastExpr,
 	CharLiteral,
+	CommaExpr,
 	CompoundAssignment,
 	CompoundStmt,
 	ContinueStmt,
@@ -240,7 +241,7 @@ class Parser:
 			fp_type, name_tok = self._parse_func_ptr_type(type_spec)
 			initializer = None
 			if self._match(TokenType.ASSIGN):
-				initializer = self._parse_expression()
+				initializer = self._parse_assignment()
 			self._expect(TokenType.SEMICOLON, "Expected ';' after function pointer declaration")
 			return VarDecl(
 				type_spec=fp_type,
@@ -426,7 +427,7 @@ class Parser:
 			const_name_tok = self._expect(TokenType.IDENTIFIER, "Expected enumerator name")
 			value: ASTNode | None = None
 			if self._match(TokenType.ASSIGN):
-				value = self._parse_expression()
+				value = self._parse_assignment()
 			constants.append(EnumConstant(
 				name=const_name_tok.value,
 				value=value,
@@ -854,7 +855,7 @@ class Parser:
 		while not self._check(TokenType.RBRACE) and not self._at_end():
 			if self._check(TokenType.CASE):
 				case_tok = self._advance()  # consume 'case'
-				value = self._parse_expression()
+				value = self._parse_assignment()
 				self._expect(TokenType.COLON, "Expected ':' after case expression")
 				stmts: list[ASTNode] = []
 				while (
@@ -901,7 +902,7 @@ class Parser:
 			return None
 		if self._check(TokenType.LBRACE):
 			return self._parse_initializer_list()
-		return self._parse_expression()
+		return self._parse_assignment()
 
 	def _parse_additional_declarator(self, first_type_spec: TypeSpec, storage_class: str | None) -> VarDecl:
 		"""Parse an additional declarator in a comma-separated declaration list.
@@ -947,7 +948,7 @@ class Parser:
 			fp_type, name_tok = self._parse_func_ptr_type(type_spec)
 			initializer = None
 			if self._match(TokenType.ASSIGN):
-				initializer = self._parse_expression()
+				initializer = self._parse_assignment()
 			self._expect(TokenType.SEMICOLON, "Expected ';' after function pointer declaration")
 			return [VarDecl(
 				type_spec=fp_type,
@@ -1017,7 +1018,7 @@ class Parser:
 			if self._check(TokenType.LBRACE):
 				elements.append(self._parse_initializer_list())
 			else:
-				elements.append(self._parse_expression())
+				elements.append(self._parse_assignment())
 			if not self._match(TokenType.COMMA):
 				break
 		self._expect(TokenType.RBRACE, "Expected '}' after initializer list")
@@ -1026,8 +1027,12 @@ class Parser:
 	# -- Expressions (precedence climbing) -----------------------------------
 
 	def _parse_expression(self) -> ASTNode:
-		"""Parse an expression, handling assignment as lowest precedence."""
-		return self._parse_assignment()
+		"""Parse an expression, handling comma operator at lowest precedence."""
+		left = self._parse_assignment()
+		while self._match(TokenType.COMMA):
+			right = self._parse_assignment()
+			left = CommaExpr(left=left, right=right, loc=left.loc)
+		return left
 
 	def _parse_assignment(self) -> ASTNode:
 		"""Parse assignment or compound assignment (right-associative)."""
@@ -1132,9 +1137,9 @@ class Parser:
 				self._advance()  # consume '('
 				args: list[ASTNode] = []
 				if not self._check(TokenType.RPAREN):
-					args.append(self._parse_expression())
+					args.append(self._parse_assignment())
 					while self._match(TokenType.COMMA):
-						args.append(self._parse_expression())
+						args.append(self._parse_assignment())
 				self._expect(TokenType.RPAREN, "Expected ')' after function arguments")
 				node = FunctionCall(name=node.name, arguments=args, loc=node.loc)
 			elif self._check(TokenType.LBRACKET):
