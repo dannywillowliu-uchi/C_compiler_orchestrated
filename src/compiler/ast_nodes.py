@@ -153,6 +153,12 @@ class ASTVisitor:
 	def visit_comma_expr(self, node: CommaExpr) -> Any:
 		return None
 
+	def visit_goto_stmt(self, node: GotoStmt) -> Any:
+		return None
+
+	def visit_label_stmt(self, node: LabelStmt) -> Any:
+		return None
+
 
 # --- Type node ---
 
@@ -469,6 +475,27 @@ class ContinueStmt(ASTNode):
 
 	def accept(self, visitor: ASTVisitor) -> Any:
 		return visitor.visit_continue_stmt(self)
+
+
+@dataclass
+class GotoStmt(ASTNode):
+	"""Goto statement: goto label;"""
+
+	label: str = ""
+
+	def accept(self, visitor: ASTVisitor) -> Any:
+		return visitor.visit_goto_stmt(self)
+
+
+@dataclass
+class LabelStmt(ASTNode):
+	"""Labeled statement: label: stmt"""
+
+	label: str = ""
+	statement: ASTNode = field(default_factory=ASTNode)
+
+	def accept(self, visitor: ASTVisitor) -> Any:
+		return visitor.visit_label_stmt(self)
 
 
 @dataclass
