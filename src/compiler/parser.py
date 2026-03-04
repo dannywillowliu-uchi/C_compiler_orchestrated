@@ -124,7 +124,7 @@ _COMPOUND_ASSIGN: dict[TokenType, str] = {
 
 _TYPE_KEYWORDS: set[TokenType] = {
 	TokenType.INT, TokenType.CHAR, TokenType.VOID, TokenType.STRUCT, TokenType.ENUM,
-	TokenType.FLOAT, TokenType.DOUBLE, TokenType.UNION,
+	TokenType.FLOAT, TokenType.DOUBLE, TokenType.UNION, TokenType.BOOL,
 	TokenType.LONG, TokenType.SHORT, TokenType.SIGNED, TokenType.UNSIGNED,
 }
 
@@ -342,7 +342,7 @@ class Parser:
 		elif tok.type in _QUALIFIER_KEYWORDS:
 			# Post-base qualifiers (e.g. "int const" - unusual but valid C)
 			pass
-		elif tok.type in {TokenType.INT, TokenType.CHAR, TokenType.VOID, TokenType.FLOAT, TokenType.DOUBLE}:
+		elif tok.type in {TokenType.INT, TokenType.CHAR, TokenType.VOID, TokenType.FLOAT, TokenType.DOUBLE, TokenType.BOOL}:
 			self._advance()
 			base_type = tok.value
 		elif tok.type == TokenType.STRUCT:
@@ -1035,7 +1035,7 @@ class Parser:
 				return False
 			return True
 		if self._check(TokenType.INT, TokenType.CHAR, TokenType.VOID, TokenType.FLOAT, TokenType.DOUBLE,
-			TokenType.LONG, TokenType.SHORT, TokenType.SIGNED, TokenType.UNSIGNED):
+			TokenType.LONG, TokenType.SHORT, TokenType.SIGNED, TokenType.UNSIGNED, TokenType.BOOL):
 			return True
 		if self._check(*_QUALIFIER_KEYWORDS) or self._check(*_STORAGE_CLASS_KEYWORDS):
 			return True

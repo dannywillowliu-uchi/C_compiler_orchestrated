@@ -81,6 +81,7 @@ _TYPE_MAP: dict[str, IRType] = {
 	"void": IRType.VOID,
 	"float": IRType.FLOAT,
 	"double": IRType.DOUBLE,
+	"_Bool": IRType.BOOL,
 }
 
 _SIZE_MAP: dict[str, int] = {
@@ -89,6 +90,7 @@ _SIZE_MAP: dict[str, int] = {
 	"void": 0,
 	"float": 4,
 	"double": 8,
+	"_Bool": 1,
 }
 
 _ALIGN_MAP: dict[str, int] = {
@@ -97,6 +99,7 @@ _ALIGN_MAP: dict[str, int] = {
 	"void": 1,
 	"float": 4,
 	"double": 8,
+	"_Bool": 1,
 }
 
 _FLOAT_TYPES = {IRType.FLOAT, IRType.DOUBLE}
@@ -199,6 +202,13 @@ class IRGenerator(ASTVisitor):
 
 	def _is_float_type(self, ir_type: IRType) -> bool:
 		return ir_type in _FLOAT_TYPES
+
+	def _emit_bool_normalize(self, val: IRValue) -> IRValue:
+		"""Normalize a value for _Bool storage: any non-zero becomes 1 (C99 6.3.1.2)."""
+		result = self._new_temp()
+		self._set_temp_type(result, IRType.BOOL)
+		self._emit(IRBinOp(dest=result, left=val, op="!=", right=IRConst(0), ir_type=IRType.INT))
+		return result
 
 	def _is_unsigned_value(self, val: IRValue) -> bool:
 		"""Check if a value originates from an unsigned type."""
@@ -495,6 +505,8 @@ class IRGenerator(ASTVisitor):
 						self._set_temp_type(converted, var_ir_type)
 						self._emit(IRConvert(dest=converted, source=val, from_type=val_type, to_type=var_ir_type))
 						val = converted
+					if var_ir_type == IRType.BOOL:
+						val = self._emit_bool_normalize(val)
 					self._emit(IRCopy(dest=dest, source=val, ir_type=var_ir_type))
 
 	def visit_param_decl(self, node: ParamDecl) -> IRTemp:
@@ -803,6 +815,8 @@ class IRGenerator(ASTVisitor):
 				self._set_temp_type(conv, target_type)
 				self._emit(IRConvert(dest=conv, source=val, from_type=val_type, to_type=target_type))
 				val = conv
+			if target_type == IRType.BOOL:
+				val = self._emit_bool_normalize(val)
 			self._emit(IRStore(address=IRGlobalRef(mangled), value=val, ir_type=target_type))
 			return val if isinstance(val, IRTemp) else self._new_temp()
 		if isinstance(node.target, ArraySubscript):
@@ -848,9 +862,14 @@ class IRGenerator(ASTVisitor):
 					self._set_temp_type(conv, target_type)
 					self._emit(IRConvert(dest=conv, source=val, from_type=val_type, to_type=target_type))
 					val = conv
+				if target_type == IRType.BOOL:
+					val = self._emit_bool_normalize(val)
 				self._emit(IRCopy(dest=target_temp, source=val, ir_type=target_type))
 				return target_temp
 			if node.target.name in self._global_names:
+				global_ts = self._global_types.get(node.target.name)
+				if global_ts is not None and global_ts.base_type == "_Bool" and global_ts.pointer_count == 0:
+					val = self._emit_bool_normalize(val)
 				self._emit(IRStore(address=IRGlobalRef(node.target.name), value=val))
 				return val if isinstance(val, IRTemp) else self._new_temp()
 		target = self.visit(node.target)

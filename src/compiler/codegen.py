@@ -116,6 +116,7 @@ class CodeGenerator:
 				self._emit(f"{g.name}:")
 				if g.initializer_values:
 					directive = {
+						IRType.BOOL: ".byte",
 						IRType.CHAR: ".byte",
 						IRType.SHORT: ".word",
 						IRType.INT: ".long",
@@ -131,7 +132,7 @@ class CodeGenerator:
 						self._emit_instr(f".quad {bits}")
 				elif g.string_label is not None:
 					self._emit_instr(f".quad {g.string_label}")
-				elif g.ir_type == IRType.CHAR:
+				elif g.ir_type in (IRType.CHAR, IRType.BOOL):
 					self._emit_instr(f".byte {g.initializer}")
 				elif g.ir_type == IRType.FLOAT:
 					bits = struct.unpack("<I", struct.pack("<f", float(g.initializer or 0)))[0]
@@ -166,7 +167,7 @@ class CodeGenerator:
 				self._emit(f"{g.name}:")
 				if g.total_size > 0:
 					self._emit_instr(f".zero {g.total_size}")
-				elif g.ir_type == IRType.CHAR:
+				elif g.ir_type in (IRType.CHAR, IRType.BOOL):
 					self._emit_instr(".zero 1")
 				elif g.ir_type == IRType.SHORT:
 					self._emit_instr(".zero 2")
@@ -261,11 +262,13 @@ class CodeGenerator:
 			raise ValueError(f"Cannot load {type(value).__name__} into XMM register")
 
 	def _truncate_narrow(self, ir_type: IRType, is_unsigned: bool = False) -> None:
-		"""Emit truncation for narrow types (CHAR/SHORT) after arithmetic.
+		"""Emit truncation for narrow types (BOOL/CHAR/SHORT) after arithmetic.
 
 		Ensures the value in %rax is correctly narrowed to the type's bit width.
 		"""
-		if ir_type == IRType.CHAR:
+		if ir_type == IRType.BOOL:
+			self._emit_instr("movzbq %al, %rax")
+		elif ir_type == IRType.CHAR:
 			if is_unsigned:
 				self._emit_instr("movzbq %al, %rax")
 			else:
@@ -597,7 +600,7 @@ class CodeGenerator:
 			suffix = _ss_sd(instr.ir_type)
 			self._emit_instr(f"mov{suffix} (%rax), %xmm0")
 			self._store_float_to_temp("%xmm0", instr.dest, instr.ir_type)
-		elif instr.ir_type == IRType.CHAR:
+		elif instr.ir_type in (IRType.CHAR, IRType.BOOL):
 			self._emit_instr("movzbl (%rax), %eax")
 			self._store_to_temp("%rax", instr.dest)
 		elif instr.ir_type == IRType.SHORT:
@@ -614,7 +617,7 @@ class CodeGenerator:
 	def _gen_store(self, instr: IRStore) -> None:
 		self._load_value(instr.value, "%rcx")
 		self._load_value(instr.address, "%rax")
-		if instr.ir_type == IRType.CHAR:
+		if instr.ir_type in (IRType.CHAR, IRType.BOOL):
 			self._emit_instr("movb %cl, (%rax)")
 		elif instr.ir_type == IRType.SHORT:
 			self._emit_instr("movw %cx, (%rax)")
@@ -798,12 +801,12 @@ class CodeGenerator:
 			self._load_float_value(instr.source, "%xmm0", IRType.DOUBLE)
 			self._emit_instr("cvtsd2ss %xmm0, %xmm0")
 			self._store_float_to_temp("%xmm0", instr.dest, IRType.FLOAT)
-		elif to_type in (IRType.CHAR, IRType.SHORT) and from_type in (IRType.INT, IRType.LONG, IRType.POINTER, IRType.CHAR, IRType.SHORT):
+		elif to_type in (IRType.BOOL, IRType.CHAR, IRType.SHORT) and from_type in (IRType.INT, IRType.LONG, IRType.POINTER, IRType.CHAR, IRType.SHORT, IRType.BOOL):
 			# Integer narrowing: truncate to target width (signed)
 			self._load_value(instr.source, "%rax")
 			self._truncate_narrow(to_type)
 			self._store_to_temp("%rax", instr.dest)
-		elif from_type in (IRType.CHAR, IRType.SHORT) and to_type in (IRType.INT, IRType.LONG):
+		elif from_type in (IRType.BOOL, IRType.CHAR, IRType.SHORT) and to_type in (IRType.INT, IRType.LONG):
 			# Integer widening: sign-extend from narrow type
 			self._load_value(instr.source, "%rax")
 			self._truncate_narrow(from_type)
