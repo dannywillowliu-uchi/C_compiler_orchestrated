@@ -131,6 +131,97 @@ _LOGICAL_OPS = {"&&", "||"}
 _BITWISE_OPS = {"&", "|", "^", "<<", ">>"}
 
 
+def _type_rank(ts: TypeSpec) -> int:
+	"""Return the conversion rank of a type (higher = wider).
+
+	Rank values: char=1, short=2, int=3, long=4, long_long=5, float=6, double=7.
+	"""
+	if ts.base_type == "double":
+		return 7
+	if ts.base_type == "float":
+		return 6
+	if ts.width_modifier == "long long":
+		return 5
+	if ts.base_type == "long" or ts.width_modifier == "long":
+		return 4
+	if ts.base_type == "short" or ts.width_modifier == "short":
+		return 2
+	if ts.base_type == "char":
+		return 1
+	# int or anything else
+	return 3
+
+
+def _is_unsigned(ts: TypeSpec) -> bool:
+	return ts.signedness == "unsigned"
+
+
+def _typespec_from_rank(rank: int, unsigned: bool) -> TypeSpec:
+	"""Build a TypeSpec for a given integer/float rank."""
+	if rank == 7:
+		return TypeSpec(base_type="double")
+	if rank == 6:
+		return TypeSpec(base_type="float")
+	signedness = "unsigned" if unsigned else None
+	if rank == 5:
+		return TypeSpec(base_type="int", width_modifier="long long", signedness=signedness)
+	if rank == 4:
+		return TypeSpec(base_type="int", width_modifier="long", signedness=signedness)
+	# rank <= 3 all promote to int
+	return TypeSpec(base_type="int", signedness=signedness)
+
+
+def _integer_promote(ts: TypeSpec) -> TypeSpec:
+	"""Apply C integer promotion rules: char and short promote to int."""
+	if ts.pointer_count > 0:
+		return ts
+	rank = _type_rank(ts)
+	if rank < 3:  # char or short -> int
+		return TypeSpec(base_type="int")
+	return ts
+
+
+def _usual_arithmetic_conversions(left: TypeSpec, right: TypeSpec) -> TypeSpec:
+	"""Apply C usual arithmetic conversions to find the common type."""
+	l_rank = _type_rank(left)
+	r_rank = _type_rank(right)
+
+	# If either is double, result is double
+	if l_rank == 7 or r_rank == 7:
+		return TypeSpec(base_type="double")
+	# If either is float, result is float
+	if l_rank == 6 or r_rank == 6:
+		return TypeSpec(base_type="float")
+
+	# Apply integer promotions first
+	left = _integer_promote(left)
+	right = _integer_promote(right)
+	l_rank = _type_rank(left)
+	r_rank = _type_rank(right)
+	l_unsigned = _is_unsigned(left)
+	r_unsigned = _is_unsigned(right)
+
+	# Same rank and signedness
+	if l_rank == r_rank and l_unsigned == r_unsigned:
+		return left
+
+	# Both same signedness: convert to higher rank
+	if l_unsigned == r_unsigned:
+		return _typespec_from_rank(max(l_rank, r_rank), l_unsigned)
+
+	# One is unsigned, one is signed
+	if l_unsigned:
+		u_rank, s_rank = l_rank, r_rank
+	else:
+		u_rank, s_rank = r_rank, l_rank
+
+	# Unsigned rank >= signed rank -> unsigned type wins
+	if u_rank >= s_rank:
+		return _typespec_from_rank(u_rank, True)
+	# Signed rank can represent all unsigned values -> signed wins
+	return _typespec_from_rank(s_rank, False)
+
+
 def _type_size(ts: TypeSpec) -> int:
 	"""Compute size in bytes for a type considering width modifiers."""
 	if ts.pointer_count > 0:
@@ -188,6 +279,12 @@ def _result_type(left: TypeSpec, op: str, right: TypeSpec) -> TypeSpec:
 			return right
 		if _is_pointer(left) and _is_pointer(right) and op == "-":
 			return TypeSpec(base_type="int")
+	# Shift operators: result type is the promoted left operand
+	if op in ("<<", ">>"):
+		return _integer_promote(left)
+	# Arithmetic and bitwise: apply usual arithmetic conversions
+	if op in _ARITHMETIC_OPS or op in _BITWISE_OPS:
+		return _usual_arithmetic_conversions(left, right)
 	return left
 
 
@@ -759,6 +856,12 @@ class SemanticAnalyzer(ASTVisitor):
 				base_type=operand_type.base_type,
 				pointer_count=operand_type.pointer_count - 1,
 			)
+		# Unary minus and bitwise not: integer promotion applies
+		if node.op in ("-", "~"):
+			return _integer_promote(operand_type)
+		# Logical not always yields int
+		if node.op == "!":
+			return TypeSpec(base_type="int")
 		return operand_type
 
 	def visit_int_literal(self, node: IntLiteral) -> TypeSpec:
@@ -947,6 +1050,14 @@ class SemanticAnalyzer(ASTVisitor):
 					f"'{true_type.base_type}' and '{false_type.base_type}'",
 					node,
 				)
+			# Apply usual arithmetic conversions to determine result type
+			if _is_numeric(true_type) and _is_numeric(false_type):
+				return _usual_arithmetic_conversions(true_type, false_type)
+			# Pointer types: result is the pointer type
+			if _is_pointer(true_type):
+				return true_type
+			if _is_pointer(false_type):
+				return false_type
 		return true_type
 
 	def visit_sizeof_expr(self, node: SizeofExpr) -> TypeSpec:
