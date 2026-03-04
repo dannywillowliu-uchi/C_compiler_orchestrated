@@ -16,7 +16,7 @@ class PeepholeOptimizer:
 		self._movq_load_re = re.compile(
 			r"^\tmovq\s+(-?\d+\(%rbp\)),\s+(%\w+)$"
 		)
-		self._self_move_re = re.compile(
+		self._movq_reg_re = re.compile(
 			r"^\tmovq\s+(%\w+),\s+(%\w+)$"
 		)
 		self._movq_zero_re = re.compile(
@@ -31,6 +31,16 @@ class PeepholeOptimizer:
 		self._subq_zero_re = re.compile(
 			r"^\tsubq\s+\$0,\s+%\w+$"
 		)
+		self._movq_imm_reg_re = re.compile(
+			r"^\tmovq\s+\$(-?\d+),\s+(%\w+)$"
+		)
+		self._addq_reg_reg_re = re.compile(
+			r"^\taddq\s+(%\w+),\s+(%\w+)$"
+		)
+		self._pushq_re = re.compile(r"^\tpushq\s+(%\w+)$")
+		self._popq_re = re.compile(r"^\tpopq\s+(%\w+)$")
+		self._jmp_re = re.compile(r"^\tjmp\s+(\.\w+)$")
+		self._label_re = re.compile(r"^(\.\w+):$")
 
 	def optimize(self, assembly: str) -> str:
 		"""Apply peephole optimizations to assembly text and return optimized version."""
@@ -48,7 +58,7 @@ class PeepholeOptimizer:
 		while i < len(lines):
 			# Try 2-instruction window patterns
 			if i + 1 < len(lines):
-				# Pattern 1: store-then-reload elimination
+				# Store-then-reload elimination
 				opt = self._try_store_reload(lines[i], lines[i + 1])
 				if opt is not None:
 					result.extend(opt)
@@ -56,7 +66,7 @@ class PeepholeOptimizer:
 					i += 2
 					continue
 
-				# Pattern 3: movq $0 + cmpq $0 -> xorq + testq
+				# movq $0 + cmpq $0 -> xorq + testq
 				opt = self._try_zero_cmp(lines[i], lines[i + 1])
 				if opt is not None:
 					result.extend(opt)
@@ -64,13 +74,53 @@ class PeepholeOptimizer:
 					i += 2
 					continue
 
-			# Pattern 2: self-move elimination
+				# Mov chain elimination
+				opt = self._try_mov_chain(lines, i)
+				if opt is not None:
+					result.extend(opt)
+					changed = True
+					i += 2
+					continue
+
+				# LEA strength reduction
+				opt = self._try_lea_reduction(lines[i], lines[i + 1])
+				if opt is not None:
+					result.extend(opt)
+					changed = True
+					i += 2
+					continue
+
+				# Push/pop elimination
+				opt = self._try_push_pop(lines[i], lines[i + 1])
+				if opt is not None:
+					result.extend(opt)
+					changed = True
+					i += 2
+					continue
+
+				# Dead store elimination
+				opt = self._try_dead_store(lines[i], lines[i + 1])
+				if opt is not None:
+					result.extend(opt)
+					changed = True
+					i += 2
+					continue
+
+				# Jump-to-next elimination
+				opt = self._try_jump_to_next(lines[i], lines[i + 1])
+				if opt is not None:
+					result.extend(opt)
+					changed = True
+					i += 2
+					continue
+
+			# Self-move elimination
 			if self._is_self_move(lines[i]):
 				changed = True
 				i += 1
 				continue
 
-			# Pattern 4: addq $0 / subq $0 elimination
+			# addq $0 / subq $0 elimination
 			if self._is_noop_arith(lines[i]):
 				changed = True
 				i += 1
@@ -82,46 +132,111 @@ class PeepholeOptimizer:
 		return result, changed
 
 	def _try_store_reload(self, line1: str, line2: str) -> list[str] | None:
-		"""Remove redundant store followed by immediate reload of same location.
-
-		movq %rax, -8(%rbp)   ->  movq %rax, -8(%rbp)
-		movq -8(%rbp), %rax   ->  (removed)
-		"""
+		"""Remove redundant store followed by immediate reload of same location."""
 		store_m = self._movq_store_re.match(line1)
 		if store_m is None:
 			return None
 		load_m = self._movq_load_re.match(line2)
 		if load_m is None:
 			return None
-
-		store_reg = store_m.group(1)
-		store_loc = store_m.group(2)
-		load_loc = load_m.group(1)
-		load_reg = load_m.group(2)
-
-		if store_loc == load_loc and store_reg == load_reg:
+		if store_m.group(2) == load_m.group(1) and store_m.group(1) == load_m.group(2):
 			return [line1]
 		return None
 
 	def _try_zero_cmp(self, line1: str, line2: str) -> list[str] | None:
-		"""Collapse movq $0, %reg + cmpq $0, %reg -> xorq %reg, %reg + testq %reg, %reg."""
+		"""Collapse movq $0, %reg + cmpq $0, %reg -> xorq + testq."""
 		mov_m = self._movq_zero_re.match(line1)
 		if mov_m is None:
 			return None
 		cmp_m = self._cmpq_zero_re.match(line2)
 		if cmp_m is None:
 			return None
+		if mov_m.group(1) == cmp_m.group(1):
+			reg = mov_m.group(1)
+			return [f"\txorq {reg}, {reg}", f"\ttestq {reg}, {reg}"]
+		return None
 
-		mov_reg = mov_m.group(1)
-		cmp_reg = cmp_m.group(1)
+	def _try_mov_chain(self, lines: list[str], idx: int) -> list[str] | None:
+		"""Eliminate mov chain: movq %rA, %rB + movq %rB, %rC -> movq %rA, %rC.
 
-		if mov_reg == cmp_reg:
-			return [f"\txorq {mov_reg}, {mov_reg}", f"\ttestq {mov_reg}, {mov_reg}"]
+		Only fires when %rB is dead after the chain.
+		"""
+		m1 = self._movq_reg_re.match(lines[idx])
+		if m1 is None:
+			return None
+		m2 = self._movq_reg_re.match(lines[idx + 1])
+		if m2 is None:
+			return None
+		ra, rb1 = m1.group(1), m1.group(2)
+		rb2, rc = m2.group(1), m2.group(2)
+		if rb1 != rb2:
+			return None
+		# Skip self-moves (handled by another pattern)
+		if ra == rb1 or rb2 == rc:
+			return None
+		if not self._is_reg_dead_in_window(lines, idx + 2, rb1):
+			return None
+		return [f"\tmovq {ra}, {rc}"]
+
+	def _try_lea_reduction(self, line1: str, line2: str) -> list[str] | None:
+		"""Replace movq $imm, %rA + addq %rB, %rA -> leaq imm(%rB), %rA."""
+		m_mov = self._movq_imm_reg_re.match(line1)
+		if m_mov is None:
+			return None
+		m_add = self._addq_reg_reg_re.match(line2)
+		if m_add is None:
+			return None
+		imm = int(m_mov.group(1))
+		mov_dst = m_mov.group(2)
+		add_src = m_add.group(1)
+		add_dst = m_add.group(2)
+		if mov_dst != add_dst:
+			return None
+		if add_src == add_dst:
+			return None
+		if not (-2147483648 <= imm <= 2147483647):
+			return None
+		return [f"\tleaq {imm}({add_src}), {add_dst}"]
+
+	def _try_push_pop(self, line1: str, line2: str) -> list[str] | None:
+		"""Remove redundant pushq %rA + popq %rA pair."""
+		m_push = self._pushq_re.match(line1)
+		if m_push is None:
+			return None
+		m_pop = self._popq_re.match(line2)
+		if m_pop is None:
+			return None
+		if m_push.group(1) == m_pop.group(1):
+			return []
+		return None
+
+	def _try_dead_store(self, line1: str, line2: str) -> list[str] | None:
+		"""Remove first store when two consecutive stores target the same stack location."""
+		m1 = self._movq_store_re.match(line1)
+		if m1 is None:
+			return None
+		m2 = self._movq_store_re.match(line2)
+		if m2 is None:
+			return None
+		if m1.group(2) == m2.group(2):
+			return [line2]
+		return None
+
+	def _try_jump_to_next(self, line1: str, line2: str) -> list[str] | None:
+		"""Remove jmp to the immediately following label."""
+		m_jmp = self._jmp_re.match(line1)
+		if m_jmp is None:
+			return None
+		m_label = self._label_re.match(line2)
+		if m_label is None:
+			return None
+		if m_jmp.group(1) == m_label.group(1):
+			return [line2]
 		return None
 
 	def _is_self_move(self, line: str) -> bool:
 		"""Check for movq %reg, %reg (self-move)."""
-		m = self._self_move_re.match(line)
+		m = self._movq_reg_re.match(line)
 		if m is None:
 			return False
 		return m.group(1) == m.group(2)
@@ -129,3 +244,32 @@ class PeepholeOptimizer:
 	def _is_noop_arith(self, line: str) -> bool:
 		"""Check for addq $0, %reg or subq $0, %reg."""
 		return self._addq_zero_re.match(line) is not None or self._subq_zero_re.match(line) is not None
+
+	def _is_reg_dead_in_window(self, lines: list[str], start_idx: int, reg: str) -> bool:
+		"""Check if reg is dead (overwritten before read) in a forward window."""
+		for i in range(start_idx, len(lines)):
+			line = lines[i]
+			stripped = line.strip()
+			if not stripped or stripped.endswith(":"):
+				return False
+			# At ret, only %rax is live (return value register)
+			if stripped.startswith("ret"):
+				return reg != "%rax"
+			if stripped.startswith((
+				"jmp", "je", "jne", "jg", "jge", "jl", "jle",
+				"ja", "jae", "jb", "jbe", "js", "jns", "jo", "jno",
+				"call", "syscall",
+			)):
+				return False
+			if reg not in line:
+				continue
+			# Check if reg is overwritten without being read first
+			m = re.match(r"^\t(?:movq|leaq)\s+([^,]+),\s+(.+)$", line)
+			if m and m.group(2).strip() == reg and reg not in m.group(1):
+				return True
+			m = re.match(r"^\tpopq\s+(.+)$", line)
+			if m and m.group(1).strip() == reg:
+				return True
+			# reg is read (or both read and written)
+			return False
+		return False
