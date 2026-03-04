@@ -14,6 +14,15 @@ from compiler.ir import (
 
 
 @dataclass
+class NaturalLoop:
+	"""A natural loop identified by back edges to a common header."""
+
+	header: str
+	body: set[str]
+	back_edges: list[tuple[str, str]]  # list of (tail_label, header_label)
+
+
+@dataclass
 class BasicBlock:
 	"""A basic block: a sequence of IR instructions with no internal branches.
 
@@ -208,3 +217,175 @@ class CFG:
 		"""Return blocks that are not reachable from the entry block."""
 		reachable = self.reachable_blocks()
 		return [b for b in self.blocks() if b not in reachable]
+
+	# -----------------------------------------------------------------------
+	# Dominator and loop analysis
+	# -----------------------------------------------------------------------
+
+	def _compute_postorder(self) -> list[BasicBlock]:
+		"""Compute postorder traversal of reachable blocks."""
+		if self.entry_block is None:
+			return []
+		visited: set[BasicBlock] = set()
+		postorder: list[BasicBlock] = []
+		stack: list[tuple[BasicBlock, bool]] = [(self.entry_block, False)]
+		while stack:
+			block, processed = stack.pop()
+			if processed:
+				postorder.append(block)
+				continue
+			if block in visited:
+				continue
+			visited.add(block)
+			stack.append((block, True))
+			for succ in reversed(block.successors):
+				if succ not in visited:
+					stack.append((succ, False))
+		return postorder
+
+	def _compute_idom(self) -> dict[BasicBlock, BasicBlock]:
+		"""Compute immediate dominators using Cooper-Harvey-Kennedy algorithm.
+
+		Returns dict where idom[entry] = entry (self-loop convention).
+		Only includes reachable blocks.
+		"""
+		if self.entry_block is None:
+			return {}
+
+		postorder = self._compute_postorder()
+		rpo = list(reversed(postorder))
+		rpo_number: dict[BasicBlock, int] = {block: i for i, block in enumerate(rpo)}
+
+		entry = self.entry_block
+		idom: dict[BasicBlock, BasicBlock] = {entry: entry}
+
+		def intersect(b1: BasicBlock, b2: BasicBlock) -> BasicBlock:
+			finger1, finger2 = b1, b2
+			while finger1 is not finger2:
+				while rpo_number[finger1] > rpo_number[finger2]:
+					finger1 = idom[finger1]
+				while rpo_number[finger2] > rpo_number[finger1]:
+					finger2 = idom[finger2]
+			return finger1
+
+		changed = True
+		while changed:
+			changed = False
+			for block in rpo:
+				if block is entry:
+					continue
+				processed_preds = [p for p in block.predecessors if p in idom]
+				if not processed_preds:
+					continue
+				new_idom = processed_preds[0]
+				for p in processed_preds[1:]:
+					new_idom = intersect(new_idom, p)
+				if idom.get(block) is not new_idom:
+					idom[block] = new_idom
+					changed = True
+
+		return idom
+
+	def compute_dominators(self) -> dict[str, str | None]:
+		"""Compute immediate dominators using the iterative dataflow algorithm.
+
+		Returns a dict mapping each reachable block label to its immediate
+		dominator's label. The entry block maps to None.
+		"""
+		idom = self._compute_idom()
+		result: dict[str, str | None] = {}
+		entry = self.entry_block
+		for block, dom in idom.items():
+			if block is entry:
+				result[block.label] = None
+			else:
+				result[block.label] = dom.label
+		return result
+
+	def compute_dominance_frontiers(self) -> dict[str, set[str]]:
+		"""Compute dominance frontiers for all reachable blocks.
+
+		Returns a dict mapping each block label to its dominance frontier
+		(set of labels).
+		"""
+		idom = self._compute_idom()
+		df: dict[str, set[str]] = {block.label: set() for block in idom}
+
+		for block in idom:
+			preds = [p for p in block.predecessors if p in idom]
+			if len(preds) < 2:
+				continue
+			for p in preds:
+				runner = p
+				while runner is not idom[block]:
+					df[runner.label].add(block.label)
+					runner = idom[runner]
+
+		return df
+
+	def find_natural_loops(self) -> list[NaturalLoop]:
+		"""Find natural loops by identifying back edges and computing loop bodies.
+
+		A back edge is an edge n -> h where h dominates n. Loops with the
+		same header are merged into a single NaturalLoop.
+		"""
+		idom = self._compute_idom()
+		entry = self.entry_block
+		if entry is None:
+			return []
+
+		def dominates(a: BasicBlock, b: BasicBlock) -> bool:
+			"""Check if a dominates b by walking idom tree from b to root."""
+			current = b
+			while True:
+				if current is a:
+					return True
+				parent = idom.get(current)
+				if parent is None or parent is current:
+					return False
+				current = parent
+
+		merged: dict[str, tuple[set[str], list[tuple[str, str]]]] = {}
+
+		for block in idom:
+			for succ in block.successors:
+				if succ not in idom:
+					continue
+				if not dominates(succ, block):
+					continue
+				header = succ.label
+				tail = block.label
+				body: set[str] = {header}
+				if tail != header:
+					body.add(tail)
+					worklist = [tail]
+					while worklist:
+						node_label = worklist.pop()
+						node = self.get_block(node_label)
+						if node is None:
+							continue
+						for pred in node.predecessors:
+							if pred.label not in body and pred in idom:
+								body.add(pred.label)
+								worklist.append(pred.label)
+
+				if header in merged:
+					merged[header][0].update(body)
+					merged[header][1].append((tail, header))
+				else:
+					merged[header] = (body, [(tail, header)])
+
+		return [
+			NaturalLoop(header=h, body=b, back_edges=edges)
+			for h, (b, edges) in merged.items()
+		]
+
+	def loop_depth(self) -> dict[str, int]:
+		"""Return nesting depth per block. 0 means not in any loop."""
+		loops = self.find_natural_loops()
+		depth: dict[str, int] = {label: 0 for label in self.all_labels()}
+		for loop in loops:
+			for label in loop.body:
+				if label in depth:
+					depth[label] += 1
+		return depth
