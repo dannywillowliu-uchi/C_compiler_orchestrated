@@ -1,536 +1,1366 @@
 {
-  "timestamp": "2026-03-04T22:04:17.545619+00:00",
+  "timestamp": "2026-03-04T22:16:43.992024+00:00",
   "summary": {
-    "total": 85,
-    "passed": 64,
-    "failed": 10,
-    "skipped": 11
+    "total": 225,
+    "passed": 20,
+    "failed": 6,
+    "skipped": 199
   },
   "tests": {
-    "arith_basic_ops": {
-      "status": "PASS",
-      "category": "arithmetic",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "arith_bitwise": {
-      "status": "PASS",
-      "category": "arithmetic",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "arith_cast": {
-      "status": "FAIL",
-      "category": "arithmetic",
-      "error_msg": "wrong_output (exit code 1)",
-      "exit_code": 1
-    },
-    "arith_char_promotion": {
-      "status": "PASS",
-      "category": "arithmetic",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "arith_comparison": {
-      "status": "PASS",
-      "category": "arithmetic",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "arith_compound_assign": {
-      "status": "PASS",
-      "category": "arithmetic",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "arith_increment": {
-      "status": "PASS",
-      "category": "arithmetic",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "arith_logical": {
-      "status": "PASS",
-      "category": "arithmetic",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "arith_modulo": {
-      "status": "PASS",
-      "category": "arithmetic",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "arith_negation": {
-      "status": "PASS",
-      "category": "arithmetic",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "arith_overflow": {
-      "status": "PASS",
-      "category": "arithmetic",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "arith_precedence": {
-      "status": "PASS",
-      "category": "arithmetic",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "arith_shifts": {
-      "status": "PASS",
-      "category": "arithmetic",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "arith_sizeof": {
-      "status": "PASS",
-      "category": "arithmetic",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "arith_unsigned": {
-      "status": "PASS",
-      "category": "arithmetic",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "call_args_after_call": {
-      "status": "PASS",
-      "category": "calling_convention",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "call_chain": {
-      "status": "PASS",
-      "category": "calling_convention",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "call_deep_nesting": {
-      "status": "PASS",
-      "category": "calling_convention",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "call_many_args": {
-      "status": "PASS",
-      "category": "calling_convention",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "call_mixed_operations": {
-      "status": "PASS",
-      "category": "calling_convention",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "call_mutual_recursive": {
-      "status": "PASS",
-      "category": "calling_convention",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "call_nested_calls": {
-      "status": "PASS",
-      "category": "calling_convention",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "call_preserve_locals": {
-      "status": "PASS",
-      "category": "calling_convention",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "call_recursive_fib": {
-      "status": "PASS",
-      "category": "calling_convention",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "call_recursive_sum": {
-      "status": "PASS",
-      "category": "calling_convention",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "call_return_in_expr": {
-      "status": "PASS",
-      "category": "calling_convention",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "call_self_recursive": {
-      "status": "PASS",
-      "category": "calling_convention",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "call_seven_args": {
-      "status": "PASS",
-      "category": "calling_convention",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "call_side_effects": {
-      "status": "SKIP",
-      "category": "calling_convention",
-      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_call_side_effects_0mpallj1.s:1:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
-      "exit_code": null
-    },
-    "call_simple_args": {
-      "status": "PASS",
-      "category": "calling_convention",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "decl_array": {
-      "status": "PASS",
-      "category": "declarations",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "decl_for_init": {
-      "status": "PASS",
-      "category": "declarations",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "decl_global_local": {
-      "status": "PASS",
-      "category": "declarations",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "decl_init_expr": {
-      "status": "PASS",
-      "category": "declarations",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "decl_mixed_types": {
-      "status": "PASS",
-      "category": "declarations",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "decl_multi_assign": {
-      "status": "PASS",
-      "category": "declarations",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "decl_multi_init": {
-      "status": "PASS",
-      "category": "declarations",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "decl_multi_int": {
-      "status": "PASS",
-      "category": "declarations",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "decl_multi_ptr": {
-      "status": "PASS",
-      "category": "declarations",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "decl_nested_scope": {
-      "status": "FAIL",
-      "category": "declarations",
-      "error_msg": "wrong_output (exit code 1)",
-      "exit_code": 1
-    },
-    "flow_break_continue": {
-      "status": "PASS",
-      "category": "control_flow",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "flow_do_while": {
-      "status": "PASS",
-      "category": "control_flow",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "flow_for_complex": {
-      "status": "PASS",
-      "category": "control_flow",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "flow_goto": {
-      "status": "PASS",
-      "category": "control_flow",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "flow_if_else": {
-      "status": "PASS",
-      "category": "control_flow",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "flow_nested_loops": {
-      "status": "PASS",
-      "category": "control_flow",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "flow_short_circuit": {
-      "status": "SKIP",
-      "category": "control_flow",
-      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_flow_short_circuit_8dp12b1r.s:1:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
-      "exit_code": null
-    },
-    "flow_switch_basic": {
-      "status": "PASS",
-      "category": "control_flow",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "flow_switch_fallthrough": {
-      "status": "PASS",
-      "category": "control_flow",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "flow_ternary": {
-      "status": "PASS",
-      "category": "control_flow",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "misc_comma": {
-      "status": "PASS",
-      "category": "misc",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "misc_conditional_expr": {
-      "status": "PASS",
-      "category": "misc",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "misc_empty_main": {
-      "status": "PASS",
-      "category": "misc",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "misc_enum": {
+    "gcc_20110719_1": {
       "status": "SKIP",
       "category": "misc",
-      "error_msg": "compile_source failed: 16:13: incompatible types in initialization of 'c': 'enum Color' and 'int'",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_20110719_1_iou_bv0e.s:1:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
       "exit_code": null
     },
-    "misc_global": {
+    "gcc_20141202_1": {
       "status": "SKIP",
       "category": "misc",
-      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_misc_global_pli03jhy.s:5:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "error_msg": "compile_source failed: 7:23: use of undeclared identifier '__INT_MAX__'",
       "exit_code": null
     },
-    "misc_large_local": {
-      "status": "PASS",
-      "category": "misc",
-      "error_msg": null,
-      "exit_code": 0
+    "gcc_20200311_1": {
+      "status": "SKIP",
+      "category": "struct_operations",
+      "error_msg": "compile_source failed: Expected ';' after struct definition at 8:3",
+      "exit_code": null
     },
-    "misc_static_local": {
-      "status": "PASS",
-      "category": "misc",
-      "error_msg": null,
-      "exit_code": 0
+    "gcc_20210916": {
+      "status": "SKIP",
+      "category": "struct_operations",
+      "error_msg": "compile_source failed: Expected member name at 5:12",
+      "exit_code": null
     },
-    "misc_string_literal": {
-      "status": "FAIL",
-      "category": "misc",
-      "error_msg": "wrong_output (exit code 1)",
-      "exit_code": 1
+    "gcc_arm_fp16_int_convert_ieee": {
+      "status": "SKIP",
+      "category": "arithmetic",
+      "error_msg": "compile_source failed: <stdin>:4: Cannot find include file: 'fp-int-convert.h'",
+      "exit_code": null
     },
-    "misc_typedef": {
+    "gcc_badshift": {
+      "status": "SKIP",
+      "category": "arithmetic",
+      "error_msg": "compile_source failed: Expected declaration name at 21:13",
+      "exit_code": null
+    },
+    "gcc_bitint_28": {
       "status": "SKIP",
       "category": "misc",
-      "error_msg": "compile_source failed: 24:2: incompatible types in assignment: 'i32' and 'int'",
+      "error_msg": "compile_source failed: <stdin>:4: Cannot find include file: '../../c-c++-common/torture/builtin-arith-overflow-1.h'",
       "exit_code": null
     },
-    "misc_void_func": {
+    "gcc_bitint_29": {
       "status": "PASS",
       "category": "misc",
       "error_msg": null,
       "exit_code": 0
     },
-    "ptr_arithmetic": {
+    "gcc_bitint_30": {
+      "status": "SKIP",
+      "category": "misc",
+      "error_msg": "compile_source failed: <stdin>:4: Cannot find include file: '../../c-c++-common/torture/builtin-arith-overflow-12.h'",
+      "exit_code": null
+    },
+    "gcc_bitint_31": {
       "status": "PASS",
-      "category": "pointers_arrays",
+      "category": "misc",
       "error_msg": null,
       "exit_code": 0
     },
-    "ptr_array_decay": {
+    "gcc_bitint_32": {
+      "status": "PASS",
+      "category": "misc",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "gcc_bitint_33": {
+      "status": "PASS",
+      "category": "misc",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "gcc_bitint_34": {
+      "status": "PASS",
+      "category": "misc",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "gcc_bitint_35": {
+      "status": "PASS",
+      "category": "misc",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "gcc_bitint_36": {
+      "status": "PASS",
+      "category": "misc",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "gcc_bitint_37": {
+      "status": "PASS",
+      "category": "misc",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "gcc_bitint_83": {
+      "status": "SKIP",
+      "category": "arithmetic",
+      "error_msg": "compile_source failed: <stdin>:4: Cannot find include file: '../bitintext.h'",
+      "exit_code": null
+    },
+    "gcc_builtin_ctype_1": {
+      "status": "PASS",
+      "category": "misc",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "gcc_builtin_ctype_2": {
+      "status": "PASS",
+      "category": "arithmetic",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "gcc_builtin_explog_1": {
+      "status": "SKIP",
+      "category": "pointers_arrays",
+      "error_msg": "compile_source failed: Expected parameter name at 21:25",
+      "exit_code": null
+    },
+    "gcc_builtin_math_1": {
+      "status": "SKIP",
+      "category": "misc",
+      "error_msg": "compile_source failed: Expected parameter name at 10:27",
+      "exit_code": null
+    },
+    "gcc_builtin_power_1": {
+      "status": "SKIP",
+      "category": "pointers_arrays",
+      "error_msg": "compile_source failed: <stdin>:10: Cannot find include file: '../builtins-config.h'",
+      "exit_code": null
+    },
+    "gcc_builtin_wctype_1": {
+      "status": "PASS",
+      "category": "misc",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "gcc_c99_contract_1": {
+      "status": "SKIP",
+      "category": "misc",
+      "error_msg": "compile_source failed: Expected parameter name at 6:22",
+      "exit_code": null
+    },
+    "gcc_crc_linux_5": {
+      "status": "SKIP",
+      "category": "arithmetic",
+      "error_msg": "compile_source failed: Expected type specifier, got IDENTIFIER ('uint8_t') at 8:31",
+      "exit_code": null
+    },
+    "gcc_crc_side_instr_6": {
+      "status": "SKIP",
+      "category": "arithmetic",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_crc_side_instr_6_xeerxtos.s:6:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_crc_side_instr_7": {
       "status": "FAIL",
-      "category": "pointers_arrays",
-      "error_msg": "wrong_output (exit code 1)",
-      "exit_code": 1
+      "category": "arithmetic",
+      "error_msg": "crash (signal 11)",
+      "exit_code": -11
     },
-    "ptr_array_equiv": {
-      "status": "FAIL",
-      "category": "pointers_arrays",
-      "error_msg": "wrong_output (exit code 1)",
-      "exit_code": 1
+    "gcc_crc_side_instr_8": {
+      "status": "SKIP",
+      "category": "arithmetic",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_crc_side_instr_8_g63af6py.s:6:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
     },
-    "ptr_basic": {
+    "gcc_fp_int_convert_float80": {
+      "status": "SKIP",
+      "category": "arithmetic",
+      "error_msg": "compile_source failed: <stdin>:5: Cannot find include file: 'fp-int-convert.h'",
+      "exit_code": null
+    },
+    "gcc_fp_int_convert_float80_timode": {
+      "status": "SKIP",
+      "category": "misc",
+      "error_msg": "compile_source failed: <stdin>:5: Cannot find include file: 'fp-int-convert.h'",
+      "exit_code": null
+    },
+    "gcc_inline_mem_move_1": {
+      "status": "SKIP",
+      "category": "misc",
+      "error_msg": "compile_source failed: <stdin>:3: Cannot find include file: '../../gcc.c-torture/execute/builtins/memmove.c'",
+      "exit_code": null
+    },
+    "gcc_neon_sve_bridge": {
+      "status": "SKIP",
+      "category": "misc",
+      "error_msg": "compile_source failed: Expected ';' after expression at 9:11",
+      "exit_code": null
+    },
+    "gcc_pr100923": {
+      "status": "SKIP",
+      "category": "pointers_arrays",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr100923_rxuonnbz.s:5:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr100934": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_source failed: Unexpected token SEMICOLON (';') at 17:6",
+      "exit_code": null
+    },
+    "gcc_pr101151": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_source failed: Unexpected token SEMICOLON (';') at 12:9",
+      "exit_code": null
+    },
+    "gcc_pr103188": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr103188_uu9zh2lr.s:8:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr103219": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr103219_d_0tqkwj.s:1:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr103816": {
+      "status": "SKIP",
+      "category": "struct_operations",
+      "error_msg": "compile_source failed: Expected struct name at 3:15",
+      "exit_code": null
+    },
+    "gcc_pr104279": {
+      "status": "SKIP",
+      "category": "arithmetic",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr104279_98kbj8ln.s:1:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr104281": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr104281_7j_d176u.s:8:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr105665": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr105665_c0y4cp26.s:1:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr105786": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_source failed: Expected parameter name at 3:22",
+      "exit_code": null
+    },
+    "gcc_pr108523": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr108523_y11cid0c.s:1:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr108574_1": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_source failed: Unexpected token SEMICOLON (';') at 12:7",
+      "exit_code": null
+    },
+    "gcc_pr108574_2": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr108574_2_3sbxy83b.s:5:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr108574_3": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_source failed: Expected type specifier, got IDENTIFIER ('__INT32_TYPE__') at 3:1",
+      "exit_code": null
+    },
+    "gcc_pr110376": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_source failed: Unexpected token SEMICOLON (';') at 36:7",
+      "exit_code": null
+    },
+    "gcc_pr110702": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_source failed: 19:13: subscript requires array or pointer type",
+      "exit_code": null
+    },
+    "gcc_pr110766": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr110766__2eh0k9n.s:1:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr110924": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_source failed: Unexpected token SEMICOLON (';') at 19:9",
+      "exit_code": null
+    },
+    "gcc_pr111614": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_source failed: Unexpected token SEMICOLON (';') at 22:5",
+      "exit_code": null
+    },
+    "gcc_pr111807": {
+      "status": "SKIP",
+      "category": "struct_operations",
+      "error_msg": "compile_source failed: Expected declaration name at 3:17",
+      "exit_code": null
+    },
+    "gcc_pr112827_1": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_source failed: Unexpected token SEMICOLON (';') at 7:7",
+      "exit_code": null
+    },
+    "gcc_pr112827_2": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_source failed: Unexpected token SEMICOLON (';') at 9:7",
+      "exit_code": null
+    },
+    "gcc_pr113707_1": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_source failed: Expected parameter name at 3:24",
+      "exit_code": null
+    },
+    "gcc_pr113707_2": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr113707_2_6gejjan3.s:1:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr113895_2": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_source failed: Expected parameter name at 3:18",
+      "exit_code": null
+    },
+    "gcc_pr113895_3": {
+      "status": "SKIP",
+      "category": "misc",
+      "error_msg": "compile_source failed: 8:5: function 'f' expects 0 arguments, got 1",
+      "exit_code": null
+    },
+    "gcc_pr113898": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_source failed: Unexpected token SEMICOLON (';') at 13:9",
+      "exit_code": null
+    },
+    "gcc_pr114551": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr114551_r26e17s4.s:1:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr114624": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_source failed: Unexpected token SEMICOLON (';') at 10:11",
+      "exit_code": null
+    },
+    "gcc_pr114787": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr114787_nit67wy1.s:5:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr115226": {
+      "status": "SKIP",
+      "category": "arithmetic",
+      "error_msg": "compile_source failed: Unexpected token COLON (':') at 9:18",
+      "exit_code": null
+    },
+    "gcc_pr116544": {
+      "status": "SKIP",
+      "category": "pointers_arrays",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr116544_z0ugy0g3.s:1:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr116795_1": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr116795_1_imiks63m.s:1:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr117041": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_source failed: 8:7: subscript requires array or pointer type",
+      "exit_code": null
+    },
+    "gcc_pr117496_1": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_source failed: Expected parameter name at 15:15",
+      "exit_code": null
+    },
+    "gcc_pr117574_1": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_source failed: Unexpected token SEMICOLON (';') at 15:5",
+      "exit_code": null
+    },
+    "gcc_pr117859_1": {
+      "status": "SKIP",
+      "category": "arithmetic",
+      "error_msg": "compile_source failed: Expected struct name at 7:8",
+      "exit_code": null
+    },
+    "gcc_pr118922_1": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr118922_1_8qlurlnq.s:5:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr121194": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr121194_p52ff1h0.s:1:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr121478_1": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_source failed: Expected type specifier, got IDENTIFIER ('nullptr_t') at 5:5",
+      "exit_code": null
+    },
+    "gcc_pr121756": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr121756_lfw73muv.s:1:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr122079_2": {
+      "status": "SKIP",
+      "category": "pointers_arrays",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr122079_2_dr53dh3y.s:1:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr122497_1": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_source failed: 12:11: subscript requires array or pointer type",
+      "exit_code": null
+    },
+    "gcc_pr122502_2": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_source failed: Unexpected token LBRACE ('{') at 16:51",
+      "exit_code": null
+    },
+    "gcc_pr123887": {
+      "status": "SKIP",
+      "category": "pointers_arrays",
+      "error_msg": "compile_source failed: Expected type specifier, got IDENTIFIER ('bool') at 8:1",
+      "exit_code": null
+    },
+    "gcc_pr123887_2": {
+      "status": "SKIP",
+      "category": "misc",
+      "error_msg": "compile_source failed: Expected type specifier, got LBRACKET ('[') at 3:1",
+      "exit_code": null
+    },
+    "gcc_pr23821": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr23821_73by02pm.s:1:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr26258": {
+      "status": "SKIP",
+      "category": "struct_operations",
+      "error_msg": "compile_source failed: Unexpected token LBRACE ('{') at 22:20",
+      "exit_code": null
+    },
+    "gcc_pr26763_1": {
       "status": "PASS",
-      "category": "pointers_arrays",
+      "category": "misc",
       "error_msg": null,
       "exit_code": 0
     },
-    "ptr_diff": {
+    "gcc_pr26763_2": {
+      "status": "SKIP",
+      "category": "misc",
+      "error_msg": "compile_source failed: Expected type specifier, got IDENTIFIER ('__SIZE_TYPE__') at 5:19",
+      "exit_code": null
+    },
+    "gcc_pr26898_1": {
+      "status": "SKIP",
+      "category": "misc",
+      "error_msg": "compile_source failed: 10:14: use of undeclared identifier 'INT_MIN'",
+      "exit_code": null
+    },
+    "gcc_pr26898_2": {
+      "status": "SKIP",
+      "category": "misc",
+      "error_msg": "compile_source failed: 4:16: use of undeclared identifier 'INT_MAX'",
+      "exit_code": null
+    },
+    "gcc_pr27116": {
+      "status": "SKIP",
+      "category": "misc",
+      "error_msg": "compile_source failed: 12:9: use of undeclared identifier '__INT_MAX__'",
+      "exit_code": null
+    },
+    "gcc_pr27116_2": {
       "status": "PASS",
-      "category": "pointers_arrays",
+      "category": "misc",
       "error_msg": null,
       "exit_code": 0
     },
-    "ptr_double": {
+    "gcc_pr27302": {
+      "status": "SKIP",
+      "category": "misc",
+      "error_msg": "compile_and_link failed: Linking failed:\nUndefined symbols for architecture x86_64:\n  \"_link_error\", referenced from:\n      _test0 in torture_gcc_pr27302_c1x67k1d.o\nld: symbol(s) not found for architecture x86_64\nclang: error: linker command failed with exit code 1 (use -v to see invocation)",
+      "exit_code": null
+    },
+    "gcc_pr27302_2": {
+      "status": "SKIP",
+      "category": "misc",
+      "error_msg": "compile_and_link failed: Linking failed:\nUndefined symbols for architecture x86_64:\n  \"_link_error\", referenced from:\n      _test0 in torture_gcc_pr27302_2_txhkhup5.o\n      _test0 in torture_gcc_pr27302_2_txhkhup5.o\n      _test0 in torture_gcc_pr27302_2_txhkhup5.o\n      _test0 in torture_gcc_pr27302_2_txhkhup5.o\n      _test0 in torture_gcc_pr27302_2_txhkhup5.o\n      _test0 in torture_gcc_pr27302_2_txhkhup5.o\n      _test0 in torture_gcc_pr27302_2_txhkhup5.o\n      _test0 in torture_gcc_pr27302_2_txhkhup5.o\n      _test0 in torture_gcc_pr27302_2_txhkhup5.o\n      _test0 in torture_gcc_pr27302_2_txhkhup5.o\n      _test0 in torture_gcc_pr27302_2_txhkhup5.o\n      _test0 in torture_gcc_pr27302_2_txhkhup5.o\n      _test0 in torture_gcc_pr27302_2_txhkhup5.o\n      _test0 in torture_gcc_pr27302_2_txhkhup5.o\n      _test0 in torture_gcc_pr27302_2_txhkhup5.o\n      _test0 in torture_gcc_pr27302_2_txhkhup5.o\n      _test0 in torture_gcc_pr27302_2_txhkhup5.o\n      ...\nld: symbol(s) not found for architecture x86_64\nclang: error: linker command failed with exit code 1 (use -v to see invocation)",
+      "exit_code": null
+    },
+    "gcc_pr27603": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_source failed: Expected parameter name at 3:15",
+      "exit_code": null
+    },
+    "gcc_pr27743": {
+      "status": "SKIP",
+      "category": "arithmetic",
+      "error_msg": "compile_source failed: Expected type specifier, got IDENTIFIER ('int32_t') at 5:1",
+      "exit_code": null
+    },
+    "gcc_pr28045": {
+      "status": "SKIP",
+      "category": "arithmetic",
+      "error_msg": "compile_source failed: Expected ';' after struct member at 6:22",
+      "exit_code": null
+    },
+    "gcc_pr28230": {
+      "status": "PASS",
+      "category": "control_flow",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "gcc_pr30313": {
+      "status": "SKIP",
+      "category": "struct_operations",
+      "error_msg": "compile_source failed: <stdin>:14: #error Please add support for your target here",
+      "exit_code": null
+    },
+    "gcc_pr30364_1": {
+      "status": "SKIP",
+      "category": "misc",
+      "error_msg": "compile_source failed: 7:11: use of undeclared identifier 'INT_MAX'",
+      "exit_code": null
+    },
+    "gcc_pr30364_2": {
+      "status": "SKIP",
+      "category": "arithmetic",
+      "error_msg": "compile_source failed: 7:11: use of undeclared identifier 'INT_MAX'",
+      "exit_code": null
+    },
+    "gcc_pr30364_3": {
+      "status": "SKIP",
+      "category": "misc",
+      "error_msg": "compile_source failed: 7:11: use of undeclared identifier 'INT_MAX'",
+      "exit_code": null
+    },
+    "gcc_pr31115": {
+      "status": "SKIP",
+      "category": "arithmetic",
+      "error_msg": "compile_source failed: Expected parameter name at 3:21",
+      "exit_code": null
+    },
+    "gcc_pr34174_1": {
+      "status": "SKIP",
+      "category": "arithmetic",
+      "error_msg": "compile_source failed: <stdin>:7: Cannot evaluate #if expression: '0 >= 9223372036854775807LL'",
+      "exit_code": null
+    },
+    "gcc_pr35634": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_source failed: Expected parameter name at 4:15",
+      "exit_code": null
+    },
+    "gcc_pr35833": {
+      "status": "SKIP",
+      "category": "struct_operations",
+      "error_msg": "compile_source failed: Expected type specifier, got IDENTIFIER ('inline') at 5:8",
+      "exit_code": null
+    },
+    "gcc_pr36227": {
+      "status": "SKIP",
+      "category": "pointers_arrays",
+      "error_msg": "compile_source failed: Expected ';' after expression at 8:13",
+      "exit_code": null
+    },
+    "gcc_pr37731_1": {
+      "status": "SKIP",
+      "category": "arithmetic",
+      "error_msg": "compile_source failed: Expected declaration name at 3:13",
+      "exit_code": null
+    },
+    "gcc_pr37731_2": {
+      "status": "SKIP",
+      "category": "misc",
+      "error_msg": "compile_source failed: Expected declaration name at 3:13",
+      "exit_code": null
+    },
+    "gcc_pr38405": {
+      "status": "SKIP",
+      "category": "pointers_arrays",
+      "error_msg": "compile_source failed: Expected declaration name at 3:13",
+      "exit_code": null
+    },
+    "gcc_pr39132": {
+      "status": "SKIP",
+      "category": "struct_operations",
+      "error_msg": "compile_source failed: 18:3: subscript requires array or pointer type",
+      "exit_code": null
+    },
+    "gcc_pr39855": {
+      "status": "SKIP",
+      "category": "arithmetic",
+      "error_msg": "compile_source failed: 17:7: use of undeclared identifier '__CHAR_BIT__'",
+      "exit_code": null
+    },
+    "gcc_pr41555": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_source failed: Expected type specifier, got IDENTIFIER ('uint64_t') at 6:8",
+      "exit_code": null
+    },
+    "gcc_pr42952": {
+      "status": "SKIP",
+      "category": "pointers_arrays",
+      "error_msg": "compile_source failed: Expected declaration name at 7:14",
+      "exit_code": null
+    },
+    "gcc_pr43017": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_source failed: Unexpected token SEMICOLON (';') at 19:4",
+      "exit_code": null
+    },
+    "gcc_pr44806": {
+      "status": "SKIP",
+      "category": "struct_operations",
+      "error_msg": "compile_source failed: Expected type specifier, got IDENTIFIER ('uint32_t') at 14:3",
+      "exit_code": null
+    },
+    "gcc_pr45017": {
+      "status": "SKIP",
+      "category": "struct_operations",
+      "error_msg": "compile_source failed: Expected union name at 5:9",
+      "exit_code": null
+    },
+    "gcc_pr45623": {
+      "status": "SKIP",
+      "category": "struct_operations",
+      "error_msg": "compile_source failed: Expected type specifier, got IDENTIFIER ('uint64_t') at 13:5",
+      "exit_code": null
+    },
+    "gcc_pr45764": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_source failed: 21:4: subscript requires array or pointer type",
+      "exit_code": null
+    },
+    "gcc_pr45967_2": {
+      "status": "SKIP",
+      "category": "pointers_arrays",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr45967_2_45obduwf.s:1:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr45967_3": {
       "status": "FAIL",
       "category": "pointers_arrays",
       "error_msg": "crash (signal 11)",
       "exit_code": -11
     },
-    "ptr_function": {
-      "status": "FAIL",
-      "category": "pointers_arrays",
-      "error_msg": "crash (signal 10)",
-      "exit_code": -10
+    "gcc_pr47621": {
+      "status": "SKIP",
+      "category": "struct_operations",
+      "error_msg": "compile_source failed: Expected ';' after struct definition at 9:27",
+      "exit_code": null
     },
-    "ptr_null_check": {
-      "status": "PASS",
+    "gcc_pr48124_2": {
+      "status": "SKIP",
+      "category": "struct_operations",
+      "error_msg": "compile_source failed: Expected declaration name at 5:27",
+      "exit_code": null
+    },
+    "gcc_pr48953": {
+      "status": "SKIP",
+      "category": "struct_operations",
+      "error_msg": "compile_source failed: Expected type specifier, got IDENTIFIER ('inline') at 3:8",
+      "exit_code": null
+    },
+    "gcc_pr49169": {
+      "status": "SKIP",
       "category": "pointers_arrays",
+      "error_msg": "compile_source failed: Expected ')' after if condition at 8:18",
+      "exit_code": null
+    },
+    "gcc_pr49958": {
+      "status": "SKIP",
+      "category": "misc",
+      "error_msg": "compile_source failed: 7:14: use of undeclared identifier '__INT_MAX__'",
+      "exit_code": null
+    },
+    "gcc_pr50067_1": {
+      "status": "SKIP",
+      "category": "pointers_arrays",
+      "error_msg": "compile_source failed: Expected parameter name at 6:31",
+      "exit_code": null
+    },
+    "gcc_pr50067_2": {
+      "status": "SKIP",
+      "category": "pointers_arrays",
+      "error_msg": "compile_source failed: Expected parameter name at 6:31",
+      "exit_code": null
+    },
+    "gcc_pr50067_3": {
+      "status": "SKIP",
+      "category": "pointers_arrays",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr50067_3_m_gvpzgr.s:10:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr50067_4": {
+      "status": "SKIP",
+      "category": "pointers_arrays",
+      "error_msg": "compile_source failed: Expected parameter name at 6:31",
+      "exit_code": null
+    },
+    "gcc_pr50067_5": {
+      "status": "SKIP",
+      "category": "pointers_arrays",
+      "error_msg": "compile_source failed: Expected parameter name at 7:31",
+      "exit_code": null
+    },
+    "gcc_pr52406": {
+      "status": "SKIP",
+      "category": "struct_operations",
+      "error_msg": "compile_source failed: Expected struct name at 4:8",
+      "exit_code": null
+    },
+    "gcc_pr52943": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr52943_um082xu1.s:8:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr53663_1": {
+      "status": "PASS",
+      "category": "struct_operations",
       "error_msg": null,
       "exit_code": 0
     },
-    "ptr_to_struct": {
+    "gcc_pr53663_2": {
+      "status": "SKIP",
+      "category": "struct_operations",
+      "error_msg": "compile_source failed: Expected ';' after union definition at 9:3",
+      "exit_code": null
+    },
+    "gcc_pr53663_3": {
+      "status": "SKIP",
+      "category": "struct_operations",
+      "error_msg": "compile_source failed: Expected ';' after union definition at 9:3",
+      "exit_code": null
+    },
+    "gcc_pr53790": {
+      "status": "SKIP",
+      "category": "struct_operations",
+      "error_msg": "compile_source failed: Expected type specifier, got IDENTIFIER ('inline') at 7:8",
+      "exit_code": null
+    },
+    "gcc_pr54027": {
+      "status": "PASS",
+      "category": "control_flow",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "gcc_pr54132": {
       "status": "FAIL",
-      "category": "pointers_arrays",
+      "category": "control_flow",
+      "error_msg": "crash (signal 11)",
+      "exit_code": -11
+    },
+    "gcc_pr54877": {
+      "status": "FAIL",
+      "category": "control_flow",
       "error_msg": "wrong_output (exit code 1)",
       "exit_code": 1
     },
-    "ptr_void": {
+    "gcc_pr55253": {
+      "status": "SKIP",
+      "category": "struct_operations",
+      "error_msg": "compile_source failed: Expected struct name at 4:1",
+      "exit_code": null
+    },
+    "gcc_pr55890_1": {
+      "status": "SKIP",
+      "category": "misc",
+      "error_msg": "compile_source failed: Expected parameter name at 3:28",
+      "exit_code": null
+    },
+    "gcc_pr55890_2": {
+      "status": "FAIL",
+      "category": "misc",
+      "error_msg": "crash (signal 11)",
+      "exit_code": -11
+    },
+    "gcc_pr57083": {
+      "status": "PASS",
+      "category": "arithmetic",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "gcc_pr57303": {
+      "status": "SKIP",
+      "category": "struct_operations",
+      "error_msg": "compile_and_link failed: Linking failed:\nUndefined symbols for architecture x86_64:\n  \"_foo\", referenced from:\n      foo in torture_gcc_pr57303_cbfcteik.o\nld: symbol(s) not found for architecture x86_64\nclang: error: linker command failed with exit code 1 (use -v to see invocation)",
+      "exit_code": null
+    },
+    "gcc_pr57521": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr57521_z3o0967o.s:5:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr58223": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr58223_206k49lv.s:1:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr58228": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_source failed: 11:7: subscript requires array or pointer type",
+      "exit_code": null
+    },
+    "gcc_pr58246": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr58246_uro4gwxm.s:1:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr58553": {
+      "status": "SKIP",
+      "category": "struct_operations",
+      "error_msg": "compile_source failed: Expected struct name at 6:15",
+      "exit_code": null
+    },
+    "gcc_pr58626": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_source failed: 5:5: excess elements in array initializer",
+      "exit_code": null
+    },
+    "gcc_pr58921": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr58921_9t4gbnvt.s:1:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr58941": {
+      "status": "SKIP",
+      "category": "struct_operations",
+      "error_msg": "compile_source failed: 24:7: subscript requires array or pointer type",
+      "exit_code": null
+    },
+    "gcc_pr58955_1": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_source failed: Unexpected token SEMICOLON (';') at 13:30",
+      "exit_code": null
+    },
+    "gcc_pr58955_2": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr58955_2_x5z076np.s:1:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr59038": {
+      "status": "SKIP",
+      "category": "arithmetic",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr59038_p0xu6qrn.s:1:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr59047": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_source failed: Expected struct name at 6:1",
+      "exit_code": null
+    },
+    "gcc_pr59058": {
+      "status": "FAIL",
+      "category": "control_flow",
+      "error_msg": "wrong_output (exit code 1)",
+      "exit_code": 1
+    },
+    "gcc_pr59330": {
       "status": "PASS",
       "category": "pointers_arrays",
       "error_msg": null,
       "exit_code": 0
     },
-    "struct_array_field": {
+    "gcc_pr59651": {
       "status": "SKIP",
-      "category": "struct_operations",
-      "error_msg": "compile_source failed: 11:2: subscript requires array or pointer type",
+      "category": "control_flow",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr59651_54r204gp.s:12:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
       "exit_code": null
     },
-    "struct_assign": {
-      "status": "PASS",
-      "category": "struct_operations",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "struct_basic": {
-      "status": "PASS",
-      "category": "struct_operations",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "struct_in_array": {
-      "status": "FAIL",
-      "category": "struct_operations",
-      "error_msg": "crash (signal 11)",
-      "exit_code": -11
-    },
-    "struct_init": {
-      "status": "PASS",
-      "category": "struct_operations",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "struct_large": {
-      "status": "PASS",
-      "category": "struct_operations",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "struct_nested": {
-      "status": "PASS",
-      "category": "struct_operations",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "struct_pass_value": {
-      "status": "PASS",
-      "category": "struct_operations",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "struct_ptr": {
-      "status": "FAIL",
-      "category": "struct_operations",
-      "error_msg": "crash (signal 11)",
-      "exit_code": -11
-    },
-    "struct_return": {
-      "status": "PASS",
-      "category": "struct_operations",
-      "error_msg": null,
-      "exit_code": 0
-    },
-    "va_empty": {
+    "gcc_pr59715": {
       "status": "SKIP",
-      "category": "variadic",
-      "error_msg": "compile_source failed: Expected ';' after expression at 5:20",
+      "category": "misc",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr59715_tk57uzhl.s:5:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
       "exit_code": null
     },
-    "va_mixed": {
+    "gcc_pr59891": {
       "status": "SKIP",
-      "category": "variadic",
-      "error_msg": "compile_source failed: Expected ';' after expression at 5:20",
+      "category": "arithmetic",
+      "error_msg": "compile_source failed: Unexpected token COLON (':') at 9:24",
       "exit_code": null
     },
-    "va_multiple_passes": {
+    "gcc_pr59903": {
       "status": "SKIP",
-      "category": "variadic",
-      "error_msg": "compile_source failed: Expected ';' after expression at 5:20",
+      "category": "arithmetic",
+      "error_msg": "compile_source failed: Expected ';' after struct definition at 11:3",
       "exit_code": null
     },
-    "va_pass_through": {
+    "gcc_pr60092": {
       "status": "SKIP",
-      "category": "variadic",
-      "error_msg": "compile_source failed: Expected type specifier, got IDENTIFIER ('__builtin_va_list') at 4:10",
+      "category": "pointers_arrays",
+      "error_msg": "compile_source failed: Expected type specifier, got IDENTIFIER ('__SIZE_TYPE__') at 3:9",
       "exit_code": null
     },
-    "va_simple": {
+    "gcc_pr60115": {
       "status": "SKIP",
-      "category": "variadic",
-      "error_msg": "compile_source failed: Expected ';' after expression at 6:20",
+      "category": "control_flow",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr60115_f_dozi4f.s:1:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr60733": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_source failed: Unexpected token SEMICOLON (';') at 26:3",
+      "exit_code": null
+    },
+    "gcc_pr61010": {
+      "status": "PASS",
+      "category": "arithmetic",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "gcc_pr61383_1": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr61383_1_68bmj5az.s:5:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr61438": {
+      "status": "SKIP",
+      "category": "pointers_arrays",
+      "error_msg": "compile_source failed: Expected struct name at 9:1",
+      "exit_code": null
+    },
+    "gcc_pr61452": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr61452_d161926b.s:1:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr61576": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr61576__co4sgd3.s:1:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr61602": {
+      "status": "SKIP",
+      "category": "pointers_arrays",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr61602_66mkd__4.s:1:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr61681": {
+      "status": "SKIP",
+      "category": "pointers_arrays",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr61681_fae4nqce.s:5:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr61742": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr61742_0oa0g3iz.s:1:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr61757": {
+      "status": "SKIP",
+      "category": "pointers_arrays",
+      "error_msg": "compile_source failed: Expected ';' after struct definition at 5:32",
+      "exit_code": null
+    },
+    "gcc_pr61786": {
+      "status": "SKIP",
+      "category": "pointers_arrays",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr61786_vot_n_pw.s:5:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr62238": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr62238_t4arx4aq.s:1:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr63380_2": {
+      "status": "SKIP",
+      "category": "misc",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr63380_2_8ipkl4od.s:11:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr64091": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_source failed: Unsupported IRValue type: NoneType",
+      "exit_code": null
+    },
+    "gcc_pr65077": {
+      "status": "SKIP",
+      "category": "pointers_arrays",
+      "error_msg": "compile_source failed: Expected parameter name at 4:27",
+      "exit_code": null
+    },
+    "gcc_pr66185": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr66185_n7px654z.s:1:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr66375": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr66375_9wz7uaka.s:1:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr66413": {
+      "status": "SKIP",
+      "category": "pointers_arrays",
+      "error_msg": "compile_source failed: Unexpected token SEMICOLON (';') at 51:7",
+      "exit_code": null
+    },
+    "gcc_pr66733_2": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_source failed: Unexpected token SEMICOLON (';') at 35:2",
+      "exit_code": null
+    },
+    "gcc_pr66793": {
+      "status": "SKIP",
+      "category": "struct_operations",
+      "error_msg": "compile_source failed: Expected ';' after struct definition at 8:3",
+      "exit_code": null
+    },
+    "gcc_pr66863": {
+      "status": "SKIP",
+      "category": "misc",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr66863_1qtw6z30.s:1:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr66894": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr66894_1udnuyeu.s:1:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr66949_1": {
+      "status": "SKIP",
+      "category": "arithmetic",
+      "error_msg": "compile_source failed: Unexpected token SEMICOLON (';') at 17:5",
+      "exit_code": null
+    },
+    "gcc_pr66949_2": {
+      "status": "SKIP",
+      "category": "arithmetic",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr66949_2_pyi23bon.s:1:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr67253": {
+      "status": "SKIP",
+      "category": "pointers_arrays",
+      "error_msg": "compile_source failed: Unexpected token SEMICOLON (';') at 23:2",
+      "exit_code": null
+    },
+    "gcc_pr67442": {
+      "status": "SKIP",
+      "category": "misc",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr67442_26km3de2.s:1:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr67470": {
+      "status": "SKIP",
+      "category": "pointers_arrays",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr67470_wlf_eg10.s:1:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr68060_1": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr68060_1_cj8sy920.s:1:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr68528": {
+      "status": "SKIP",
+      "category": "misc",
+      "error_msg": "compile_source failed: 9:16: use of undeclared identifier '__INT_MAX__'",
+      "exit_code": null
+    },
+    "gcc_pr68721": {
+      "status": "SKIP",
+      "category": "pointers_arrays",
+      "error_msg": "compile_source failed: Unexpected token SEMICOLON (';') at 18:5",
+      "exit_code": null
+    },
+    "gcc_pr69606": {
+      "status": "SKIP",
+      "category": "arithmetic",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr69606_qd999cyy.s:1:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr69936": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_source failed: Unexpected token SEMICOLON (';') at 11:5",
+      "exit_code": null
+    },
+    "gcc_pr70115": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_source failed: Unexpected token SEMICOLON (';') at 12:2",
+      "exit_code": null
+    },
+    "gcc_pr70780": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_source failed: Unexpected token SEMICOLON (';') at 16:4",
+      "exit_code": null
+    },
+    "gcc_pr71132": {
+      "status": "SKIP",
+      "category": "struct_operations",
+      "error_msg": "compile_source failed: Expected struct name at 8:8",
+      "exit_code": null
+    },
+    "gcc_pr71887": {
+      "status": "SKIP",
+      "category": "arithmetic",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr71887_o_5k6qlq.s:1:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr71908": {
+      "status": "SKIP",
+      "category": "struct_operations",
+      "error_msg": "compile_source failed: Expected ';' after struct definition at 9:3",
+      "exit_code": null
+    },
+    "gcc_pr71987": {
+      "status": "SKIP",
+      "category": "misc",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr71987_ewzilvqv.s:1:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr78510": {
+      "status": "SKIP",
+      "category": "arithmetic",
+      "error_msg": "compile_source failed: Unexpected token COLON (':') at 11:12",
+      "exit_code": null
+    },
+    "gcc_pr78997": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_source failed: Expected parameter name at 3:25",
+      "exit_code": null
+    },
+    "gcc_pr79088": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr79088_8h3y0ysd.s:5:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr79186": {
+      "status": "SKIP",
+      "category": "arithmetic",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr79186_u2lxmtnq.s:1:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr79187": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_source failed: Expected parameter name at 3:25",
+      "exit_code": null
+    },
+    "gcc_pr79666": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_source failed: Expected struct name at 4:1",
+      "exit_code": null
+    },
+    "gcc_pr79740": {
+      "status": "SKIP",
+      "category": "arithmetic",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr79740_opbmqn5r.s:1:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr80549": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr80549_mqch5au3.s:1:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr80565": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_source failed: Unexpected token SEMICOLON (';') at 22:9",
+      "exit_code": null
+    },
+    "gcc_pr80764": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_source failed: 11:10: function 'fn1' expects 0 arguments, got 1",
+      "exit_code": null
+    },
+    "gcc_pr80901": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_source failed: Unexpected token SEMICOLON (';') at 15:8",
+      "exit_code": null
+    },
+    "gcc_pr80974": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_source failed: Unexpected token SEMICOLON (';') at 10:4",
+      "exit_code": null
+    },
+    "gcc_pr81571": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_source failed: Unsupported IRValue type: NoneType",
+      "exit_code": null
+    },
+    "gcc_pr81573": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_source failed: Unexpected token SEMICOLON (';') at 14:5",
+      "exit_code": null
+    },
+    "gcc_pr82157": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr82157_k70yk_c9.s:1:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr82217": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr82217_gmr65i1w.s:1:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr86066": {
+      "status": "SKIP",
+      "category": "struct_operations",
+      "error_msg": "compile_source failed: Expected ';' after struct member at 7:8",
+      "exit_code": null
+    },
+    "gcc_pr87132": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr87132_ie56zf_d.s:1:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr87147": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr87147_6tztw1jl.s:5:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr87168": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr87168_dwuowmkc.s:1:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr87176": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_source failed: 19:24: incompatible type in array initializer element",
+      "exit_code": null
+    },
+    "gcc_pr87263": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_source failed: Unexpected token SEMICOLON (';') at 9:5",
+      "exit_code": null
+    },
+    "gcc_pr87640": {
+      "status": "PASS",
+      "category": "control_flow",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "gcc_pr88223": {
+      "status": "SKIP",
+      "category": "misc",
+      "error_msg": "compile_source failed: Expected parameter name at 3:28",
+      "exit_code": null
+    },
+    "gcc_pr88621": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_source failed: Expected ';' after struct member at 5:8",
+      "exit_code": null
+    },
+    "gcc_pr90671": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_pr90671_oj7ogtpp.s:1:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "gcc_pr91200": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_source failed: Expected parameter name at 3:25",
+      "exit_code": null
+    },
+    "gcc_pr99954": {
+      "status": "SKIP",
+      "category": "pointers_arrays",
+      "error_msg": "compile_and_link failed: Linking failed:\nUndefined symbols for architecture x86_64:\n  \"_assert\", referenced from:\n      _move in torture_gcc_pr99954_dcynumr6.o\n      _move in torture_gcc_pr99954_dcynumr6.o\nld: symbol(s) not found for architecture x86_64\nclang: error: linker command failed with exit code 1 (use -v to see invocation)",
       "exit_code": null
     }
   },
   "deltas": {
-    "newly_passing": [
-      "decl_multi_ptr",
-      "misc_void_func",
-      "ptr_arithmetic",
-      "ptr_basic",
-      "ptr_diff",
-      "ptr_void"
-    ],
-    "newly_failing": [
-      "ptr_to_struct",
-      "struct_ptr"
-    ],
+    "newly_passing": [],
+    "newly_failing": [],
     "newly_compiling": []
   }
 }

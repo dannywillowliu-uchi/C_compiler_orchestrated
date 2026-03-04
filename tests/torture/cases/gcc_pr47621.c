@@ -1,0 +1,14 @@
+/* Adapted from gcc.dg/torture/pr47621.c */
+
+extern void abort (void);
+
+int
+main (void)
+{
+  int data = 1;
+  struct ptr { int val; } *ptr = (struct ptr *) &data;
+  ptr->val = 0;
+  if (data != 0)
+    return 1;
+  return 0;
+}

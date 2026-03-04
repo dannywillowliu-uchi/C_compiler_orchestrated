@@ -33,12 +33,45 @@ PREFIX_CATEGORY_MAP = {
 	"misc_": "misc",
 }
 
+# Content-based category detection for GCC-sourced tests
+CONTENT_CATEGORY_RULES = [
+	("struct ", "struct_operations"),
+	("union ", "struct_operations"),
+	("->", "pointers_arrays"),
+	("*p ", "pointers_arrays"),
+	("*p)", "pointers_arrays"),
+	("*p;", "pointers_arrays"),
+	("&x", "pointers_arrays"),
+	("&a", "pointers_arrays"),
+	("switch", "control_flow"),
+	("goto ", "control_flow"),
+	("for (", "control_flow"),
+	("for(", "control_flow"),
+	("while (", "control_flow"),
+	("while(", "control_flow"),
+	("va_list", "variadic"),
+	("va_arg", "variadic"),
+	("<<", "arithmetic"),
+	(">>", "arithmetic"),
+	("unsigned", "arithmetic"),
+]
 
-def categorize(test_name: str) -> str:
-	"""Extract category from filename prefix."""
+
+def categorize(test_name: str, source: str = "") -> str:
+	"""Categorize a test by prefix first, then by source content."""
 	for prefix, category in PREFIX_CATEGORY_MAP.items():
 		if test_name.startswith(prefix):
 			return category
+
+	if source:
+		# Count hits per category from content
+		hits: dict[str, int] = {}
+		for pattern, cat in CONTENT_CATEGORY_RULES:
+			if pattern in source:
+				hits[cat] = hits.get(cat, 0) + 1
+		if hits:
+			return max(hits, key=hits.get)
+
 	return "misc"
 
 
@@ -49,7 +82,7 @@ def run_single_test(c_file: Path) -> dict:
 
 	test_name = c_file.stem
 	source = c_file.read_text()
-	category = categorize(test_name)
+	category = categorize(test_name, source)
 
 	# Step 1: Try to compile source to assembly
 	try:
