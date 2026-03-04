@@ -11,10 +11,44 @@ class IRType(Enum):
 	"""Primitive types in the IR."""
 	INT = auto()
 	CHAR = auto()
+	SHORT = auto()
+	LONG = auto()
 	VOID = auto()
 	POINTER = auto()
 	FLOAT = auto()
 	DOUBLE = auto()
+
+
+def ir_type_byte_width(ir_type: IRType) -> int:
+	"""Return the byte width for a given IR type."""
+	_widths = {
+		IRType.CHAR: 1,
+		IRType.SHORT: 2,
+		IRType.INT: 4,
+		IRType.LONG: 8,
+		IRType.POINTER: 8,
+		IRType.FLOAT: 4,
+		IRType.DOUBLE: 8,
+		IRType.VOID: 0,
+	}
+	return _widths[ir_type]
+
+
+def ir_type_is_integer(ir_type: IRType) -> bool:
+	"""Return True if the IR type is an integer type."""
+	return ir_type in (IRType.CHAR, IRType.SHORT, IRType.INT, IRType.LONG)
+
+
+def ir_type_asm_suffix(ir_type: IRType) -> str:
+	"""Return the AT&T assembly suffix for a given IR type."""
+	_suffixes = {
+		IRType.CHAR: "b",
+		IRType.SHORT: "w",
+		IRType.INT: "l",
+		IRType.LONG: "q",
+		IRType.POINTER: "q",
+	}
+	return _suffixes[ir_type]
 
 
 # ---------------------------------------------------------------------------
