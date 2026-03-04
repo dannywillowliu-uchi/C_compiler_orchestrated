@@ -335,7 +335,7 @@ class TestCodegenFuncPtr:
 		}
 		"""
 		asm = compile_to_asm(src)
-		assert "call *%rax" in asm
+		assert "call *%r11" in asm
 
 	def test_direct_call_no_indirect(self):
 		src = """
@@ -354,7 +354,7 @@ class TestCodegenFuncPtr:
 		int main() { return apply(add, 3, 4); }
 		"""
 		asm = compile_to_asm(src)
-		assert "call *%rax" in asm
+		assert "call *%r11" in asm
 
 	def test_address_of_func_in_asm(self):
 		src = """
@@ -365,7 +365,7 @@ class TestCodegenFuncPtr:
 		}
 		"""
 		asm = compile_to_asm(src)
-		assert "call *%rax" in asm
+		assert "call *%r11" in asm
 		assert "leaq add(%rip)" in asm
 
 	def test_reassign_func_ptr_codegen(self):
@@ -379,7 +379,7 @@ class TestCodegenFuncPtr:
 		}
 		"""
 		asm = compile_to_asm(src)
-		assert "call *%rax" in asm
+		assert "call *%r11" in asm
 		# Should have leaq for both add and sub
 		assert "leaq add(%rip)" in asm
 		assert "leaq sub(%rip)" in asm
@@ -394,7 +394,7 @@ class TestCodegenFuncPtr:
 		}
 		"""
 		asm = compile_to_asm(src)
-		assert "call *%rax" in asm
+		assert "call *%r11" in asm
 
 
 # ---------------------------------------------------------------------------
@@ -414,7 +414,7 @@ class TestFullPipeline:
 		asm = compile_to_asm(src)
 		assert ".globl main" in asm
 		assert ".globl add" in asm
-		assert "call *%rax" in asm
+		assert "call *%r11" in asm
 
 	def test_func_ptr_with_multiple_calls(self):
 		src = """
@@ -429,7 +429,7 @@ class TestFullPipeline:
 		}
 		"""
 		asm = compile_to_asm(src)
-		assert asm.count("call *%rax") == 2
+		assert asm.count("call *%r11") == 2
 
 	def test_func_ptr_passed_as_arg(self):
 		src = """
@@ -442,7 +442,7 @@ class TestFullPipeline:
 		}
 		"""
 		asm = compile_to_asm(src)
-		assert "call *%rax" in asm
+		assert "call *%r11" in asm
 		assert "call apply" in asm
 
 	def test_func_ptr_void_return(self):
@@ -456,7 +456,7 @@ class TestFullPipeline:
 		}
 		"""
 		asm = compile_to_asm(src)
-		assert "call *%rax" in asm
+		assert "call *%r11" in asm
 
 	def test_func_ptr_typedef_full(self):
 		src = """
@@ -475,4 +475,4 @@ class TestFullPipeline:
 		}
 		"""
 		asm = compile_to_asm(src)
-		assert "call *%rax" in asm
+		assert "call *%r11" in asm

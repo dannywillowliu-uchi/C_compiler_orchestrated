@@ -574,7 +574,7 @@ class TestPointerReadWrite:
 		"""
 		asm = compile_source(source)
 		assert "f:" in asm
-		assert "movq (%rax), %rax" in asm
+		assert "movl (%rax), %eax" in asm
 		assert "ret" in asm
 
 	def test_write_through_pointer(self) -> None:
@@ -595,7 +595,7 @@ class TestPointerReadWrite:
 		"""
 		asm = compile_source(source)
 		assert "deref:" in asm
-		assert "movq (%rax), %rax" in asm
+		assert "movl (%rax), %eax" in asm
 		assert "ret" in asm
 
 
@@ -907,8 +907,8 @@ class TestStructMemberAccess:
 		assert "f:" in asm
 		# First field offset is 0
 		assert "$0" in asm
-		# Load from computed address
-		assert "movq (%rax), %rax" in asm
+		# Load from computed address (INT width)
+		assert "movl (%rax), %eax" in asm
 		assert "ret" in asm
 
 	def test_struct_second_field_offset(self) -> None:
@@ -927,7 +927,7 @@ class TestStructMemberAccess:
 		# Second field: offset 4 (int x is 4 bytes)
 		assert "$4" in asm
 		assert "addq" in asm
-		assert "movq (%rax), %rax" in asm
+		assert "movl (%rax), %eax" in asm
 		assert "ret" in asm
 
 	def test_struct_arrow_access(self) -> None:
@@ -944,7 +944,7 @@ class TestStructMemberAccess:
 		assert "f:" in asm
 		# Arrow access on first field, offset 0
 		assert "$0" in asm
-		assert "movq (%rax), %rax" in asm
+		assert "movl (%rax), %eax" in asm
 		assert "ret" in asm
 
 	def test_struct_arrow_second_field(self) -> None:
@@ -962,7 +962,7 @@ class TestStructMemberAccess:
 		# Second field offset = 4
 		assert "$4" in asm
 		assert "addq" in asm
-		assert "movq (%rax), %rax" in asm
+		assert "movl (%rax), %eax" in asm
 		assert "ret" in asm
 
 	def test_struct_allocation(self) -> None:
