@@ -53,7 +53,10 @@ class IROptimizer:
 				if new_body != body:
 					changed = True
 					body = new_body
-		return IRFunction(name=func.name, params=func.params, body=body, return_type=func.return_type)
+		return IRFunction(
+			name=func.name, params=func.params, body=body, return_type=func.return_type,
+			param_types=func.param_types, storage_class=func.storage_class,
+		)
 
 	# -- Constant Folding --
 

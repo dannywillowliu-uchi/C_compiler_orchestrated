@@ -708,10 +708,19 @@ class CodeGenerator:
 			self._emit_instr(f"xorp{sd} %xmm1, %xmm1")
 			self._emit_instr(f"sub{suffix} %xmm0, %xmm1")
 			self._emit_instr(f"movap{sd} %xmm1, %xmm0")
+			self._store_float_to_temp("%xmm0", instr.dest, instr.ir_type)
+		elif instr.op == "!":
+			# Logical not: compare against 0.0, produce integer 0 or 1
+			sd = _s_d(instr.ir_type)
+			self._emit_instr(f"xorp{sd} %xmm1, %xmm1")
+			self._emit_instr(f"ucomis{sd} %xmm1, %xmm0")
+			self._emit_instr("sete %al")
+			self._emit_instr("setnp %cl")
+			self._emit_instr("andb %cl, %al")
+			self._emit_instr("movzbq %al, %rax")
+			self._store_to_temp("%rax", instr.dest)
 		else:
 			raise ValueError(f"Unsupported float unary operator: {instr.op}")
-
-		self._store_float_to_temp("%xmm0", instr.dest, instr.ir_type)
 
 	def _gen_float_copy(self, instr: IRCopy) -> None:
 		self._load_float_value(instr.source, "%xmm0", instr.ir_type)
