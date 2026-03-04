@@ -316,6 +316,45 @@ class TestVarDecl:
 		assert isinstance(decl, VarDecl)
 		assert isinstance(decl.initializer, BinaryOp)
 
+	def test_multi_decl_pointer_binding(self) -> None:
+		"""Pointer in 'int *a, b;' binds only to 'a', not 'b'."""
+		func = parse_single_func("int f() { int *a, b; return 0; }")
+		stmts = body_stmts(func)
+		a_decl = stmts[0]
+		b_decl = stmts[1]
+		assert isinstance(a_decl, VarDecl)
+		assert isinstance(b_decl, VarDecl)
+		assert a_decl.name == "a"
+		assert a_decl.type_spec.base_type == "int"
+		assert a_decl.type_spec.pointer_count == 1
+		assert b_decl.name == "b"
+		assert b_decl.type_spec.base_type == "int"
+		assert b_decl.type_spec.pointer_count == 0
+
+	def test_multi_decl_both_pointers(self) -> None:
+		"""'int *a, *b;' makes both pointers."""
+		func = parse_single_func("int f() { int *a, *b; return 0; }")
+		stmts = body_stmts(func)
+		a_decl = stmts[0]
+		b_decl = stmts[1]
+		assert isinstance(a_decl, VarDecl)
+		assert isinstance(b_decl, VarDecl)
+		assert a_decl.type_spec.pointer_count == 1
+		assert b_decl.type_spec.pointer_count == 1
+
+	def test_multi_decl_global_pointer_binding(self) -> None:
+		"""Global 'int *a, b;' binds pointer only to 'a'."""
+		prog = parse("int *a, b;")
+		assert len(prog.declarations) == 2
+		a_decl = prog.declarations[0]
+		b_decl = prog.declarations[1]
+		assert isinstance(a_decl, VarDecl)
+		assert isinstance(b_decl, VarDecl)
+		assert a_decl.name == "a"
+		assert a_decl.type_spec.pointer_count == 1
+		assert b_decl.name == "b"
+		assert b_decl.type_spec.pointer_count == 0
+
 	def test_global_var_decl(self) -> None:
 		prog = parse("int x = 10;")
 		assert len(prog.declarations) == 1
