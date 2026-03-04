@@ -144,13 +144,13 @@ def _count_temp_uses(func: IRFunction) -> dict[str, int]:
 		elif isinstance(instr, IRReturn):
 			if instr.value is not None and isinstance(instr.value, IRTemp):
 				counts[instr.value.name] = counts.get(instr.value.name, 0) + 1
-		elif isinstance(instr, IRAddrOf):
-			counts[instr.dest.name] = counts.get(instr.dest.name, 0) + 1
-			counts[instr.source.name] = counts.get(instr.source.name, 0) + 1
 		elif isinstance(instr, IRConvert):
 			counts[instr.dest.name] = counts.get(instr.dest.name, 0) + 1
 			if isinstance(instr.source, IRTemp):
 				counts[instr.source.name] = counts.get(instr.source.name, 0) + 1
+		elif isinstance(instr, IRAddrOf):
+			counts[instr.dest.name] = counts.get(instr.dest.name, 0) + 1
+			counts[instr.source.name] = counts.get(instr.source.name, 0) + 1
 	return counts
 
 
@@ -172,16 +172,18 @@ class RegisterAllocator:
 		if not interference:
 			return {}
 
+		# Collect temps whose address is taken -- they must stay on the stack
+		addr_taken: set[str] = set()
+		for instr in self._func.body:
+			if isinstance(instr, IRAddrOf):
+				addr_taken.add(instr.source.name)
+
 		float_temps = _collect_float_temps(self._func)
-		# Temps whose address is taken must stay on the stack
-		addr_taken = {
-			instr.source.name for instr in self._func.body if isinstance(instr, IRAddrOf)
-		}
 		call_crossing = _find_call_crossing_temps(cfg, analyzer)
 		move_edges = _collect_move_edges(self._func)
 		use_counts = _count_temp_uses(self._func)
 
-		# Build integer-only interference subgraph (exclude float and addr-taken)
+		# Build integer-only interference subgraph (exclude address-taken temps)
 		int_temps = {t for t in interference if t not in float_temps and t not in addr_taken}
 		int_graph: dict[str, set[str]] = {}
 		for t in int_temps:

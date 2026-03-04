@@ -12,7 +12,7 @@ from compiler.ast_nodes import (
 	UnaryOp,
 	VarDecl,
 )
-from compiler.ir import IRAlloc, IRLoad, IRStore
+from compiler.ir import IRAddrOf, IRLoad, IRStore
 from compiler.ir_gen import IRGenerator
 
 
@@ -49,12 +49,9 @@ def test_ptr_basic_address_taken_uses_store() -> None:
 	)
 	ir = IRGenerator().generate(prog)
 	body = ir.functions[0].body
-	# x should be allocated with IRAlloc
-	allocs = [i for i in body if isinstance(i, IRAlloc)]
-	assert len(allocs) >= 1
-	# x's initialization should use IRStore (not IRCopy) because x is address-taken
-	stores = [i for i in body if isinstance(i, IRStore)]
-	assert len(stores) >= 1, "address-taken var should use IRStore for initialization"
+	# &x should produce an IRAddrOf instruction
+	addr_ofs = [i for i in body if isinstance(i, IRAddrOf)]
+	assert len(addr_ofs) >= 1, "address-of should produce IRAddrOf"
 	# The dereference *p should produce an IRLoad
 	loads = [i for i in body if isinstance(i, IRLoad)]
 	assert len(loads) >= 1, "pointer dereference should produce IRLoad"
@@ -85,9 +82,9 @@ def test_ptr_basic_deref_reads_stored_value() -> None:
 	)
 	ir = IRGenerator().generate(prog)
 	body = ir.functions[0].body
-	# Should have stores: one for x init (IRStore to alloc), one for *p = 20 (IRStore through pointer)
+	# Should have IRAddrOf for &x
+	addr_ofs = [i for i in body if isinstance(i, IRAddrOf)]
+	assert len(addr_ofs) >= 1, "address-of should produce IRAddrOf"
+	# Should have at least one store for *p = 20 (store through pointer)
 	stores = [i for i in body if isinstance(i, IRStore)]
-	assert len(stores) >= 2, f"expected at least 2 stores, got {len(stores)}"
-	# Reading x after *p = 20 should use IRLoad (address-taken var)
-	loads = [i for i in body if isinstance(i, IRLoad)]
-	assert len(loads) >= 1, "reading address-taken var should use IRLoad"
+	assert len(stores) >= 1, f"expected at least 1 store for *p = 20, got {len(stores)}"

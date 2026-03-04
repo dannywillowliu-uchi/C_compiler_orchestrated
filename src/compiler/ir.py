@@ -164,16 +164,6 @@ class IRCopy(IRInstruction):
 
 
 @dataclass
-class IRAddrOf(IRInstruction):
-	"""dest = &source (take address of source's stack slot)"""
-	dest: IRTemp
-	source: IRTemp
-
-	def __str__(self) -> str:
-		return f"{self.dest} = &{self.source}"
-
-
-@dataclass
 class IRLoad(IRInstruction):
 	"""dest = *address"""
 	dest: IRTemp
@@ -277,6 +267,16 @@ class IRConvert(IRInstruction):
 
 	def __str__(self) -> str:
 		return f"{self.dest} = convert {self.source} {self.from_type.name}->{self.to_type.name}"
+
+
+@dataclass
+class IRAddrOf(IRInstruction):
+	"""dest = &source (take address of a stack-allocated variable)."""
+	dest: IRTemp
+	source: IRTemp
+
+	def __str__(self) -> str:
+		return f"{self.dest} = &{self.source}"
 
 
 @dataclass
