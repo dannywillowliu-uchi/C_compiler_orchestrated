@@ -165,6 +165,9 @@ def _types_compatible(left: TypeSpec, right: TypeSpec) -> bool:
 		if left.base_type == "void" or right.base_type == "void":
 			return True
 		return left.base_type == right.base_type and left.pointer_count == right.pointer_count
+	# Allow integer 0 (NULL) to be assigned to pointer
+	if _is_pointer(left) and _is_numeric(right):
+		return True
 	return False
 
 
@@ -172,12 +175,14 @@ def _result_type(left: TypeSpec, op: str, right: TypeSpec) -> TypeSpec:
 	"""Determine the result type of a binary operation."""
 	if op in _COMPARISON_OPS or op in _LOGICAL_OPS:
 		return TypeSpec(base_type="int")
-	# Pointer arithmetic: ptr + int or int + ptr
+	# Pointer arithmetic: ptr + int, int + ptr, ptr - int, ptr - ptr
 	if op in ("+", "-"):
 		if _is_pointer(left) and _is_numeric(right):
 			return left
 		if _is_numeric(left) and _is_pointer(right) and op == "+":
 			return right
+		if _is_pointer(left) and _is_pointer(right) and op == "-":
+			return TypeSpec(base_type="int")
 	return left
 
 
@@ -193,6 +198,7 @@ class SemanticAnalyzer(ASTVisitor):
 		self._struct_types: dict[str, StructDecl] = {}
 		self._union_types: dict[str, UnionDecl] = {}
 		self._typedef_types: dict[str, TypeSpec] = {}
+		self._in_sizeof_or_addressof: bool = False
 
 	def analyze(self, node: ASTNode) -> list[SemanticError]:
 		self.visit(node)
@@ -540,24 +546,41 @@ class SemanticAnalyzer(ASTVisitor):
 		if left_type is None or right_type is None:
 			return None
 		if node.op in _ARITHMETIC_OPS or node.op in _BITWISE_OPS:
-			# Allow pointer arithmetic
-			if not (_is_numeric(left_type) or _is_pointer(left_type)) or not (
-				_is_numeric(right_type) or _is_pointer(right_type)
-			):
+			# Pointer arithmetic validation
+			if _is_pointer(left_type) or _is_pointer(right_type):
+				if node.op == "+":
+					if _is_pointer(left_type) and _is_pointer(right_type):
+						self._error("addition of two pointers is not allowed", node)
+						return None
+					if not (_is_numeric(left_type) or _is_numeric(right_type)):
+						self._error(
+							f"incompatible types for operator '+': "
+							f"'{left_type.base_type}' and '{right_type.base_type}'",
+							node,
+						)
+						return None
+				elif node.op == "-":
+					# ptr - ptr OK, ptr - int OK, int - ptr error
+					if _is_pointer(right_type) and not _is_pointer(left_type):
+						self._error(
+							"subtraction of pointer from integer is not allowed",
+							node,
+						)
+						return None
+				else:
+					# *, /, %, bitwise ops not allowed with pointers
+					self._error(
+						f"invalid operands to '{node.op}': pointer type not allowed",
+						node,
+					)
+					return None
+			elif not _is_numeric(left_type) or not _is_numeric(right_type):
 				self._error(
 					f"incompatible types for operator '{node.op}': "
 					f"'{left_type.base_type}' and '{right_type.base_type}'",
 					node,
 				)
 				return None
-			if node.op in _BITWISE_OPS or node.op == "%":
-				if not _is_numeric(left_type) or not _is_numeric(right_type):
-					self._error(
-						f"incompatible types for operator '{node.op}': "
-						f"'{left_type.base_type}' and '{right_type.base_type}'",
-						node,
-					)
-					return None
 		elif node.op in _COMPARISON_OPS or node.op in _LOGICAL_OPS:
 			pass  # comparisons/logical ops work on any scalar
 		return _result_type(left_type, node.op, right_type)
@@ -568,14 +591,21 @@ class SemanticAnalyzer(ASTVisitor):
 			sym = self.symbols.lookup(node.operand.name)
 			if sym is not None and sym.is_function:
 				return TypeSpec(base_type="void", pointer_count=1)
-		operand_type = self.visit(node.operand)
-		if operand_type is None:
-			return None
+		# Address-of: inhibit array decay for the operand
 		if node.op == "&":
+			old_flag = self._in_sizeof_or_addressof
+			self._in_sizeof_or_addressof = True
+			operand_type = self.visit(node.operand)
+			self._in_sizeof_or_addressof = old_flag
+			if operand_type is None:
+				return None
 			return TypeSpec(
 				base_type=operand_type.base_type,
 				pointer_count=operand_type.pointer_count + 1,
 			)
+		operand_type = self.visit(node.operand)
+		if operand_type is None:
+			return None
 		if node.op == "*":
 			if operand_type.pointer_count < 1:
 				self._error("dereference of non-pointer type", node)
@@ -608,6 +638,13 @@ class SemanticAnalyzer(ASTVisitor):
 		# Function pointer variables return a pointer type for type-compat purposes
 		if sym.is_function_pointer:
 			return TypeSpec(base_type="void", pointer_count=1)
+		# Array-to-pointer decay: arrays decay to pointers in expression contexts
+		# except inside sizeof or address-of (&)
+		if sym.is_array and not self._in_sizeof_or_addressof:
+			return TypeSpec(
+				base_type=sym.type_spec.base_type,
+				pointer_count=sym.type_spec.pointer_count + 1,
+			)
 		return sym.type_spec
 
 	def visit_assignment(self, node: Assignment) -> TypeSpec | None:
@@ -748,7 +785,10 @@ class SemanticAnalyzer(ASTVisitor):
 
 	def visit_sizeof_expr(self, node: SizeofExpr) -> TypeSpec:
 		if node.operand is not None:
+			old_flag = self._in_sizeof_or_addressof
+			self._in_sizeof_or_addressof = True
 			self.visit(node.operand)
+			self._in_sizeof_or_addressof = old_flag
 		return TypeSpec(base_type="int")
 
 	def visit_postfix_expr(self, node: PostfixExpr) -> TypeSpec | None:
