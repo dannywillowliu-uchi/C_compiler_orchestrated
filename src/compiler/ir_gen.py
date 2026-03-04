@@ -49,6 +49,7 @@ from compiler.ast_nodes import (
 	WhileStmt,
 )
 from compiler.ir import (
+	IRAddrOf,
 	IRAlloc,
 	IRBinOp,
 	IRCall,
@@ -336,12 +337,17 @@ class IRGenerator(ASTVisitor):
 
 		self.visit(node.body)
 
+		# Ensure void functions always end with an explicit return
+		ret_type = _resolve_ir_type(node.return_type)
+		if ret_type == IRType.VOID and (not self._instructions or not isinstance(self._instructions[-1], IRReturn)):
+			self._emit(IRReturn(value=None, ir_type=IRType.VOID))
+
 		self._functions.append(
 			IRFunction(
 				name=node.name,
 				params=params,
 				body=self._instructions,
-				return_type=_resolve_ir_type(node.return_type),
+				return_type=ret_type,
 				param_types=param_types,
 				storage_class=node.storage_class,
 			)
@@ -747,9 +753,21 @@ class IRGenerator(ASTVisitor):
 				src = self._locals.get(node.operand.name)
 				if src is not None:
 					ts = self._local_types.get(node.operand.name)
+					# Arrays and aggregates: the temp already holds the address
+					is_array = node.operand.name in self._local_array
+					is_aggregate = self._is_local_aggregate(node.operand.name) is not None
+					if is_array or is_aggregate:
+						if ts is not None:
+							self._temp_pointee_size[src.name] = self._resolve_member_size(ts)
+						return src
+					# Scalars: temp holds the value, need LEA to get the address
+					dest = self._new_temp()
+					self._set_temp_type(dest, IRType.POINTER)
+					self._emit(IRAddrOf(dest=dest, source=src))
 					if ts is not None:
-						self._temp_pointee_size[src.name] = self._resolve_member_size(ts)
-					return src
+						self._temp_pointee_size[dest.name] = self._resolve_member_size(ts)
+					return dest
+			# For member access or other lvalue expressions, visit to get the address
 			operand = self.visit(node.operand)
 			return operand
 		if node.op in ("++", "--"):

@@ -85,7 +85,9 @@ class TestFunctionDecl:
 		assert fn.name == "main"
 		assert fn.params == []
 		assert fn.return_type == IRType.VOID
-		assert fn.body == []
+		assert len(fn.body) == 1
+		assert isinstance(fn.body[0], IRReturn)
+		assert fn.body[0].value is None
 
 	def test_function_with_params(self) -> None:
 		prog = _make_program(
@@ -179,9 +181,10 @@ class TestVarDecl:
 		)
 		ir = IRGenerator().generate(prog)
 		body = ir.functions[0].body
-		assert len(body) == 1
+		assert len(body) == 2
 		assert isinstance(body[0], IRAlloc)
 		assert body[0].size == 4
+		assert isinstance(body[1], IRReturn) and body[1].value is None
 
 	def test_var_with_init(self) -> None:
 		prog = _make_program(
@@ -201,11 +204,12 @@ class TestVarDecl:
 		)
 		ir = IRGenerator().generate(prog)
 		body = ir.functions[0].body
-		assert len(body) == 2
+		assert len(body) == 3
 		assert isinstance(body[0], IRAlloc)
 		assert isinstance(body[1], IRCopy)
 		assert body[1].dest == body[0].dest
 		assert body[1].source == IRConst(10)
+		assert isinstance(body[2], IRReturn) and body[2].value is None
 
 	def test_pointer_var(self) -> None:
 		prog = _make_program(
@@ -624,9 +628,10 @@ class TestArrayIR:
 		)
 		ir = IRGenerator().generate(prog)
 		body = ir.functions[0].body
-		assert len(body) == 1
+		assert len(body) == 2
 		assert isinstance(body[0], IRAlloc)
 		assert body[0].size == 40
+		assert isinstance(body[1], IRReturn) and body[1].value is None
 
 	def test_array_subscript_read(self) -> None:
 		"""int arr[10]; return arr[2]; -- generates pointer arithmetic + load."""
@@ -1901,7 +1906,8 @@ class TestStructDecl:
 		)
 		ir = IRGenerator().generate(prog)
 		body = ir.functions[0].body
-		assert len(body) == 0
+		assert len(body) == 1
+		assert isinstance(body[0], IRReturn) and body[0].value is None
 
 
 class TestMemberAccess:

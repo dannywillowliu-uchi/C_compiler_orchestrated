@@ -5,6 +5,7 @@ from __future__ import annotations
 import struct
 
 from compiler.ir import (
+	IRAddrOf,
 	IRAlloc,
 	IRBinOp,
 	IRCall,
@@ -362,6 +363,9 @@ class CodeGenerator:
 		elif isinstance(instr, IRConvert):
 			temps.add(instr.dest.name)
 			self._collect_value_temp(instr.source, temps)
+		elif isinstance(instr, IRAddrOf):
+			temps.add(instr.dest.name)
+			temps.add(instr.source.name)
 
 	@staticmethod
 	def _collect_value_temp(value: IRValue, temps: set[str]) -> None:
@@ -497,6 +501,8 @@ class CodeGenerator:
 				self._gen_return(instr)
 		elif isinstance(instr, IRAlloc):
 			self._gen_alloc(instr)
+		elif isinstance(instr, IRAddrOf):
+			self._gen_addr_of(instr)
 		elif isinstance(instr, IRConvert):
 			self._gen_convert(instr)
 		elif isinstance(instr, IRParam):
@@ -695,6 +701,12 @@ class CodeGenerator:
 		aligned = self._align16(instr.size)
 		self._emit_instr(f"subq ${aligned}, %rsp")
 		self._emit_instr("movq %rsp, %rax")
+		self._store_to_temp("%rax", instr.dest)
+
+	def _gen_addr_of(self, instr: IRAddrOf) -> None:
+		"""Load effective address of source's stack slot into dest."""
+		offset = self._get_offset(instr.source.name)
+		self._emit_instr(f"leaq {offset}(%rbp), %rax")
 		self._store_to_temp("%rax", instr.dest)
 
 	# ------------------------------------------------------------------

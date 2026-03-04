@@ -279,6 +279,16 @@ class IRAlloc(IRInstruction):
 		return f"{self.dest} = alloc {self.size}"
 
 
+@dataclass
+class IRAddrOf(IRInstruction):
+	"""dest = &source (load effective address of source's stack slot)."""
+	dest: IRTemp
+	source: IRTemp
+
+	def __str__(self) -> str:
+		return f"{self.dest} = &{self.source}"
+
+
 # ---------------------------------------------------------------------------
 # Program structure
 # ---------------------------------------------------------------------------
