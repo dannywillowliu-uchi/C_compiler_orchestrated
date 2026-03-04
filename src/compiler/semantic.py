@@ -77,6 +77,7 @@ class Symbol:
 	is_prototype: bool = False
 	storage_class: str | None = None
 	is_function_pointer: bool = False
+	is_variadic: bool = False
 
 
 class SymbolTable:
@@ -222,6 +223,7 @@ class SemanticAnalyzer(ASTVisitor):
 		node: ASTNode,
 		is_function: bool = False,
 		param_types: list[TypeSpec] | None = None,
+		is_variadic: bool = False,
 	) -> None:
 		sym = Symbol(
 			name=name,
@@ -229,6 +231,7 @@ class SemanticAnalyzer(ASTVisitor):
 			scope_depth=self.symbols.depth,
 			is_function=is_function,
 			param_types=param_types or [],
+			is_variadic=is_variadic,
 		)
 		existing = self.symbols.lookup_current_scope(name)
 		if existing is not None:
@@ -281,6 +284,7 @@ class SemanticAnalyzer(ASTVisitor):
 				is_function=True,
 				param_types=param_types,
 				is_prototype=True,
+				is_variadic=node.is_variadic,
 			)
 			if existing is not None:
 				self._error(f"redefinition of '{node.name}' in the same scope", node)
@@ -289,7 +293,8 @@ class SemanticAnalyzer(ASTVisitor):
 			return node.return_type
 		else:
 			self._define_symbol(
-				node.name, node.return_type, node, is_function=True, param_types=param_types
+				node.name, node.return_type, node, is_function=True,
+				param_types=param_types, is_variadic=node.is_variadic,
 			)
 		if node.body is None:
 			return node.return_type
@@ -557,6 +562,13 @@ class SemanticAnalyzer(ASTVisitor):
 					node,
 				)
 				return None
+		elif node.op in _BITWISE_OPS:
+			if not _is_numeric(target_type) or not _is_numeric(value_type):
+				self._error(
+					f"incompatible types for bitwise compound assignment '{node.op}='",
+					node,
+				)
+				return None
 		elif not _types_compatible(target_type, value_type):
 			self._error(
 				f"incompatible types in compound assignment: "
@@ -732,7 +744,14 @@ class SemanticAnalyzer(ASTVisitor):
 		if not sym.is_function:
 			self._error(f"'{node.name}' is not a function", node)
 			return None
-		if len(node.arguments) != len(sym.param_types):
+		if sym.is_variadic:
+			if len(node.arguments) < len(sym.param_types):
+				self._error(
+					f"variadic function '{node.name}' requires at least "
+					f"{len(sym.param_types)} arguments, got {len(node.arguments)}",
+					node,
+				)
+		elif len(node.arguments) != len(sym.param_types):
 			self._error(
 				f"function '{node.name}' expects {len(sym.param_types)} arguments, "
 				f"got {len(node.arguments)}",
