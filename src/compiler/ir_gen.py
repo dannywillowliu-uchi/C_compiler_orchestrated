@@ -178,6 +178,7 @@ class IRGenerator(ASTVisitor):
 		self._user_labels: dict[str, str] = {}  # C label name -> IR label name
 		self._static_local_map: dict[str, str] = {}  # local name -> mangled global name
 		self._temp_pointee_size: dict[str, int] = {}  # pointer temp -> element size
+		self._scope_depth: int = 0  # compound stmt nesting depth within function
 
 	# ------------------------------------------------------------------
 	# Helpers
@@ -305,6 +306,7 @@ class IRGenerator(ASTVisitor):
 		old_function_name = self._current_function_name
 		old_static_local_map = self._static_local_map
 		old_pointee_size = self._temp_pointee_size
+		old_scope_depth = self._scope_depth
 		self._instructions = []
 		self._locals = {}
 		self._local_types = {}
@@ -312,6 +314,7 @@ class IRGenerator(ASTVisitor):
 		self._temp_types = {}
 		self._temp_unsigned = {}
 		self._temp_pointee_size = {}
+		self._scope_depth = 0
 		self._in_function = True
 		self._current_function_name = node.name
 		self._func_ptr_locals = set()
@@ -365,6 +368,7 @@ class IRGenerator(ASTVisitor):
 		self._user_labels = old_user_labels
 		self._static_local_map = old_static_local_map
 		self._temp_pointee_size = old_pointee_size
+		self._scope_depth = old_scope_depth
 
 	def _emit_global_var(self, name: str, node: VarDecl, storage_class: str | None = None) -> None:
 		"""Emit a global variable declaration with proper initializer handling."""
@@ -1039,14 +1043,18 @@ class IRGenerator(ASTVisitor):
 		self._emit(IRReturn(value=val, ir_type=val_type))
 
 	def visit_compound_stmt(self, node: CompoundStmt) -> None:
-		saved_locals = dict(self._locals)
-		saved_types = dict(self._local_types)
-		saved_arrays = dict(self._local_array)
+		self._scope_depth += 1
+		if self._scope_depth > 1:
+			saved_locals = dict(self._locals)
+			saved_types = dict(self._local_types)
+			saved_arrays = dict(self._local_array)
 		for stmt in node.statements:
 			self.visit(stmt)
-		self._locals = saved_locals
-		self._local_types = saved_types
-		self._local_array = saved_arrays
+		if self._scope_depth > 1:
+			self._locals = saved_locals
+			self._local_types = saved_types
+			self._local_array = saved_arrays
+		self._scope_depth -= 1
 
 	def visit_if_stmt(self, node: IfStmt) -> None:
 		cond = self.visit(node.condition)
