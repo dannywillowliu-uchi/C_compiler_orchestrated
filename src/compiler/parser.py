@@ -888,6 +888,17 @@ class Parser:
 		self._expect(TokenType.RPAREN, "Expected ')' after switch expression")
 		self._expect(TokenType.LBRACE, "Expected '{' after switch expression")
 		cases: list[CaseClause] = []
+		# C89: statements before the first case/default are valid (reachable via goto)
+		pre_stmts: list[ASTNode] = []
+		while (
+			not self._check(TokenType.CASE)
+			and not self._check(TokenType.DEFAULT)
+			and not self._check(TokenType.RBRACE)
+			and not self._at_end()
+		):
+			pre_stmts.append(self._parse_statement())
+		if pre_stmts:
+			cases.append(CaseClause(value=None, statements=pre_stmts, is_pre_switch=True, loc=self._loc(tok)))
 		while not self._check(TokenType.RBRACE) and not self._at_end():
 			if self._check(TokenType.CASE):
 				case_tok = self._advance()  # consume 'case'

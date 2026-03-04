@@ -592,6 +592,7 @@ class TestFunctionCallErrors:
 			SemanticAnalyzer().analyze(prog)
 
 	def test_call_undeclared_function(self) -> None:
+		"""C89: calling an undeclared function emits a warning (implicit declaration)."""
 		prog = Program(declarations=[
 			FunctionDecl(
 				return_type=void_type(),
@@ -606,8 +607,9 @@ class TestFunctionCallErrors:
 				]),
 			),
 		])
-		with pytest.raises(SemanticError, match="undeclared function 'unknown'"):
-			SemanticAnalyzer().analyze(prog)
+		analyzer = SemanticAnalyzer()
+		analyzer.analyze(prog)
+		assert any("implicit declaration of function 'unknown'" in w for w in analyzer.warnings)
 
 	def test_call_non_function(self) -> None:
 		prog = Program(declarations=[
