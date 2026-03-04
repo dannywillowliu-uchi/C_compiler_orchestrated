@@ -942,6 +942,24 @@ class IRGenerator(ASTVisitor):
 			# Store back (recompute address since addr temp may have been clobbered)
 			addr2 = self._compute_array_addr(node.target)
 			self._emit(IRStore(address=addr2, value=result))
+		elif isinstance(node.target, MemberAccess):
+			addr = self._compute_member_addr(node.target)
+			current = self._new_temp()
+			self._emit(IRLoad(dest=current, address=addr))
+			rhs = self.visit(node.value)
+			result = self._new_temp()
+			self._emit(IRBinOp(dest=result, left=current, op=arith_op, right=rhs))
+			addr2 = self._compute_member_addr(node.target)
+			self._emit(IRStore(address=addr2, value=result))
+		elif isinstance(node.target, UnaryOp) and node.target.op == "*":
+			addr = self.visit(node.target.operand)
+			current = self._new_temp()
+			self._emit(IRLoad(dest=current, address=addr))
+			rhs = self.visit(node.value)
+			result = self._new_temp()
+			self._emit(IRBinOp(dest=result, left=current, op=arith_op, right=rhs))
+			addr2 = self.visit(node.target.operand)
+			self._emit(IRStore(address=addr2, value=result))
 		elif isinstance(node.target, Identifier) and node.target.name in self._static_local_map:
 			mangled = self._static_local_map[node.target.name]
 			ir_type = self._resolve_local_ir_type(node.target.name)
@@ -1240,6 +1258,26 @@ class IRGenerator(ASTVisitor):
 			delta_op = "+" if node.op == "++" else "-"
 			self._emit(IRBinOp(dest=new_val, left=old_val, op=delta_op, right=IRConst(1)))
 			addr2 = self._compute_array_addr(node.operand)
+			self._emit(IRStore(address=addr2, value=new_val))
+			return old_val
+		if isinstance(node.operand, MemberAccess):
+			addr = self._compute_member_addr(node.operand)
+			old_val = self._new_temp()
+			self._emit(IRLoad(dest=old_val, address=addr))
+			new_val = self._new_temp()
+			delta_op = "+" if node.op == "++" else "-"
+			self._emit(IRBinOp(dest=new_val, left=old_val, op=delta_op, right=IRConst(1)))
+			addr2 = self._compute_member_addr(node.operand)
+			self._emit(IRStore(address=addr2, value=new_val))
+			return old_val
+		if isinstance(node.operand, UnaryOp) and node.operand.op == "*":
+			addr = self.visit(node.operand.operand)
+			old_val = self._new_temp()
+			self._emit(IRLoad(dest=old_val, address=addr))
+			new_val = self._new_temp()
+			delta_op = "+" if node.op == "++" else "-"
+			self._emit(IRBinOp(dest=new_val, left=old_val, op=delta_op, right=IRConst(1)))
+			addr2 = self.visit(node.operand.operand)
 			self._emit(IRStore(address=addr2, value=new_val))
 			return old_val
 		# Fallback: evaluate operand, compute new val (side effect may be lost)
