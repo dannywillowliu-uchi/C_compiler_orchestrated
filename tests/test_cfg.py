@@ -1,7 +1,7 @@
 """Tests for the Control Flow Graph module."""
 
-from src.compiler.cfg import BasicBlock, CFG
-from src.compiler.ir import (
+from compiler.cfg import BasicBlock, CFG
+from compiler.ir import (
 	IRBinOp,
 	IRCondJump,
 	IRConst,

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from src.compiler.ir import (
+from compiler.ir import (
 	IRCondJump,
 	IRInstruction,
 	IRJump,

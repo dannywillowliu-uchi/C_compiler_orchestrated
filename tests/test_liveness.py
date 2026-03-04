@@ -1,7 +1,7 @@
 """Comprehensive tests for liveness analysis on CFG."""
 
-from src.compiler.cfg import CFG
-from src.compiler.ir import (
+from compiler.cfg import CFG
+from compiler.ir import (
 	IRAlloc,
 	IRBinOp,
 	IRCall,
@@ -19,7 +19,7 @@ from src.compiler.ir import (
 	IRType,
 	IRUnaryOp,
 )
-from src.compiler.liveness import LivenessAnalyzer
+from compiler.liveness import LivenessAnalyzer
 
 
 # ---------------------------------------------------------------------------

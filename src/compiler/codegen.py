@@ -50,15 +50,21 @@ def _s_d(ir_type: IRType) -> str:
 	return "s" if ir_type == IRType.FLOAT else "d"
 
 
+_CALLEE_SAVED_ALLOC_REGS = ["%rbx", "%r12", "%r13", "%r14", "%r15"]
+
+
 class CodeGenerator:
 	"""Generates x86-64 assembly (AT&T syntax) from an IRProgram."""
 
-	def __init__(self) -> None:
+	def __init__(self, regalloc_maps: dict[str, dict[str, str]] | None = None) -> None:
 		self._lines: list[str] = []
 		self._stack_map: dict[str, int] = {}
 		self._stack_size: int = 0
 		self._float_consts: list[tuple[str, float, IRType]] = []
 		self._float_const_counter: int = 0
+		self._regalloc_maps: dict[str, dict[str, str]] = regalloc_maps or {}
+		self._reg_map: dict[str, str] = {}
+		self._callee_save_offsets: list[tuple[str, int]] = []
 
 	# ------------------------------------------------------------------
 	# Public API
@@ -158,8 +164,13 @@ class CodeGenerator:
 			label = self._alloc_float_const(value.value, value.ir_type)
 			self._emit_instr(f"leaq {label}(%rip), {reg}")
 		elif isinstance(value, IRTemp):
-			offset = self._get_offset(value.name)
-			self._emit_instr(f"movq {offset}(%rbp), {reg}")
+			if value.name in self._reg_map:
+				allocated = self._reg_map[value.name]
+				if allocated != reg:
+					self._emit_instr(f"movq {allocated}, {reg}")
+			else:
+				offset = self._get_offset(value.name)
+				self._emit_instr(f"movq {offset}(%rbp), {reg}")
 		elif isinstance(value, IRGlobalRef):
 			self._emit_instr(f"leaq {value.name}(%rip), {reg}")
 		else:
@@ -182,9 +193,14 @@ class CodeGenerator:
 			raise ValueError(f"Cannot load {type(value).__name__} into XMM register")
 
 	def _store_to_temp(self, reg: str, dest: IRTemp) -> None:
-		"""Store integer *reg* into *dest*'s stack slot."""
-		offset = self._get_offset(dest.name)
-		self._emit_instr(f"movq {reg}, {offset}(%rbp)")
+		"""Store integer *reg* into *dest*'s location (register or stack slot)."""
+		if dest.name in self._reg_map:
+			allocated = self._reg_map[dest.name]
+			if allocated != reg:
+				self._emit_instr(f"movq {reg}, {allocated}")
+		else:
+			offset = self._get_offset(dest.name)
+			self._emit_instr(f"movq {reg}, {offset}(%rbp)")
 
 	def _store_float_to_temp(self, xmm: str, dest: IRTemp, ir_type: IRType) -> None:
 		"""Store XMM register into *dest*'s stack slot."""
@@ -197,15 +213,29 @@ class CodeGenerator:
 	# ------------------------------------------------------------------
 
 	def _allocate_temps(self, func: IRFunction) -> None:
-		"""Scan *func* and assign a stack slot (-8, -16, ...) to every IRTemp."""
+		"""Scan *func* and assign a stack slot (-8, -16, ...) to every non-register-allocated IRTemp."""
 		temps: set[str] = set()
 		for p in func.params:
 			temps.add(p.name)
 		for instr in func.body:
 			self._collect_temps_from_instr(instr, temps)
+
+		# Only allocate stack slots for temps not in registers
+		stack_temps = sorted(t for t in temps if t not in self._reg_map)
+
 		self._stack_size = 0
 		self._stack_map = {}
-		for name in sorted(temps):
+		self._callee_save_offsets = []
+
+		# Reserve slots for callee-saved register saves
+		used_callee = set(self._reg_map.values())
+		for reg in _CALLEE_SAVED_ALLOC_REGS:
+			if reg in used_callee:
+				self._stack_size += 8
+				self._callee_save_offsets.append((reg, -self._stack_size))
+
+		# Allocate spill slots
+		for name in stack_temps:
 			self._stack_size += 8
 			self._stack_map[name] = -self._stack_size
 
@@ -253,7 +283,18 @@ class CodeGenerator:
 	# Function-level generation
 	# ------------------------------------------------------------------
 
+	def _emit_epilogue(self) -> None:
+		"""Emit function epilogue: restore callee-saved regs, tear down frame, return."""
+		for reg, offset in reversed(self._callee_save_offsets):
+			self._emit_instr(f"movq {offset}(%rbp), {reg}")
+		self._emit_instr("movq %rbp, %rsp")
+		self._emit_instr("popq %rbp")
+		self._emit_instr("ret")
+
 	def _generate_function(self, func: IRFunction) -> None:
+		# Set register allocation map for this function
+		self._reg_map = self._regalloc_maps.get(func.name, {})
+
 		self._allocate_temps(func)
 
 		frame_size = self._align16(self._stack_size)
@@ -268,24 +309,38 @@ class CodeGenerator:
 		if frame_size > 0:
 			self._emit_instr(f"subq ${frame_size}, %rsp")
 
-		# Copy register-passed params to their stack slots
+		# Save callee-saved registers used by regalloc
+		for reg, offset in self._callee_save_offsets:
+			self._emit_instr(f"movq {reg}, {offset}(%rbp)")
+
+		# Copy register-passed params to their destinations
 		int_idx = 0
 		float_idx = 0
 		for i, param in enumerate(func.params):
-			offset = self._get_offset(param.name)
 			param_type = func.param_types[i] if i < len(func.param_types) else IRType.INT
 			if _is_float(param_type):
 				if float_idx < len(_FLOAT_ARG_REGS):
+					offset = self._get_offset(param.name)
 					suffix = _ss_sd(param_type)
 					self._emit_instr(f"mov{suffix} {_FLOAT_ARG_REGS[float_idx]}, {offset}(%rbp)")
 				float_idx += 1
 			else:
-				if int_idx < len(_ARG_REGS):
-					self._emit_instr(f"movq {_ARG_REGS[int_idx]}, {offset}(%rbp)")
+				if param.name in self._reg_map:
+					allocated = self._reg_map[param.name]
+					if int_idx < len(_ARG_REGS):
+						if _ARG_REGS[int_idx] != allocated:
+							self._emit_instr(f"movq {_ARG_REGS[int_idx]}, {allocated}")
+					else:
+						src_offset = 16 + (int_idx - len(_ARG_REGS)) * 8
+						self._emit_instr(f"movq {src_offset}(%rbp), {allocated}")
 				else:
-					src_offset = 16 + (int_idx - len(_ARG_REGS)) * 8
-					self._emit_instr(f"movq {src_offset}(%rbp), %rax")
-					self._emit_instr(f"movq %rax, {offset}(%rbp)")
+					offset = self._get_offset(param.name)
+					if int_idx < len(_ARG_REGS):
+						self._emit_instr(f"movq {_ARG_REGS[int_idx]}, {offset}(%rbp)")
+					else:
+						src_offset = 16 + (int_idx - len(_ARG_REGS)) * 8
+						self._emit_instr(f"movq {src_offset}(%rbp), %rax")
+						self._emit_instr(f"movq %rax, {offset}(%rbp)")
 				int_idx += 1
 
 		# Body
@@ -300,9 +355,7 @@ class CodeGenerator:
 					self._emit_instr("xorps %xmm0, %xmm0")
 				else:
 					self._emit_instr("movq $0, %rax")
-			self._emit_instr("movq %rbp, %rsp")
-			self._emit_instr("popq %rbp")
-			self._emit_instr("ret")
+			self._emit_epilogue()
 
 	# ------------------------------------------------------------------
 	# Instruction dispatch
@@ -486,9 +539,7 @@ class CodeGenerator:
 	def _gen_return(self, instr: IRReturn) -> None:
 		if instr.value is not None:
 			self._load_value(instr.value, "%rax")
-		self._emit_instr("movq %rbp, %rsp")
-		self._emit_instr("popq %rbp")
-		self._emit_instr("ret")
+		self._emit_epilogue()
 
 	def _gen_alloc(self, instr: IRAlloc) -> None:
 		aligned = self._align16(instr.size)
@@ -558,9 +609,7 @@ class CodeGenerator:
 	def _gen_float_return(self, instr: IRReturn) -> None:
 		if instr.value is not None:
 			self._load_float_value(instr.value, "%xmm0", instr.ir_type)
-		self._emit_instr("movq %rbp, %rsp")
-		self._emit_instr("popq %rbp")
-		self._emit_instr("ret")
+		self._emit_epilogue()
 
 	def _gen_convert(self, instr: IRConvert) -> None:
 		"""Generate type conversion instructions."""

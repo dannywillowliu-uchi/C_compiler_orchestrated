@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from src.compiler.cfg import BasicBlock, CFG
-from src.compiler.ir import (
+from compiler.cfg import BasicBlock, CFG
+from compiler.ir import (
 	IRAlloc,
 	IRBinOp,
 	IRCall,
