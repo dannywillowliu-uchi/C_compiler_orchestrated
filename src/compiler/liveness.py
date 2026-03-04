@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from compiler.cfg import BasicBlock, CFG
 from compiler.ir import (
+	IRAddrOf,
 	IRAlloc,
 	IRBinOp,
 	IRCall,
@@ -59,13 +60,15 @@ def _used_temps(instr: IRInstruction) -> set[str]:
 	elif isinstance(instr, IRConvert):
 		if isinstance(instr.source, IRTemp):
 			used.add(instr.source.name)
+	elif isinstance(instr, IRAddrOf):
+		used.add(instr.source.name)
 
 	return used
 
 
 def _defined_temp(instr: IRInstruction) -> str | None:
 	"""Return the temporary variable name defined (written) by an instruction, or None."""
-	if isinstance(instr, (IRBinOp, IRUnaryOp, IRCopy, IRLoad, IRConvert, IRAlloc)):
+	if isinstance(instr, (IRBinOp, IRUnaryOp, IRCopy, IRLoad, IRConvert, IRAlloc, IRAddrOf)):
 		return instr.dest.name
 	if isinstance(instr, IRCall) and instr.dest is not None:
 		return instr.dest.name

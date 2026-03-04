@@ -264,7 +264,6 @@ class IRConvert(IRInstruction):
 	source: IRValue
 	from_type: IRType = IRType.INT
 	to_type: IRType = IRType.FLOAT
-	is_unsigned: bool = False
 
 	def __str__(self) -> str:
 		return f"{self.dest} = convert {self.source} {self.from_type.name}->{self.to_type.name}"
@@ -278,6 +277,16 @@ class IRAlloc(IRInstruction):
 
 	def __str__(self) -> str:
 		return f"{self.dest} = alloc {self.size}"
+
+
+@dataclass
+class IRAddrOf(IRInstruction):
+	"""Address-of: dest = &source (stack address of source's frame slot)."""
+	dest: IRTemp
+	source: IRTemp
+
+	def __str__(self) -> str:
+		return f"{self.dest} = &{self.source}"
 
 
 # ---------------------------------------------------------------------------

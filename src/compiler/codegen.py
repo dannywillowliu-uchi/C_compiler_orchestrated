@@ -5,6 +5,7 @@ from __future__ import annotations
 import struct
 
 from compiler.ir import (
+	IRAddrOf,
 	IRAlloc,
 	IRBinOp,
 	IRCall,
@@ -279,13 +280,6 @@ class CodeGenerator:
 			else:
 				self._emit_instr("movswq %ax, %rax")
 
-	def _truncate_to_int(self, is_unsigned: bool = False) -> None:
-		"""Emit 32-bit truncation for INT type. Used in explicit conversions."""
-		if is_unsigned:
-			self._emit_instr("movl %eax, %eax")
-		else:
-			self._emit_instr("movslq %eax, %rax")
-
 	def _store_to_temp(self, reg: str, dest: IRTemp) -> None:
 		"""Store integer *reg* into *dest*'s location (register or stack slot)."""
 		if dest.name in self._reg_map:
@@ -364,6 +358,9 @@ class CodeGenerator:
 			self._collect_value_temp(instr.value, temps)
 		elif isinstance(instr, IRAlloc):
 			temps.add(instr.dest.name)
+		elif isinstance(instr, IRAddrOf):
+			temps.add(instr.dest.name)
+			temps.add(instr.source.name)
 		elif isinstance(instr, IRCondJump):
 			self._collect_value_temp(instr.condition, temps)
 		elif isinstance(instr, IRConvert):
@@ -504,6 +501,8 @@ class CodeGenerator:
 				self._gen_return(instr)
 		elif isinstance(instr, IRAlloc):
 			self._gen_alloc(instr)
+		elif isinstance(instr, IRAddrOf):
+			self._gen_addr_of(instr)
 		elif isinstance(instr, IRConvert):
 			self._gen_convert(instr)
 		elif isinstance(instr, IRParam):
@@ -704,6 +703,11 @@ class CodeGenerator:
 		self._emit_instr("movq %rsp, %rax")
 		self._store_to_temp("%rax", instr.dest)
 
+	def _gen_addr_of(self, instr: IRAddrOf) -> None:
+		offset = self._stack_map[instr.source.name]
+		self._emit_instr(f"leaq {offset}(%rbp), %rax")
+		self._store_to_temp("%rax", instr.dest)
+
 	# ------------------------------------------------------------------
 	# Float/SSE instruction generators
 	# ------------------------------------------------------------------
@@ -808,17 +812,12 @@ class CodeGenerator:
 			self._load_float_value(instr.source, "%xmm0", IRType.DOUBLE)
 			self._emit_instr("cvtsd2ss %xmm0, %xmm0")
 			self._store_float_to_temp("%xmm0", instr.dest, IRType.FLOAT)
-		elif to_type == IRType.INT and from_type in (IRType.LONG, IRType.POINTER):
-			# Narrowing to 32-bit int from 64-bit
-			self._load_value(instr.source, "%rax")
-			self._truncate_to_int(instr.is_unsigned)
-			self._store_to_temp("%rax", instr.dest)
 		elif to_type in (IRType.BOOL, IRType.CHAR, IRType.SHORT) and from_type in (IRType.INT, IRType.LONG, IRType.POINTER, IRType.CHAR, IRType.SHORT, IRType.BOOL):
-			# Integer narrowing: truncate to target width
+			# Integer narrowing: truncate to target width (signed)
 			self._load_value(instr.source, "%rax")
-			self._truncate_narrow(to_type, instr.is_unsigned)
+			self._truncate_narrow(to_type)
 			self._store_to_temp("%rax", instr.dest)
-		elif from_type in (IRType.BOOL, IRType.CHAR, IRType.SHORT) and to_type in (IRType.INT, IRType.LONG, IRType.POINTER):
+		elif from_type in (IRType.BOOL, IRType.CHAR, IRType.SHORT) and to_type in (IRType.INT, IRType.LONG):
 			# Integer widening: sign-extend from narrow type
 			self._load_value(instr.source, "%rax")
 			self._truncate_narrow(from_type)
