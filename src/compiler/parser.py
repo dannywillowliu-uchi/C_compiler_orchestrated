@@ -382,6 +382,22 @@ class Parser:
 
 	# -- Struct declaration --------------------------------------------------
 
+	def _parse_struct_member(self) -> StructMember:
+		"""Parse a single struct/union member: type name [dims] ;"""
+		member_type = self._parse_type_spec()
+		member_name_tok = self._expect(TokenType.IDENTIFIER, "Expected member name")
+		dims: list[ASTNode] = []
+		while self._match(TokenType.LBRACKET):
+			dims.append(self._parse_expression())
+			self._expect(TokenType.RBRACKET, "Expected ']' after array dimension")
+		self._expect(TokenType.SEMICOLON, "Expected ';' after struct member")
+		return StructMember(
+			type_spec=member_type,
+			name=member_name_tok.value,
+			array_dims=dims,
+			loc=self._loc(member_name_tok),
+		)
+
 	def _parse_struct_decl(self) -> StructDecl:
 		"""Parse 'struct name { type member; ... };'."""
 		tok = self._advance()  # consume 'struct'
@@ -389,14 +405,7 @@ class Parser:
 		self._expect(TokenType.LBRACE, "Expected '{' after struct name")
 		members: list[StructMember] = []
 		while not self._check(TokenType.RBRACE) and not self._at_end():
-			member_type = self._parse_type_spec()
-			member_name_tok = self._expect(TokenType.IDENTIFIER, "Expected member name")
-			self._expect(TokenType.SEMICOLON, "Expected ';' after struct member")
-			members.append(StructMember(
-				type_spec=member_type,
-				name=member_name_tok.value,
-				loc=self._loc(member_name_tok),
-			))
+			members.append(self._parse_struct_member())
 		self._expect(TokenType.RBRACE, "Expected '}' after struct members")
 		self._expect(TokenType.SEMICOLON, "Expected ';' after struct definition")
 		return StructDecl(name=name_tok.value, members=members, loc=self._loc(tok))
@@ -410,14 +419,7 @@ class Parser:
 		self._expect(TokenType.LBRACE, "Expected '{' after union name")
 		members: list[StructMember] = []
 		while not self._check(TokenType.RBRACE) and not self._at_end():
-			member_type = self._parse_type_spec()
-			member_name_tok = self._expect(TokenType.IDENTIFIER, "Expected member name")
-			self._expect(TokenType.SEMICOLON, "Expected ';' after union member")
-			members.append(StructMember(
-				type_spec=member_type,
-				name=member_name_tok.value,
-				loc=self._loc(member_name_tok),
-			))
+			members.append(self._parse_struct_member())
 		self._expect(TokenType.RBRACE, "Expected '}' after union members")
 		self._expect(TokenType.SEMICOLON, "Expected ';' after union definition")
 		return UnionDecl(name=name_tok.value, members=members, loc=self._loc(tok))
@@ -466,14 +468,7 @@ class Parser:
 				self._expect(TokenType.LBRACE, "Expected '{' in struct definition")
 				members: list[StructMember] = []
 				while not self._check(TokenType.RBRACE) and not self._at_end():
-					member_type = self._parse_type_spec()
-					member_name_tok = self._expect(TokenType.IDENTIFIER, "Expected member name")
-					self._expect(TokenType.SEMICOLON, "Expected ';' after struct member")
-					members.append(StructMember(
-						type_spec=member_type,
-						name=member_name_tok.value,
-						loc=self._loc(member_name_tok),
-					))
+					members.append(self._parse_struct_member())
 				self._expect(TokenType.RBRACE, "Expected '}' after struct members")
 				alias_tok = self._expect(TokenType.IDENTIFIER, "Expected typedef name")
 				# Use alias as struct name if anonymous
@@ -541,14 +536,7 @@ class Parser:
 				self._expect(TokenType.LBRACE, "Expected '{' in union definition")
 				u_members: list[StructMember] = []
 				while not self._check(TokenType.RBRACE) and not self._at_end():
-					member_type = self._parse_type_spec()
-					member_name_tok = self._expect(TokenType.IDENTIFIER, "Expected member name")
-					self._expect(TokenType.SEMICOLON, "Expected ';' after union member")
-					u_members.append(StructMember(
-						type_spec=member_type,
-						name=member_name_tok.value,
-						loc=self._loc(member_name_tok),
-					))
+					u_members.append(self._parse_struct_member())
 				self._expect(TokenType.RBRACE, "Expected '}' after union members")
 				alias_tok = self._expect(TokenType.IDENTIFIER, "Expected typedef name")
 				if not union_name:
