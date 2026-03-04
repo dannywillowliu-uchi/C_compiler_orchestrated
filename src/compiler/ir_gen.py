@@ -635,6 +635,16 @@ class IRGenerator(ASTVisitor):
 					self._emit(IRBinOp(dest=result, left=current, op=delta_op, right=IRConst(1)))
 					self._emit(IRCopy(dest=target, source=result))
 					return result
+			if isinstance(node.operand, MemberAccess):
+				addr = self._compute_member_addr(node.operand)
+				current = self._new_temp()
+				self._emit(IRLoad(dest=current, address=addr))
+				result = self._new_temp()
+				delta_op = "+" if node.op == "++" else "-"
+				self._emit(IRBinOp(dest=result, left=current, op=delta_op, right=IRConst(1)))
+				addr2 = self._compute_member_addr(node.operand)
+				self._emit(IRStore(address=addr2, value=result))
+				return result
 			operand = self.visit(node.operand)
 			result = self._new_temp()
 			delta_op = "+" if node.op == "++" else "-"
@@ -1451,6 +1461,19 @@ class IRGenerator(ASTVisitor):
 				elif name.startswith("union "):
 					name = name[len("union "):]
 				return name
+		if isinstance(node, MemberAccess):
+			parent_name = self._resolve_aggregate_name(node.object)
+			if not parent_name:
+				return ""
+			members = self._structs.get(parent_name) or self._unions.get(parent_name, [])
+			for m in members:
+				if m.name == node.member:
+					base = m.type_spec.base_type
+					if base.startswith("struct "):
+						base = base[len("struct "):]
+					elif base.startswith("union "):
+						base = base[len("union "):]
+					return base
 		return ""
 
 	def _compute_field_offset(self, struct_name: str, field_name: str) -> int:
