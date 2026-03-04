@@ -78,6 +78,8 @@ from compiler.ir import (
 _TYPE_MAP: dict[str, IRType] = {
 	"int": IRType.INT,
 	"char": IRType.CHAR,
+	"short": IRType.SHORT,
+	"long": IRType.LONG,
 	"void": IRType.VOID,
 	"float": IRType.FLOAT,
 	"double": IRType.DOUBLE,
@@ -87,6 +89,8 @@ _TYPE_MAP: dict[str, IRType] = {
 _SIZE_MAP: dict[str, int] = {
 	"int": 4,
 	"char": 1,
+	"short": 2,
+	"long": 8,
 	"void": 0,
 	"float": 4,
 	"double": 8,
@@ -96,6 +100,8 @@ _SIZE_MAP: dict[str, int] = {
 _ALIGN_MAP: dict[str, int] = {
 	"int": 4,
 	"char": 1,
+	"short": 2,
+	"long": 8,
 	"void": 1,
 	"float": 4,
 	"double": 8,
@@ -192,6 +198,8 @@ class IRGenerator(ASTVisitor):
 	def _value_ir_type(self, val: IRValue) -> IRType:
 		"""Determine the IR type of a value."""
 		if isinstance(val, IRFloatConst):
+			return val.ir_type
+		if isinstance(val, IRConst):
 			return val.ir_type
 		if isinstance(val, IRTemp):
 			return self._temp_types.get(val.name, IRType.INT)
@@ -519,6 +527,13 @@ class IRGenerator(ASTVisitor):
 	# ------------------------------------------------------------------
 
 	def visit_int_literal(self, node: IntLiteral) -> IRConst:
+		suffix = node.suffix.lower() if node.suffix else ""
+		if suffix in ("l", "ll"):
+			return IRConst(node.value, ir_type=IRType.LONG)
+		if suffix == "u":
+			return IRConst(node.value, ir_type=IRType.INT, is_unsigned=True)
+		if suffix in ("ul", "ull"):
+			return IRConst(node.value, ir_type=IRType.LONG, is_unsigned=True)
 		return IRConst(node.value)
 
 	def visit_float_literal(self, node: FloatLiteral) -> IRFloatConst:
