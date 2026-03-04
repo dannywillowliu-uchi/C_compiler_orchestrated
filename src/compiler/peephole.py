@@ -54,6 +54,17 @@ class PeepholeOptimizer:
 		self._addq_imm_reg_re = re.compile(
 			r"^\taddq\s+(%\w+),\s+(%\w+)$"
 		)
+		# Strength reduction patterns
+		self._imulq_imm_re = re.compile(
+			r"^\timulq\s+\$(\d+),\s+(%\w+)$"
+		)
+		# Immediate add/sub for combining adjacent operations
+		self._addq_imm_val_re = re.compile(
+			r"^\taddq\s+\$(-?\d+),\s+(%\w+)$"
+		)
+		self._subq_imm_val_re = re.compile(
+			r"^\tsubq\s+\$(-?\d+),\s+(%\w+)$"
+		)
 
 	def optimize(self, assembly: str) -> str:
 		"""Apply peephole optimizations to assembly text and return optimized version."""
@@ -81,6 +92,14 @@ class PeepholeOptimizer:
 
 				# movq $0 + cmpq $0 -> xorq + testq
 				opt = self._try_zero_cmp(lines[i], lines[i + 1])
+				if opt is not None:
+					result.extend(opt)
+					changed = True
+					i += 2
+					continue
+
+				# Reverse move elimination: movq %rA, %rB + movq %rB, %rA
+				opt = self._try_reverse_move(lines[i], lines[i + 1])
 				if opt is not None:
 					result.extend(opt)
 					changed = True
@@ -151,6 +170,14 @@ class PeepholeOptimizer:
 					i += 2
 					continue
 
+				# Combine adjacent addq/subq $imm to same register
+				opt = self._try_combine_add_sub(lines[i], lines[i + 1])
+				if opt is not None:
+					result.extend(opt)
+					changed = True
+					i += 2
+					continue
+
 			# cmpq $0, %reg -> testq %reg, %reg
 			opt = self._try_cmp_zero_to_test(lines[i])
 			if opt is not None:
@@ -163,6 +190,15 @@ class PeepholeOptimizer:
 			opt = self._try_mov_zero_to_xor(lines[i])
 			if opt is not None:
 				result.append(opt)
+				changed = True
+				i += 1
+				continue
+
+			# Strength reduction: imulq by power of 2 -> shlq
+			opt = self._try_strength_reduction_mul(lines[i])
+			if opt is not None:
+				if opt:
+					result.append(opt)
 				changed = True
 				i += 1
 				continue
@@ -313,6 +349,64 @@ class PeepholeOptimizer:
 			return None
 		reg = m.group(1)
 		return f"\txorq {reg}, {reg}"
+
+	def _try_reverse_move(self, line1: str, line2: str) -> list[str] | None:
+		"""Eliminate movq %rA, %rB followed by movq %rB, %rA (reverse copy is redundant)."""
+		m1 = self._movq_reg_re.match(line1)
+		if m1 is None:
+			return None
+		m2 = self._movq_reg_re.match(line2)
+		if m2 is None:
+			return None
+		ra, rb = m1.group(1), m1.group(2)
+		if ra == rb:
+			return None
+		if m2.group(1) == rb and m2.group(2) == ra:
+			return [line1]
+		return None
+
+	def _try_strength_reduction_mul(self, line: str) -> str | None:
+		"""Replace imulq by power of 2 with shlq. Returns '' to eliminate imulq $1."""
+		m = self._imulq_imm_re.match(line)
+		if m is None:
+			return None
+		imm = int(m.group(1))
+		reg = m.group(2)
+		if imm == 0:
+			return f"\txorq {reg}, {reg}"
+		if imm == 1:
+			return ""
+		if imm & (imm - 1) != 0:
+			return None
+		shift = imm.bit_length() - 1
+		return f"\tshlq ${shift}, {reg}"
+
+	def _try_combine_add_sub(self, line1: str, line2: str) -> list[str] | None:
+		"""Combine adjacent addq/subq $imm to same register into single instruction."""
+		val1, reg1 = self._parse_add_sub_imm(line1)
+		if val1 is None:
+			return None
+		val2, reg2 = self._parse_add_sub_imm(line2)
+		if val2 is None:
+			return None
+		if reg1 != reg2:
+			return None
+		combined = val1 + val2
+		if combined == 0:
+			return []
+		if combined > 0:
+			return [f"\taddq ${combined}, {reg1}"]
+		return [f"\tsubq ${-combined}, {reg1}"]
+
+	def _parse_add_sub_imm(self, line: str) -> tuple[int | None, str | None]:
+		"""Parse addq/subq $imm, %reg returning (signed_value, reg)."""
+		m = self._addq_imm_val_re.match(line)
+		if m:
+			return int(m.group(1)), m.group(2)
+		m = self._subq_imm_val_re.match(line)
+		if m:
+			return -int(m.group(1)), m.group(2)
+		return None, None
 
 	def _try_redundant_cmp(self, line1: str, line2: str) -> list[str] | None:
 		"""Eliminate cmp after flag-setting arithmetic on the same register.
