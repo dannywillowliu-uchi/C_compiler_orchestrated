@@ -49,7 +49,6 @@ from compiler.ast_nodes import (
 	WhileStmt,
 )
 from compiler.ir import (
-	IRAddrOf,
 	IRAlloc,
 	IRBinOp,
 	IRCall,
@@ -178,7 +177,6 @@ class IRGenerator(ASTVisitor):
 		self._user_labels: dict[str, str] = {}  # C label name -> IR label name
 		self._static_local_map: dict[str, str] = {}  # local name -> mangled global name
 		self._temp_pointee_size: dict[str, int] = {}  # pointer temp -> element size
-		self._scope_depth: int = 0  # compound stmt nesting depth within function
 
 	# ------------------------------------------------------------------
 	# Helpers
@@ -306,7 +304,6 @@ class IRGenerator(ASTVisitor):
 		old_function_name = self._current_function_name
 		old_static_local_map = self._static_local_map
 		old_pointee_size = self._temp_pointee_size
-		old_scope_depth = self._scope_depth
 		self._instructions = []
 		self._locals = {}
 		self._local_types = {}
@@ -314,7 +311,6 @@ class IRGenerator(ASTVisitor):
 		self._temp_types = {}
 		self._temp_unsigned = {}
 		self._temp_pointee_size = {}
-		self._scope_depth = 0
 		self._in_function = True
 		self._current_function_name = node.name
 		self._func_ptr_locals = set()
@@ -340,17 +336,12 @@ class IRGenerator(ASTVisitor):
 
 		self.visit(node.body)
 
-		# Ensure void functions always end with an explicit return
-		ret_type = _resolve_ir_type(node.return_type)
-		if ret_type == IRType.VOID and (not self._instructions or not isinstance(self._instructions[-1], IRReturn)):
-			self._emit(IRReturn(value=None, ir_type=IRType.VOID))
-
 		self._functions.append(
 			IRFunction(
 				name=node.name,
 				params=params,
 				body=self._instructions,
-				return_type=ret_type,
+				return_type=_resolve_ir_type(node.return_type),
 				param_types=param_types,
 				storage_class=node.storage_class,
 			)
@@ -368,7 +359,6 @@ class IRGenerator(ASTVisitor):
 		self._user_labels = old_user_labels
 		self._static_local_map = old_static_local_map
 		self._temp_pointee_size = old_pointee_size
-		self._scope_depth = old_scope_depth
 
 	def _emit_global_var(self, name: str, node: VarDecl, storage_class: str | None = None) -> None:
 		"""Emit a global variable declaration with proper initializer handling."""
@@ -757,21 +747,9 @@ class IRGenerator(ASTVisitor):
 				src = self._locals.get(node.operand.name)
 				if src is not None:
 					ts = self._local_types.get(node.operand.name)
-					# Arrays and aggregates: the temp already holds the address
-					is_array = node.operand.name in self._local_array
-					is_aggregate = self._is_local_aggregate(node.operand.name) is not None
-					if is_array or is_aggregate:
-						if ts is not None:
-							self._temp_pointee_size[src.name] = self._resolve_member_size(ts)
-						return src
-					# Scalars: temp holds the value, need LEA to get the address
-					dest = self._new_temp()
-					self._set_temp_type(dest, IRType.POINTER)
-					self._emit(IRAddrOf(dest=dest, source=src))
 					if ts is not None:
-						self._temp_pointee_size[dest.name] = self._resolve_member_size(ts)
-					return dest
-			# For member access or other lvalue expressions, visit to get the address
+						self._temp_pointee_size[src.name] = self._resolve_member_size(ts)
+					return src
 			operand = self.visit(node.operand)
 			return operand
 		if node.op in ("++", "--"):
@@ -1000,15 +978,10 @@ class IRGenerator(ASTVisitor):
 		element_size = 4  # default int
 		dims: list[int] = []
 		if isinstance(current, Identifier):
-			ts = self._local_types.get(current.name) or self._global_types.get(current.name)
-			local_dims = self._local_array.get(current.name)
-			global_dims = self._global_array.get(current.name)
-			dims = local_dims if local_dims is not None else (global_dims if global_dims is not None else [])
+			ts = self._local_types.get(current.name)
 			if ts is not None:
-				if ts.pointer_count > 0 and not dims:
-					element_size = self._pointee_size_from_type(ts)
-				else:
-					element_size = self._resolve_member_size(ts)
+				element_size = self._resolve_member_size(ts)
+			dims = self._local_array.get(current.name, [])
 
 		addr = base
 		for d, idx_node in enumerate(index_nodes):
@@ -1043,18 +1016,8 @@ class IRGenerator(ASTVisitor):
 		self._emit(IRReturn(value=val, ir_type=val_type))
 
 	def visit_compound_stmt(self, node: CompoundStmt) -> None:
-		self._scope_depth += 1
-		if self._scope_depth > 1:
-			saved_locals = dict(self._locals)
-			saved_types = dict(self._local_types)
-			saved_arrays = dict(self._local_array)
 		for stmt in node.statements:
 			self.visit(stmt)
-		if self._scope_depth > 1:
-			self._locals = saved_locals
-			self._local_types = saved_types
-			self._local_array = saved_arrays
-		self._scope_depth -= 1
 
 	def visit_if_stmt(self, node: IfStmt) -> None:
 		cond = self.visit(node.condition)
@@ -2017,27 +1980,17 @@ class IRGenerator(ASTVisitor):
 		return dest
 
 	def visit_cast_expr(self, node: CastExpr) -> IRTemp:
-		"""Handle casts, including int<->float and integer narrowing conversions."""
+		"""Handle casts, including int<->float conversions."""
 		val = self.visit(node.operand)
 		val_type = self._value_ir_type(val)
-		target_type = node.target_type
-		target_ir_type = _resolve_ir_type(target_type)
+		target_ir_type = _resolve_ir_type(node.target_type)
 		dest = self._new_temp()
 		self._set_temp_type(dest, target_ir_type)
-		# Track pointee size for pointer casts (e.g., (int*) means pointee size 4)
-		if target_ir_type == IRType.POINTER:
-			pointee_ts = TypeSpec(
-				base_type=target_type.base_type,
-				pointer_count=target_type.pointer_count - 1,
-				width_modifier=target_type.width_modifier,
-			)
-			self._temp_pointee_size[dest.name] = self._resolve_member_size(pointee_ts)
 		if self._is_float_type(target_ir_type) != self._is_float_type(val_type):
 			self._emit(IRConvert(dest=dest, source=val, from_type=val_type, to_type=target_ir_type))
 		elif self._is_float_type(target_ir_type) and self._is_float_type(val_type) and target_ir_type != val_type:
 			self._emit(IRConvert(dest=dest, source=val, from_type=val_type, to_type=target_ir_type))
-		elif target_ir_type != val_type and not self._is_float_type(target_ir_type):
-			# Integer narrowing/widening: use IRConvert for proper truncation
+		elif val_type != target_ir_type:
 			self._emit(IRConvert(dest=dest, source=val, from_type=val_type, to_type=target_ir_type))
 		else:
 			self._emit(IRCopy(dest=dest, source=val, ir_type=target_ir_type))
