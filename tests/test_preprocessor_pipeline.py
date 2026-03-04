@@ -4,6 +4,9 @@ Each test feeds C source with preprocessor directives through compile_source()
 and verifies the assembly output contains expected patterns.
 """
 
+import os
+import tempfile
+
 from compiler.__main__ import compile_source
 
 
@@ -603,3 +606,23 @@ class TestCombinedFeatures:
 		assert "$3" in asm
 		assert "imulq" in asm
 		assert "call transform" in asm
+
+
+class TestIncludePath:
+	"""Tests for -I include path support."""
+
+	def test_include_path_resolves_header(self) -> None:
+		with tempfile.TemporaryDirectory() as tmpdir:
+			header = os.path.join(tmpdir, "myconst.h")
+			with open(header, "w") as f:
+				f.write("#define SECRET 77\n")
+
+			source = """
+			#include "myconst.h"
+			int main() {
+				return SECRET;
+			}
+			"""
+			asm = compile_source(source, include_paths=[tmpdir])
+			assert "main:" in asm
+			assert "$77" in asm
