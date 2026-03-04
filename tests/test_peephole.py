@@ -138,11 +138,15 @@ class TestZeroCmpCollapse:
 
 	def test_different_registers_not_collapsed(self) -> None:
 		asm = "\tmovq $0, %rax\n\tcmpq $0, %rcx"
-		assert _opt(asm) == asm
+		result = _opt(asm)
+		# Pair pattern doesn't fire (different regs), but individual transforms do
+		assert result == "\txorq %rax, %rax\n\ttestq %rcx, %rcx"
 
 	def test_non_zero_constant_not_collapsed(self) -> None:
 		asm = "\tmovq $1, %rax\n\tcmpq $0, %rax"
-		assert _opt(asm) == asm
+		result = _opt(asm)
+		# Pair pattern doesn't fire (non-zero mov), but cmpq $0 -> testq fires
+		assert result == "\tmovq $1, %rax\n\ttestq %rax, %rax"
 
 	def test_zero_cmp_with_context(self) -> None:
 		lines = [

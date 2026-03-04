@@ -41,6 +41,19 @@ class PeepholeOptimizer:
 		self._popq_re = re.compile(r"^\tpopq\s+(%\w+)$")
 		self._jmp_re = re.compile(r"^\tjmp\s+(\.\w+)$")
 		self._label_re = re.compile(r"^(\.\w+):$")
+		# New patterns for address-mode folding and redundant comparison elimination
+		self._arith_flag_setting_re = re.compile(
+			r"^\t(addq|subq|andq|orq|xorq)\s+[^,]+,\s+(%\w+)$"
+		)
+		self._leaq_rip_re = re.compile(
+			r"^\tleaq\s+(\w+)\(%rip\),\s+(%\w+)$"
+		)
+		self._movq_indirect_re = re.compile(
+			r"^\tmovq\s+\((%\w+)\),\s+(%\w+)$"
+		)
+		self._addq_imm_reg_re = re.compile(
+			r"^\taddq\s+(%\w+),\s+(%\w+)$"
+		)
 
 	def optimize(self, assembly: str) -> str:
 		"""Apply peephole optimizations to assembly text and return optimized version."""
@@ -113,6 +126,46 @@ class PeepholeOptimizer:
 					changed = True
 					i += 2
 					continue
+
+				# Redundant comparison after flag-setting arithmetic
+				opt = self._try_redundant_cmp(lines[i], lines[i + 1])
+				if opt is not None:
+					result.extend(opt)
+					changed = True
+					i += 2
+					continue
+
+				# LEA+load RIP-relative folding
+				opt = self._try_lea_load_fold(lines[i], lines[i + 1])
+				if opt is not None:
+					result.extend(opt)
+					changed = True
+					i += 2
+					continue
+
+				# Immediate add folding: movq $imm, %rA + addq %rA, %rB -> addq $imm, %rB
+				opt = self._try_imm_add_fold(lines, i)
+				if opt is not None:
+					result.extend(opt)
+					changed = True
+					i += 2
+					continue
+
+			# cmpq $0, %reg -> testq %reg, %reg
+			opt = self._try_cmp_zero_to_test(lines[i])
+			if opt is not None:
+				result.append(opt)
+				changed = True
+				i += 1
+				continue
+
+			# movq $0, %reg -> xorq %reg, %reg
+			opt = self._try_mov_zero_to_xor(lines[i])
+			if opt is not None:
+				result.append(opt)
+				changed = True
+				i += 1
+				continue
 
 			# Self-move elimination
 			if self._is_self_move(lines[i]):
@@ -244,6 +297,79 @@ class PeepholeOptimizer:
 	def _is_noop_arith(self, line: str) -> bool:
 		"""Check for addq $0, %reg or subq $0, %reg."""
 		return self._addq_zero_re.match(line) is not None or self._subq_zero_re.match(line) is not None
+
+	def _try_cmp_zero_to_test(self, line: str) -> str | None:
+		"""Replace 'cmpq $0, %reg' with 'testq %reg, %reg' (shorter encoding)."""
+		m = self._cmpq_zero_re.match(line)
+		if m is None:
+			return None
+		reg = m.group(1)
+		return f"\ttestq {reg}, {reg}"
+
+	def _try_mov_zero_to_xor(self, line: str) -> str | None:
+		"""Replace 'movq $0, %reg' with 'xorq %reg, %reg' (shorter encoding)."""
+		m = self._movq_zero_re.match(line)
+		if m is None:
+			return None
+		reg = m.group(1)
+		return f"\txorq {reg}, {reg}"
+
+	def _try_redundant_cmp(self, line1: str, line2: str) -> list[str] | None:
+		"""Eliminate cmp after flag-setting arithmetic on the same register.
+
+		add/sub/and/or/xor already set flags, so a following cmpq $0 on the
+		same destination register is redundant.
+		"""
+		m_arith = self._arith_flag_setting_re.match(line1)
+		if m_arith is None:
+			return None
+		m_cmp = self._cmpq_zero_re.match(line2)
+		if m_cmp is None:
+			return None
+		if m_arith.group(2) == m_cmp.group(1):
+			return [line1]
+		return None
+
+	def _try_lea_load_fold(self, line1: str, line2: str) -> list[str] | None:
+		"""Fold 'leaq sym(%rip), %rA; movq (%rA), %rA' into 'movq sym(%rip), %rA'."""
+		m_lea = self._leaq_rip_re.match(line1)
+		if m_lea is None:
+			return None
+		m_load = self._movq_indirect_re.match(line2)
+		if m_load is None:
+			return None
+		sym = m_lea.group(1)
+		lea_dst = m_lea.group(2)
+		load_base = m_load.group(1)
+		load_dst = m_load.group(2)
+		if lea_dst == load_base and lea_dst == load_dst:
+			return [f"\tmovq {sym}(%rip), {load_dst}"]
+		return None
+
+	def _try_imm_add_fold(self, lines: list[str], idx: int) -> list[str] | None:
+		"""Fold 'movq $imm, %rA; addq %rA, %rB' into 'addq $imm, %rB'.
+
+		Only fires when the immediate fits in 32 bits and %rA is not used after.
+		"""
+		m_mov = self._movq_imm_reg_re.match(lines[idx])
+		if m_mov is None:
+			return None
+		m_add = self._addq_imm_reg_re.match(lines[idx + 1])
+		if m_add is None:
+			return None
+		imm = int(m_mov.group(1))
+		mov_dst = m_mov.group(2)
+		add_src = m_add.group(1)
+		add_dst = m_add.group(2)
+		if mov_dst != add_src:
+			return None
+		if mov_dst == add_dst:
+			return None
+		if not (-2147483648 <= imm <= 2147483647):
+			return None
+		if not self._is_reg_dead_in_window(lines, idx + 2, mov_dst):
+			return None
+		return [f"\taddq ${imm}, {add_dst}"]
 
 	def _is_reg_dead_in_window(self, lines: list[str], start_idx: int, reg: str) -> bool:
 		"""Check if reg is dead (overwritten before read) in a forward window."""
