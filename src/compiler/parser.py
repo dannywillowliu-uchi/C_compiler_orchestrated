@@ -19,6 +19,7 @@ from compiler.ast_nodes import (
 	CompoundAssignment,
 	CompoundStmt,
 	ContinueStmt,
+	DesignatedInit,
 	DoWhileStmt,
 	EnumConstant,
 	EnumDecl,
@@ -1045,11 +1046,36 @@ class Parser:
 	# -- Initializer list ----------------------------------------------------
 
 	def _parse_initializer_list(self) -> InitializerList:
-		"""Parse '{' expr, expr, ... '}' with support for nested braces and trailing comma."""
+		"""Parse '{' expr, expr, ... '}' with support for nested braces, trailing comma, and designated initializers."""
 		tok = self._expect(TokenType.LBRACE, "Expected '{'")
 		elements: list[ASTNode] = []
 		while not self._check(TokenType.RBRACE) and not self._at_end():
-			if self._check(TokenType.LBRACE):
+			if self._check(TokenType.DOT) and self._peek(1).type == TokenType.IDENTIFIER:
+				# Designated initializer: .field = expr
+				dot_tok = self._advance()
+				field_tok = self._expect(TokenType.IDENTIFIER, "Expected field name after '.'")
+				self._expect(TokenType.ASSIGN, "Expected '=' after designated field name")
+				if self._check(TokenType.LBRACE):
+					value = self._parse_initializer_list()
+				else:
+					value = self._parse_assignment()
+				elements.append(DesignatedInit(
+					field_name=field_tok.value, value=value, loc=self._loc(dot_tok),
+				))
+			elif self._check(TokenType.LBRACKET):
+				# Designated initializer: [index] = expr
+				bracket_tok = self._advance()
+				index_expr = self._parse_assignment()
+				self._expect(TokenType.RBRACKET, "Expected ']' after index designator")
+				self._expect(TokenType.ASSIGN, "Expected '=' after index designator")
+				if self._check(TokenType.LBRACE):
+					value = self._parse_initializer_list()
+				else:
+					value = self._parse_assignment()
+				elements.append(DesignatedInit(
+					index=index_expr, value=value, loc=self._loc(bracket_tok),
+				))
+			elif self._check(TokenType.LBRACE):
 				elements.append(self._parse_initializer_list())
 			else:
 				elements.append(self._parse_assignment())

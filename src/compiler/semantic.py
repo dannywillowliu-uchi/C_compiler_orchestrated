@@ -18,6 +18,7 @@ from compiler.ast_nodes import (
 	CompoundAssignment,
 	CompoundStmt,
 	ContinueStmt,
+	DesignatedInit,
 	DoWhileStmt,
 	EnumDecl,
 	ExprStmt,
@@ -437,43 +438,98 @@ class SemanticAnalyzer(ASTVisitor):
 		base_type = node.type_spec.base_type
 
 		if is_array:
-			# Check element count vs declared array size
+			# Check element count vs declared array size (only non-designated positional count)
+			declared_size = 0
 			for size_expr in node.array_sizes:  # type: ignore[union-attr]
 				if isinstance(size_expr, IntLiteral) and size_expr.value > 0:
-					if len(init_list.elements) > size_expr.value:
-						self._error("excess elements in array initializer", node)
-			# Type-check each element
+					declared_size = size_expr.value
+			# Validate designated initializers
 			for elem in init_list.elements:
-				if isinstance(elem, InitializerList):
+				if isinstance(elem, DesignatedInit):
+					if elem.field_name is not None:
+						self._error("field designator in array initializer", elem)
+					elif elem.index is not None:
+						idx_type = self.visit(elem.index)
+						if idx_type is not None and not _is_numeric(idx_type):
+							self._error("array index designator must be an integer", elem)
+						if isinstance(elem.index, IntLiteral) and declared_size > 0:
+							if elem.index.value < 0 or elem.index.value >= declared_size:
+								self._error(
+									f"array index {elem.index.value} out of range for array of size {declared_size}",
+									elem,
+								)
+					self._visit_init_value(elem.value, node.type_spec)
+				elif isinstance(elem, InitializerList):
 					self.visit_initializer_list(elem)
 				else:
 					elem_t = self.visit(elem)
 					if elem_t is not None and not _types_compatible(node.type_spec, elem_t):
 						self._error("incompatible type in array initializer element", elem)
+			# Check positional count doesn't exceed array size
+			if declared_size > 0:
+				if not any(isinstance(e, DesignatedInit) for e in init_list.elements):
+					if len(init_list.elements) > declared_size:
+						self._error("excess elements in array initializer", node)
 		elif base_type.startswith("struct "):
 			struct_name = base_type[len("struct "):]
 			if struct_name in self._struct_types:
 				struct_decl = self._struct_types[struct_name]
-				if len(init_list.elements) > len(struct_decl.members):
-					self._error("excess elements in struct initializer", node)
-				for i, elem in enumerate(init_list.elements):
+				member_names = {m.name for m in struct_decl.members}
+				positional_idx = 0
+				for elem in init_list.elements:
+					if isinstance(elem, DesignatedInit):
+						if elem.index is not None:
+							self._error("array index designator in struct initializer", elem)
+						elif elem.field_name is not None:
+							if elem.field_name not in member_names:
+								self._error(
+									f"struct '{struct_name}' has no member '{elem.field_name}'",
+									elem,
+								)
+							else:
+								# Find the member for type checking
+								for m in struct_decl.members:
+									if m.name == elem.field_name:
+										self._visit_init_value(elem.value, m.type_spec)
+										break
+						continue
 					if isinstance(elem, InitializerList):
 						self.visit_initializer_list(elem)
 					else:
 						elem_t = self.visit(elem)
-						if i < len(struct_decl.members) and elem_t is not None:
-							member_type = struct_decl.members[i].type_spec
+						if positional_idx < len(struct_decl.members) and elem_t is not None:
+							member_type = struct_decl.members[positional_idx].type_spec
 							if not _types_compatible(member_type, elem_t):
 								self._error(
-									f"incompatible type for member '{struct_decl.members[i].name}'",
+									f"incompatible type for member '{struct_decl.members[positional_idx].name}'",
 									elem,
 								)
+					positional_idx += 1
+				# Check excess positional elements
+				if not any(isinstance(e, DesignatedInit) for e in init_list.elements):
+					if len(init_list.elements) > len(struct_decl.members):
+						self._error("excess elements in struct initializer", node)
 			else:
 				for elem in init_list.elements:
 					self.visit(elem)
 		else:
 			for elem in init_list.elements:
 				self.visit(elem)
+
+	def _visit_init_value(self, value: ASTNode, expected_type: TypeSpec) -> None:
+		"""Visit an initializer value and check type compatibility."""
+		if isinstance(value, InitializerList):
+			self.visit_initializer_list(value)
+		else:
+			val_type = self.visit(value)
+			if val_type is not None and not _types_compatible(expected_type, val_type):
+				self._error(
+					"incompatible type in designated initializer",
+					value,
+				)
+
+	def visit_designated_init(self, node: DesignatedInit) -> TypeSpec | None:
+		return self.visit(node.value)
 
 	def visit_initializer_list(self, node: InitializerList) -> TypeSpec | None:
 		for elem in node.elements:
