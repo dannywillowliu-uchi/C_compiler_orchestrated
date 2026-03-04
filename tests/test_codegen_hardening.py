@@ -136,10 +136,11 @@ class TestVoidPartialReturn:
 		# 2 ret: explicit + implicit
 		ret_count = sum(1 for line in lines if line == "ret")
 		assert ret_count == 2
-		# Implicit epilogue comes at the very end
-		assert lines[-1] == "ret"
-		assert lines[-2] == "popq %rbp"
-		assert lines[-3] == "movq %rbp, %rsp"
+		# Implicit epilogue comes before the .size directive
+		assert lines[-1].startswith(".size")
+		assert lines[-2] == "ret"
+		assert lines[-3] == "popq %rbp"
+		assert lines[-4] == "movq %rbp, %rsp"
 
 	def test_both_branches_return_no_extra_epilogue(self) -> None:
 		"""
@@ -179,11 +180,12 @@ class TestNonVoidFallback:
 		lines = _asm_lines(asm)
 		# Should have fallback return 0
 		assert "movq $0, %rax" in asm
-		# Epilogue at end
-		assert lines[-1] == "ret"
-		assert lines[-2] == "popq %rbp"
-		assert lines[-3] == "movq %rbp, %rsp"
-		assert lines[-4] == "movq $0, %rax"
+		# Epilogue at end (before .size directive)
+		assert lines[-1].startswith(".size")
+		assert lines[-2] == "ret"
+		assert lines[-3] == "popq %rbp"
+		assert lines[-4] == "movq %rbp, %rsp"
+		assert lines[-5] == "movq $0, %rax"
 
 	def test_nonvoid_with_explicit_return_no_fallback(self) -> None:
 		"""Non-void function ending with IRReturn doesn't get fallback."""
@@ -217,11 +219,12 @@ class TestNonVoidFallback:
 		# Should have the explicit return and the implicit fallback
 		ret_count = sum(1 for line in lines if line == "ret")
 		assert ret_count == 2
-		# Last 4 lines should be the fallback epilogue
-		assert lines[-4] == "movq $0, %rax"
-		assert lines[-3] == "movq %rbp, %rsp"
-		assert lines[-2] == "popq %rbp"
-		assert lines[-1] == "ret"
+		# Last lines should be the fallback epilogue (before .size directive)
+		assert lines[-1].startswith(".size")
+		assert lines[-5] == "movq $0, %rax"
+		assert lines[-4] == "movq %rbp, %rsp"
+		assert lines[-3] == "popq %rbp"
+		assert lines[-2] == "ret"
 
 	def test_nonvoid_function_with_loop_no_guaranteed_return(self) -> None:
 		"""
@@ -256,6 +259,7 @@ class TestNonVoidFallback:
 		# Explicit return inside loop + implicit fallback
 		ret_count = sum(1 for line in lines if line == "ret")
 		assert ret_count == 2
-		# Last lines are the fallback
-		assert lines[-4] == "movq $0, %rax"
-		assert lines[-1] == "ret"
+		# Last lines are the fallback (before .size directive)
+		assert lines[-1].startswith(".size")
+		assert lines[-5] == "movq $0, %rax"
+		assert lines[-2] == "ret"

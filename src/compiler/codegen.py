@@ -81,7 +81,8 @@ class CodeGenerator:
 		if initialized:
 			self._emit(".section .data")
 			for g in initialized:
-				self._emit(f".globl {g.name}")
+				if g.storage_class != "static":
+					self._emit(f".globl {g.name}")
 				self._emit(f"{g.name}:")
 				if g.initializer_values:
 					for val in g.initializer_values:
@@ -98,12 +99,16 @@ class CodeGenerator:
 				self._emit(f"{s.label}:")
 				self._emit_instr(f'.asciz "{s.value}"')
 
-		# Emit .bss section for uninitialized globals
-		uninitialized = [g for g in program.globals if g.initializer is None and not g.initializer_values]
+		# Emit .bss section for uninitialized globals (skip extern-only declarations)
+		uninitialized = [
+			g for g in program.globals
+			if g.initializer is None and not g.initializer_values and g.storage_class != "extern"
+		]
 		if uninitialized:
 			self._emit(".section .bss")
 			for g in uninitialized:
-				self._emit(f".globl {g.name}")
+				if g.storage_class != "static":
+					self._emit(f".globl {g.name}")
 				self._emit(f"{g.name}:")
 				if g.ir_type == IRType.CHAR:
 					self._emit_instr(".zero 1")
@@ -297,6 +302,10 @@ class CodeGenerator:
 		self._emit_instr("ret")
 
 	def _generate_function(self, func: IRFunction) -> None:
+		# Skip prototype-only and extern declarations -- no body to emit
+		if func.is_prototype or func.storage_class == "extern":
+			return
+
 		# Set register allocation map for this function
 		self._reg_map = self._regalloc_maps.get(func.name, {})
 
@@ -304,8 +313,10 @@ class CodeGenerator:
 
 		frame_size = self._align16(self._stack_size)
 
-		# Header
-		self._emit(f".globl {func.name}")
+		# Header: only emit .globl for non-static functions
+		if func.storage_class != "static":
+			self._emit(f".globl {func.name}")
+		self._emit(f".type {func.name}, @function")
 		self._emit(f"{func.name}:")
 
 		# Prologue
@@ -361,6 +372,9 @@ class CodeGenerator:
 				else:
 					self._emit_instr("movq $0, %rax")
 			self._emit_epilogue()
+
+		# ELF .size directive
+		self._emit(f".size {func.name}, .-{func.name}")
 
 	# ------------------------------------------------------------------
 	# Instruction dispatch

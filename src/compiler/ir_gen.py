@@ -224,6 +224,18 @@ class IRGenerator(ASTVisitor):
 	def visit_function_decl(self, node: FunctionDecl) -> None:
 		self._known_functions.add(node.name)
 		if node.body is None:
+			# Prototype-only or extern declaration: emit a stub IRFunction
+			self._functions.append(
+				IRFunction(
+					name=node.name,
+					params=[],
+					body=[],
+					return_type=_resolve_ir_type(node.return_type),
+					param_types=[],
+					storage_class=node.storage_class,
+					is_prototype=True,
+				)
+			)
 			return
 		old_instructions = self._instructions
 		old_locals = self._locals
@@ -264,6 +276,7 @@ class IRGenerator(ASTVisitor):
 				body=self._instructions,
 				return_type=_resolve_ir_type(node.return_type),
 				param_types=param_types,
+				storage_class=node.storage_class,
 			)
 		)
 
@@ -298,12 +311,13 @@ class IRGenerator(ASTVisitor):
 				self._globals.append(IRGlobalVar(
 					name=node.name, ir_type=ir_type,
 					initializer_values=init_values, total_size=total_size,
+					storage_class=node.storage_class,
 				))
 			else:
 				init_val: int | None = None
 				if node.initializer is not None and isinstance(node.initializer, IntLiteral):
 					init_val = node.initializer.value
-				self._globals.append(IRGlobalVar(name=node.name, ir_type=ir_type, initializer=init_val))
+				self._globals.append(IRGlobalVar(name=node.name, ir_type=ir_type, initializer=init_val, storage_class=node.storage_class))
 			self._global_names.add(node.name)
 			if node.type_spec.is_function_pointer:
 				self._func_ptr_locals.add(node.name)
