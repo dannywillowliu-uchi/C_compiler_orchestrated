@@ -23,6 +23,7 @@ from compiler.ast_nodes import (
 	Program,
 	ReturnStmt,
 	SizeofExpr,
+	StringLiteral,
 	StructDecl,
 	StructMember,
 	SwitchStmt,
@@ -2111,3 +2112,136 @@ class TestIntegration:
 		assert len(allocs) == 1
 		returns = [i for i in fn.body if isinstance(i, IRReturn)]
 		assert len(returns) == 1
+
+
+class TestVariableScoping:
+	def test_inner_block_does_not_clobber_outer(self) -> None:
+		"""int x = 10; { int x = 20; } return x; -- should return outer x."""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_int_type(),
+				name="f",
+				body=CompoundStmt(
+					statements=[
+						VarDecl(type_spec=_int_type(), name="x", initializer=IntLiteral(value=10)),
+						CompoundStmt(
+							statements=[
+								VarDecl(type_spec=_int_type(), name="x", initializer=IntLiteral(value=20)),
+							]
+						),
+						ReturnStmt(expression=Identifier(name="x")),
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		fn = ir.functions[0]
+		# The return should copy from the OUTER x's temp, not the inner one.
+		# Find the two allocs (outer x and inner x) -- they should be different temps.
+		allocs = [i for i in fn.body if isinstance(i, IRAlloc)]
+		assert len(allocs) == 2
+		outer_alloc = allocs[0]
+		inner_alloc = allocs[1]
+		assert outer_alloc.dest.name != inner_alloc.dest.name
+		# Trace back: return uses a temp that was copied from outer x
+		last_copy_before_ret = None
+		for instr in fn.body:
+			if isinstance(instr, IRCopy) and instr.source == outer_alloc.dest:
+				last_copy_before_ret = instr
+		# After the inner block, x should resolve to the outer x's temp
+		assert last_copy_before_ret is not None
+
+	def test_if_block_scoping(self) -> None:
+		"""int x = 1; if (1) { int x = 2; } return x; -- outer x survives."""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_int_type(),
+				name="f",
+				body=CompoundStmt(
+					statements=[
+						VarDecl(type_spec=_int_type(), name="x", initializer=IntLiteral(value=1)),
+						IfStmt(
+							condition=IntLiteral(value=1),
+							then_branch=CompoundStmt(
+								statements=[
+									VarDecl(type_spec=_int_type(), name="x", initializer=IntLiteral(value=2)),
+								]
+							),
+						),
+						ReturnStmt(expression=Identifier(name="x")),
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		fn = ir.functions[0]
+		allocs = [i for i in fn.body if isinstance(i, IRAlloc)]
+		assert len(allocs) == 2  # outer x and inner x
+		# Return should reference the outer x
+		outer_alloc = allocs[0]
+		# Find copy from outer x after the if block
+		copies_from_outer = [
+			i for i in fn.body
+			if isinstance(i, IRCopy) and i.source == outer_alloc.dest
+		]
+		assert len(copies_from_outer) >= 1
+
+
+class TestCharPointerSubscript:
+	def test_char_pointer_subscript_element_size(self) -> None:
+		"""char *s; s[1] should use element_size=1, not 4."""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_int_type(),
+				name="f",
+				body=CompoundStmt(
+					statements=[
+						VarDecl(
+							type_spec=TypeSpec(base_type="char", pointer_count=1),
+							name="s",
+							initializer=StringLiteral(value="hello"),
+						),
+						ReturnStmt(expression=ArraySubscript(
+							array=Identifier(name="s"),
+							index=IntLiteral(value=1),
+						)),
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		body = ir.functions[0].body
+		# The multiply for index should use stride 1 (char), not 4 (int)
+		binops = [i for i in body if isinstance(i, IRBinOp)]
+		mul_ops = [b for b in binops if b.op == "*"]
+		assert len(mul_ops) >= 1
+		# The stride constant should be 1
+		stride_op = mul_ops[-1]
+		assert isinstance(stride_op.right, IRConst)
+		assert stride_op.right.value == 1
+
+	def test_int_pointer_subscript_element_size(self) -> None:
+		"""int *p; p[2] should use element_size=4."""
+		prog = _make_program(
+			FunctionDecl(
+				return_type=_int_type(),
+				name="f",
+				params=[ParamDecl(name="p", type_spec=TypeSpec(base_type="int", pointer_count=1))],
+				body=CompoundStmt(
+					statements=[
+						ReturnStmt(expression=ArraySubscript(
+							array=Identifier(name="p"),
+							index=IntLiteral(value=2),
+						)),
+					]
+				),
+			)
+		)
+		ir = IRGenerator().generate(prog)
+		body = ir.functions[0].body
+		binops = [i for i in body if isinstance(i, IRBinOp)]
+		mul_ops = [b for b in binops if b.op == "*"]
+		assert len(mul_ops) >= 1
+		stride_op = mul_ops[-1]
+		assert isinstance(stride_op.right, IRConst)
+		assert stride_op.right.value == 4
