@@ -978,10 +978,15 @@ class IRGenerator(ASTVisitor):
 		element_size = 4  # default int
 		dims: list[int] = []
 		if isinstance(current, Identifier):
-			ts = self._local_types.get(current.name)
+			ts = self._local_types.get(current.name) or self._global_types.get(current.name)
+			local_dims = self._local_array.get(current.name)
+			global_dims = self._global_array.get(current.name)
+			dims = local_dims if local_dims is not None else (global_dims if global_dims is not None else [])
 			if ts is not None:
-				element_size = self._resolve_member_size(ts)
-			dims = self._local_array.get(current.name, [])
+				if ts.pointer_count > 0 and not dims:
+					element_size = self._pointee_size_from_type(ts)
+				else:
+					element_size = self._resolve_member_size(ts)
 
 		addr = base
 		for d, idx_node in enumerate(index_nodes):
@@ -1016,8 +1021,14 @@ class IRGenerator(ASTVisitor):
 		self._emit(IRReturn(value=val, ir_type=val_type))
 
 	def visit_compound_stmt(self, node: CompoundStmt) -> None:
+		saved_locals = dict(self._locals)
+		saved_types = dict(self._local_types)
+		saved_arrays = dict(self._local_array)
 		for stmt in node.statements:
 			self.visit(stmt)
+		self._locals = saved_locals
+		self._local_types = saved_types
+		self._local_array = saved_arrays
 
 	def visit_if_stmt(self, node: IfStmt) -> None:
 		cond = self.visit(node.condition)
