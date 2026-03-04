@@ -11,6 +11,7 @@ from compiler.ast_nodes import (
 	CaseClause,
 	CastExpr,
 	CharLiteral,
+	CommaExpr,
 	CompoundAssignment,
 	CompoundStmt,
 	ContinueStmt,
@@ -1149,6 +1150,11 @@ class IRGenerator(ASTVisitor):
 		else:
 			self._emit(IRCopy(dest=dest, source=val, ir_type=target_ir_type))
 		return dest
+
+	def visit_comma_expr(self, node: CommaExpr) -> IRValue:
+		"""Evaluate left for side effects, return right's value."""
+		self.visit(node.left)
+		return self.visit(node.right)
 
 	def _resolve_struct_name(self, node: object) -> str:
 		"""Try to determine the struct type name from an AST node."""
