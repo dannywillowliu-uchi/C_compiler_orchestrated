@@ -162,7 +162,7 @@ class TestCLIBasic:
 	"""Basic CLI invocation tests."""
 
 	def test_compile_to_stdout(self, tmp_c_file: Path) -> None:
-		result = run_compiler(str(tmp_c_file))
+		result = run_compiler("-S", str(tmp_c_file))
 		assert result.returncode == 0
 		assert "main:" in result.stdout
 		assert "$42" in result.stdout
@@ -170,7 +170,7 @@ class TestCLIBasic:
 
 	def test_compile_to_output_file(self, tmp_c_file: Path, tmp_path: Path) -> None:
 		out = tmp_path / "output.s"
-		result = run_compiler(str(tmp_c_file), "-o", str(out))
+		result = run_compiler("-S", str(tmp_c_file), "-o", str(out))
 		assert result.returncode == 0
 		assert out.exists()
 		asm = out.read_text()
@@ -179,14 +179,14 @@ class TestCLIBasic:
 		assert "ret" in asm
 
 	def test_compile_multiple_functions(self, tmp_multi_func_file: Path) -> None:
-		result = run_compiler(str(tmp_multi_func_file))
+		result = run_compiler("-S", str(tmp_multi_func_file))
 		assert result.returncode == 0
 		assert "double_it:" in result.stdout
 		assert "main:" in result.stdout
 		assert "call double_it" in result.stdout
 
 	def test_optimize_flag(self, tmp_c_file: Path) -> None:
-		result = run_compiler(str(tmp_c_file), "--optimize")
+		result = run_compiler("-S", str(tmp_c_file), "--optimize")
 		assert result.returncode == 0
 		assert "main:" in result.stdout
 		assert "ret" in result.stdout
@@ -201,7 +201,7 @@ class TestCLIErrorHandling:
 		assert "error" in result.stderr.lower()
 
 	def test_semantic_error(self, tmp_invalid_file: Path) -> None:
-		result = run_compiler(str(tmp_invalid_file))
+		result = run_compiler("-S", str(tmp_invalid_file))
 		assert result.returncode != 0
 		assert "error" in result.stderr.lower()
 
@@ -220,7 +220,7 @@ class TestCLIOutputFile:
 
 	def test_output_with_long_flag(self, tmp_c_file: Path, tmp_path: Path) -> None:
 		out = tmp_path / "result.s"
-		result = run_compiler(str(tmp_c_file), "--output", str(out))
+		result = run_compiler("-S", str(tmp_c_file), "--output", str(out))
 		assert result.returncode == 0
 		assert out.exists()
 		asm = out.read_text()
@@ -229,14 +229,14 @@ class TestCLIOutputFile:
 	def test_output_overwrites_existing(self, tmp_c_file: Path, tmp_path: Path) -> None:
 		out = tmp_path / "output.s"
 		out.write_text("old content")
-		result = run_compiler(str(tmp_c_file), "-o", str(out))
+		result = run_compiler("-S", str(tmp_c_file), "-o", str(out))
 		assert result.returncode == 0
 		asm = out.read_text()
 		assert "old content" not in asm
 		assert "main:" in asm
 
 	def test_stdout_when_no_output_flag(self, tmp_c_file: Path) -> None:
-		result = run_compiler(str(tmp_c_file))
+		result = run_compiler("-S", str(tmp_c_file))
 		assert result.returncode == 0
 		# Should print to stdout, not create a file
 		assert ".section .text" in result.stdout
