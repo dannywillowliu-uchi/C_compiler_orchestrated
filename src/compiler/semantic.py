@@ -253,6 +253,10 @@ def _types_compatible(left: TypeSpec, right: TypeSpec) -> bool:
 	"""Check whether two types are assignment-compatible."""
 	if left == right:
 		return True
+	# Same struct/union types are compatible (compare by name, not object identity)
+	if (left.base_type.startswith("struct ") or left.base_type.startswith("union ")):
+		if left.base_type == right.base_type and left.pointer_count == right.pointer_count:
+			return True
 	# Numeric types are mutually compatible (implicit conversion in C)
 	if _is_numeric(left) and _is_numeric(right):
 		return True

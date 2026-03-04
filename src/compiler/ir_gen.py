@@ -479,18 +479,23 @@ class IRGenerator(ASTVisitor):
 				self._emit(IRCopy(dest=dest, source=val, ir_type=IRType.POINTER))
 			else:
 				val = self.visit(node.initializer)
-				val_type = self._value_ir_type(val)
-				if self._is_float_type(var_ir_type) and not self._is_float_type(val_type):
-					converted = self._new_temp()
-					self._set_temp_type(converted, var_ir_type)
-					self._emit(IRConvert(dest=converted, source=val, from_type=val_type, to_type=var_ir_type))
-					val = converted
-				elif not self._is_float_type(var_ir_type) and self._is_float_type(val_type):
-					converted = self._new_temp()
-					self._set_temp_type(converted, var_ir_type)
-					self._emit(IRConvert(dest=converted, source=val, from_type=val_type, to_type=var_ir_type))
-					val = converted
-				self._emit(IRCopy(dest=dest, source=val, ir_type=var_ir_type))
+				# Check for struct/union initialization from another variable
+				agg_name = self._is_local_aggregate(node.name)
+				if agg_name is not None:
+					self._emit_aggregate_copy(dest, val, agg_name)
+				else:
+					val_type = self._value_ir_type(val)
+					if self._is_float_type(var_ir_type) and not self._is_float_type(val_type):
+						converted = self._new_temp()
+						self._set_temp_type(converted, var_ir_type)
+						self._emit(IRConvert(dest=converted, source=val, from_type=val_type, to_type=var_ir_type))
+						val = converted
+					elif not self._is_float_type(var_ir_type) and self._is_float_type(val_type):
+						converted = self._new_temp()
+						self._set_temp_type(converted, var_ir_type)
+						self._emit(IRConvert(dest=converted, source=val, from_type=val_type, to_type=var_ir_type))
+						val = converted
+					self._emit(IRCopy(dest=dest, source=val, ir_type=var_ir_type))
 
 	def visit_param_decl(self, node: ParamDecl) -> IRTemp:
 		temp = self._new_temp()
@@ -812,12 +817,25 @@ class IRGenerator(ASTVisitor):
 			return val if isinstance(val, IRTemp) else self._new_temp()
 		if isinstance(node.target, MemberAccess):
 			addr = self._compute_member_addr(node.target)
+			member_ts = self._resolve_member_type_spec(node.target)
+			if self._member_is_aggregate(member_ts):
+				nested_name = member_ts.base_type
+				if nested_name.startswith("struct "):
+					nested_name = nested_name[len("struct "):]
+				elif nested_name.startswith("union "):
+					nested_name = nested_name[len("union "):]
+				self._emit_aggregate_copy(addr, val, nested_name)
+				return addr
 			member_type = self._member_ir_type(node.target)
 			self._emit(IRStore(address=addr, value=val, ir_type=member_type))
 			return val if isinstance(val, IRTemp) else self._new_temp()
 		if isinstance(node.target, Identifier):
 			target_temp = self._locals.get(node.target.name)
 			if target_temp is not None:
+				agg_name = self._is_local_aggregate(node.target.name)
+				if agg_name is not None:
+					self._emit_aggregate_copy(target_temp, val, agg_name)
+					return target_temp
 				target_type = self._resolve_local_ir_type(node.target.name)
 				val_type = self._value_ir_type(val)
 				if self._is_float_type(target_type) and not self._is_float_type(val_type):
@@ -1621,6 +1639,94 @@ class IRGenerator(ASTVisitor):
 					self._emit(IRBinOp(dest=addr, left=dest, op="+", right=IRConst(field_offset)))
 					self._emit(IRStore(address=addr, value=IRConst(0)))
 					field_offset += self._resolve_member_size(members[i].type_spec)
+
+	def _is_local_aggregate(self, name: str) -> str | None:
+		"""Return the struct/union name if a local variable is an aggregate type, else None."""
+		ts = self._local_types.get(name)
+		if ts is None or ts.pointer_count > 0:
+			return None
+		base = ts.base_type
+		if base.startswith("struct "):
+			sname = base[len("struct "):]
+			if sname in self._structs:
+				return sname
+		if base.startswith("union "):
+			uname = base[len("union "):]
+			if uname in self._unions:
+				return uname
+		return None
+
+	def _emit_aggregate_copy(self, dest_addr: IRTemp, src_addr: IRTemp, type_name: str) -> None:
+		"""Emit field-by-field load/store IR for copying a struct or union."""
+		is_union = type_name in self._unions
+		if is_union:
+			union_size = self._compute_union_size(type_name)
+			self._emit_memcopy_by_words(dest_addr, src_addr, union_size)
+			return
+		members = self._structs.get(type_name, [])
+		offset = 0
+		for m in members:
+			align = self._resolve_type_alignment(m.type_spec)
+			offset = _align_to(offset, align)
+			src_field = self._new_temp()
+			self._emit(IRBinOp(dest=src_field, left=src_addr, op="+", right=IRConst(offset)))
+			dst_field = self._new_temp()
+			self._emit(IRBinOp(dest=dst_field, left=dest_addr, op="+", right=IRConst(offset)))
+			member_ts = m.type_spec
+			if m.array_dims:
+				elem_size = self._resolve_member_size(member_ts)
+				total_elems = 1
+				for dim in m.array_dims:
+					val = self._eval_const_expr(dim)
+					if val is not None:
+						total_elems *= val
+				ir_type = _resolve_ir_type(member_ts)
+				for i in range(total_elems):
+					src_elem = self._new_temp()
+					self._emit(IRBinOp(dest=src_elem, left=src_field, op="+", right=IRConst(i * elem_size)))
+					tmp = self._new_temp()
+					self._emit(IRLoad(dest=tmp, address=src_elem, ir_type=ir_type))
+					dst_elem = self._new_temp()
+					self._emit(IRBinOp(dest=dst_elem, left=dst_field, op="+", right=IRConst(i * elem_size)))
+					self._emit(IRStore(address=dst_elem, value=tmp, ir_type=ir_type))
+				offset += elem_size * total_elems
+			elif self._member_is_aggregate(member_ts):
+				nested_name = member_ts.base_type
+				if nested_name.startswith("struct "):
+					nested_name = nested_name[len("struct "):]
+				elif nested_name.startswith("union "):
+					nested_name = nested_name[len("union "):]
+				self._emit_aggregate_copy(dst_field, src_field, nested_name)
+				offset += self._resolve_member_size(member_ts)
+			else:
+				ir_type = _resolve_ir_type(member_ts)
+				tmp = self._new_temp()
+				self._set_temp_type(tmp, ir_type)
+				self._emit(IRLoad(dest=tmp, address=src_field, ir_type=ir_type))
+				self._emit(IRStore(address=dst_field, value=tmp, ir_type=ir_type))
+				offset += self._resolve_member_size(member_ts)
+
+	def _emit_memcopy_by_words(self, dest_addr: IRTemp, src_addr: IRTemp, size: int) -> None:
+		"""Copy 'size' bytes from src to dest using word-sized load/store operations."""
+		offset = 0
+		while offset + 4 <= size:
+			src_off = self._new_temp()
+			self._emit(IRBinOp(dest=src_off, left=src_addr, op="+", right=IRConst(offset)))
+			tmp = self._new_temp()
+			self._emit(IRLoad(dest=tmp, address=src_off, ir_type=IRType.INT))
+			dst_off = self._new_temp()
+			self._emit(IRBinOp(dest=dst_off, left=dest_addr, op="+", right=IRConst(offset)))
+			self._emit(IRStore(address=dst_off, value=tmp, ir_type=IRType.INT))
+			offset += 4
+		while offset < size:
+			src_off = self._new_temp()
+			self._emit(IRBinOp(dest=src_off, left=src_addr, op="+", right=IRConst(offset)))
+			tmp = self._new_temp()
+			self._emit(IRLoad(dest=tmp, address=src_off, ir_type=IRType.CHAR))
+			dst_off = self._new_temp()
+			self._emit(IRBinOp(dest=dst_off, left=dest_addr, op="+", right=IRConst(offset)))
+			self._emit(IRStore(address=dst_off, value=tmp, ir_type=IRType.CHAR))
+			offset += 1
 
 	def _zero_fill_struct(self, dest: IRTemp, members: list[StructMember]) -> None:
 		"""Zero-fill all members of a struct."""
