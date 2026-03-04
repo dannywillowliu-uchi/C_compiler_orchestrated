@@ -296,9 +296,9 @@ class TestInitializerListCodegen:
 			}
 		""")
 		assert ".globl g" in asm
-		assert ".quad 100" in asm
-		assert ".quad 200" in asm
-		assert ".quad 300" in asm
+		assert ".long 100" in asm
+		assert ".long 200" in asm
+		assert ".long 300" in asm
 
 	def test_trailing_comma_compiles(self):
 		asm = compile_to_asm("""

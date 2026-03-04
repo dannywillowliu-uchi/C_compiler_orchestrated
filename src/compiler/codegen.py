@@ -115,8 +115,13 @@ class CodeGenerator:
 					self._emit(f".globl {g.name}")
 				self._emit(f"{g.name}:")
 				if g.initializer_values:
+					directive = {
+						IRType.CHAR: ".byte",
+						IRType.SHORT: ".word",
+						IRType.INT: ".long",
+					}.get(g.ir_type, ".quad")
 					for val in g.initializer_values:
-						self._emit_instr(f".quad {val}")
+						self._emit_instr(f"{directive} {val}")
 				elif g.float_initializer is not None:
 					if g.ir_type == IRType.FLOAT:
 						bits = struct.unpack("<I", struct.pack("<f", g.float_initializer))[0]
@@ -161,6 +166,8 @@ class CodeGenerator:
 				self._emit(f"{g.name}:")
 				if g.ir_type == IRType.CHAR:
 					self._emit_instr(".zero 1")
+				elif g.ir_type == IRType.SHORT:
+					self._emit_instr(".zero 2")
 				elif g.ir_type in (IRType.INT, IRType.FLOAT):
 					self._emit_instr(".zero 4")
 				else:
@@ -563,6 +570,9 @@ class CodeGenerator:
 		elif instr.ir_type == IRType.CHAR:
 			self._emit_instr("movzbl (%rax), %eax")
 			self._store_to_temp("%rax", instr.dest)
+		elif instr.ir_type == IRType.SHORT:
+			self._emit_instr("movswq (%rax), %rax")
+			self._store_to_temp("%rax", instr.dest)
 		elif instr.ir_type == IRType.INT:
 			self._emit_instr("movl (%rax), %eax")
 			self._emit_instr("movslq %eax, %rax")
@@ -576,6 +586,8 @@ class CodeGenerator:
 		self._load_value(instr.address, "%rax")
 		if instr.ir_type == IRType.CHAR:
 			self._emit_instr("movb %cl, (%rax)")
+		elif instr.ir_type == IRType.SHORT:
+			self._emit_instr("movw %cx, (%rax)")
 		elif instr.ir_type == IRType.INT:
 			self._emit_instr("movl %ecx, (%rax)")
 		else:
