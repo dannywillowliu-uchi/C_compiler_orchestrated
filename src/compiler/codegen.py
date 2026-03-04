@@ -260,6 +260,22 @@ class CodeGenerator:
 		else:
 			raise ValueError(f"Cannot load {type(value).__name__} into XMM register")
 
+	def _truncate_narrow(self, ir_type: IRType, is_unsigned: bool = False) -> None:
+		"""Emit truncation for narrow types (CHAR/SHORT) after arithmetic.
+
+		Ensures the value in %rax is correctly narrowed to the type's bit width.
+		"""
+		if ir_type == IRType.CHAR:
+			if is_unsigned:
+				self._emit_instr("movzbq %al, %rax")
+			else:
+				self._emit_instr("movsbq %al, %rax")
+		elif ir_type == IRType.SHORT:
+			if is_unsigned:
+				self._emit_instr("movzwq %ax, %rax")
+			else:
+				self._emit_instr("movswq %ax, %rax")
+
 	def _store_to_temp(self, reg: str, dest: IRTemp) -> None:
 		"""Store integer *reg* into *dest*'s location (register or stack slot)."""
 		if dest.name in self._reg_map:
@@ -540,6 +556,8 @@ class CodeGenerator:
 		else:
 			raise ValueError(f"Unknown binary operator: {op}")
 
+		if op not in ("<", ">", "<=", ">=", "==", "!="):
+			self._truncate_narrow(instr.ir_type, instr.is_unsigned)
 		self._store_to_temp("%rax", instr.dest)
 
 	def _gen_unaryop(self, instr: IRUnaryOp) -> None:
@@ -557,6 +575,8 @@ class CodeGenerator:
 		else:
 			raise ValueError(f"Unknown unary operator: {op}")
 
+		if op != "!":
+			self._truncate_narrow(instr.ir_type)
 		self._store_to_temp("%rax", instr.dest)
 
 	def _gen_copy(self, instr: IRCopy) -> None:
@@ -770,6 +790,16 @@ class CodeGenerator:
 			self._load_float_value(instr.source, "%xmm0", IRType.DOUBLE)
 			self._emit_instr("cvtsd2ss %xmm0, %xmm0")
 			self._store_float_to_temp("%xmm0", instr.dest, IRType.FLOAT)
+		elif to_type in (IRType.CHAR, IRType.SHORT) and from_type in (IRType.INT, IRType.LONG, IRType.POINTER, IRType.CHAR, IRType.SHORT):
+			# Integer narrowing: truncate to target width (signed)
+			self._load_value(instr.source, "%rax")
+			self._truncate_narrow(to_type)
+			self._store_to_temp("%rax", instr.dest)
+		elif from_type in (IRType.CHAR, IRType.SHORT) and to_type in (IRType.INT, IRType.LONG):
+			# Integer widening: sign-extend from narrow type
+			self._load_value(instr.source, "%rax")
+			self._truncate_narrow(from_type)
+			self._store_to_temp("%rax", instr.dest)
 		else:
 			# Fallback: just copy
 			self._load_value(instr.source, "%rax")
