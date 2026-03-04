@@ -343,9 +343,20 @@ class SemanticAnalyzer(ASTVisitor):
 
 		is_fp = node.type_spec.is_function_pointer
 
+		# Detect char array initialized from string literal
+		is_array = node.array_sizes is not None and len(node.array_sizes) > 0
+		_is_char_array_str_init = (
+			is_array
+			and node.type_spec.base_type == "char"
+			and node.type_spec.pointer_count == 0
+			and isinstance(node.initializer, StringLiteral)
+		)
+
 		if node.initializer is not None:
 			if isinstance(node.initializer, InitializerList):
 				self._check_initializer_list(node)
+			elif _is_char_array_str_init:
+				pass  # char array from string literal is always valid; size checked below
 			else:
 				if is_fp:
 					self._check_func_ptr_initializer(node)
@@ -357,14 +368,17 @@ class SemanticAnalyzer(ASTVisitor):
 							f"'{node.type_spec.base_type}' and '{init_type.base_type}'",
 							node,
 						)
-		is_array = node.array_sizes is not None and len(node.array_sizes) > 0
 		array_size_vals: list[int] = []
 		if is_array:
 			for size_expr in node.array_sizes:  # type: ignore[union-attr]
 				if isinstance(size_expr, IntLiteral) and size_expr.value == 0:
-					# Infer size from initializer list
+					# Infer size from initializer
 					if isinstance(node.initializer, InitializerList):
 						inferred = len(node.initializer.elements)
+						size_expr.value = inferred
+						array_size_vals.append(inferred)
+					elif _is_char_array_str_init:
+						inferred = len(node.initializer.value) + 1  # +1 for null terminator
 						size_expr.value = inferred
 						array_size_vals.append(inferred)
 					else:
