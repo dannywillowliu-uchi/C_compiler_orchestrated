@@ -943,8 +943,23 @@ class SemanticAnalyzer(ASTVisitor):
 			return TypeSpec(base_type="int")
 		sym = self.symbols.lookup(node.name)
 		if sym is None:
-			self._error(f"call to undeclared function '{node.name}'", node)
-			return None
+			# C89 implicit function declaration: assume int return, unspecified params
+			self.warnings.append(
+				f"implicit declaration of function '{node.name}'"
+			)
+			implicit_type = TypeSpec(base_type="int")
+			implicit_sym = Symbol(
+				name=node.name,
+				type_spec=implicit_type,
+				scope_depth=0,
+				is_function=True,
+				param_types=[],
+				is_variadic=True,
+			)
+			self.symbols.define(implicit_sym)
+			for arg in node.arguments:
+				self.visit(arg)
+			return implicit_type
 		# Handle indirect calls through function pointers
 		if sym.is_function_pointer or (sym.type_spec is not None and sym.type_spec.is_function_pointer):
 			fp_type = sym.type_spec
@@ -1010,7 +1025,9 @@ class SemanticAnalyzer(ASTVisitor):
 		seen_values: set[int | str] = set()
 		has_default = False
 		for case in node.cases:
-			if case.value is None:
+			if case.is_pre_switch:
+				pass  # Pre-switch statements (before first case/default)
+			elif case.value is None:
 				if has_default:
 					self._error("duplicate default label in switch", case)
 				has_default = True

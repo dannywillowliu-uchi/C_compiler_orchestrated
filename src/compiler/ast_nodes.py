@@ -521,6 +521,7 @@ class CaseClause(ASTNode):
 
 	value: ASTNode | None = None
 	statements: list[ASTNode] = field(default_factory=list)
+	is_pre_switch: bool = False
 
 	def accept(self, visitor: ASTVisitor) -> Any:
 		return visitor.visit_case_clause(self)

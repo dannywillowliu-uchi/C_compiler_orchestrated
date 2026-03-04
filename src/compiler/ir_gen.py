@@ -1137,10 +1137,19 @@ class IRGenerator(ASTVisitor):
 		# Push switch onto loop stack so break jumps to end_label
 		self._loop_stack.append((end_label, end_label))
 
+		# Separate pre-switch statements from case/default clauses
+		pre_switch_clauses: list[CaseClause] = []
+		regular_clauses: list[CaseClause] = []
+		for clause in node.cases:
+			if clause.is_pre_switch:
+				pre_switch_clauses.append(clause)
+			else:
+				regular_clauses.append(clause)
+
 		# Build case labels and default label
 		case_labels: list[tuple[CaseClause, str]] = []
 		default_label: str | None = None
-		for clause in node.cases:
+		for clause in regular_clauses:
 			lbl = self._new_label("case")
 			if clause.value is None:
 				default_label = lbl
@@ -1161,6 +1170,11 @@ class IRGenerator(ASTVisitor):
 			self._emit(IRJump(target=default_label))
 		else:
 			self._emit(IRJump(target=end_label))
+
+		# Emit pre-switch statements (reachable only via goto)
+		for clause in pre_switch_clauses:
+			for stmt in clause.statements:
+				self.visit(stmt)
 
 		# Emit case bodies (fallthrough by default, break exits)
 		for clause, lbl in case_labels:
