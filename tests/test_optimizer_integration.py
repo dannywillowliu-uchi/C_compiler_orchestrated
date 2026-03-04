@@ -193,9 +193,10 @@ class TestDeadCodeEliminationIntegration:
 		asm = _compile(source)
 		assert "pick:" in asm
 		assert "$1" in asm
-		assert "$0" in asm
-		# Should have conditional logic
-		assert "cmpq" in asm
+		# movq $0 is now optimized to xorq %reg, %reg by peephole
+		assert "$0" in asm or "xorq" in asm
+		# Should have conditional logic (cmpq $0 may become testq)
+		assert "cmpq" in asm or "testq" in asm
 		assert "ret" in asm
 
 	def test_loop_body_preserved(self) -> None:
@@ -397,7 +398,8 @@ class TestStrengthReductionIntegration:
 		"""
 		asm = _compile(source)
 		assert "zero:" in asm
-		assert "$0" in asm
+		# movq $0 is now optimized to xorq %reg, %reg by peephole
+		assert "$0" in asm or "xorq" in asm
 		assert "imulq" not in asm
 
 	def test_add_zero_eliminated(self) -> None:
