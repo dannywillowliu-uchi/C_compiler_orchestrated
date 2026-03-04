@@ -40,6 +40,19 @@ class _IfState:
 	is_else: bool = False  # Whether we've seen #else
 
 
+_BUILTIN_HEADERS: dict[str, str] = {
+	"stdbool.h": "\n".join([
+		"#ifndef _STDBOOL_H",
+		"#define _STDBOOL_H",
+		"#define bool _Bool",
+		"#define true 1",
+		"#define false 0",
+		"#define __bool_true_false_are_defined 1",
+		"#endif",
+	]),
+}
+
+
 class Preprocessor:
 	"""C preprocessor that transforms source text for the lexer."""
 
@@ -445,25 +458,36 @@ class Preprocessor:
 		if not (args.startswith('"') or args.startswith("<")):
 			args = self._expand_macros(args, filename, line_num).strip()
 
-		# "file" - quoted form
+		# Extract include name for built-in header check
+		include_name: str | None = None
 		match = re.match(r'"([^"]+)"', args)
 		if match:
 			include_name = match.group(1)
+		else:
+			match = re.match(r"<([^>]+)>", args)
+			if match:
+				include_name = match.group(1)
+
+		if include_name is None:
+			raise PreprocessorError(f"Invalid #include syntax: {args!r}", filename, line_num)
+
+		# Check for built-in headers first
+		if include_name in _BUILTIN_HEADERS:
+			builtin_content = _BUILTIN_HEADERS[include_name]
+			return self.process(builtin_content, f"<builtin:{include_name}>")
+
+		# "file" - quoted form
+		if args.startswith('"'):
 			resolved = self._resolve_include(include_name, filename, quoted=True)
 			if resolved is None:
 				raise PreprocessorError(f"Cannot find include file: {include_name!r}", filename, line_num)
 			return self._process_include(resolved, filename, line_num)
 
 		# <file> - angle bracket form
-		match = re.match(r"<([^>]+)>", args)
-		if match:
-			include_name = match.group(1)
-			resolved = self._resolve_include(include_name, filename, quoted=False)
-			if resolved is None:
-				raise PreprocessorError(f"Cannot find include file: {include_name!r}", filename, line_num)
-			return self._process_include(resolved, filename, line_num)
-
-		raise PreprocessorError(f"Invalid #include syntax: {args!r}", filename, line_num)
+		resolved = self._resolve_include(include_name, filename, quoted=False)
+		if resolved is None:
+			raise PreprocessorError(f"Cannot find include file: {include_name!r}", filename, line_num)
+		return self._process_include(resolved, filename, line_num)
 
 	def _resolve_include(self, name: str, current_file: str, quoted: bool) -> str | None:
 		"""Resolve an include file path."""

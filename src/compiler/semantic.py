@@ -124,7 +124,7 @@ class SymbolTable:
 
 # Type compatibility helpers
 
-_NUMERIC_TYPES = {"int", "char", "short", "long", "float", "double"}
+_NUMERIC_TYPES = {"int", "char", "short", "long", "float", "double", "_Bool"}
 _ARITHMETIC_OPS = {"+", "-", "*", "/", "%"}
 _COMPARISON_OPS = {"<", ">", "<=", ">=", "==", "!="}
 _LOGICAL_OPS = {"&&", "||"}
@@ -148,6 +148,8 @@ def _type_rank(ts: TypeSpec) -> int:
 		return 2
 	if ts.base_type == "char":
 		return 1
+	if ts.base_type == "_Bool":
+		return 0
 	# int or anything else
 	return 3
 
@@ -233,7 +235,7 @@ def _type_size(ts: TypeSpec) -> int:
 		return 8
 	if wm == "long long":
 		return 8
-	base_sizes = {"int": 4, "char": 1, "float": 4, "double": 8, "short": 2, "long": 8, "void": 0}
+	base_sizes = {"int": 4, "char": 1, "float": 4, "double": 8, "short": 2, "long": 8, "void": 0, "_Bool": 1}
 	return base_sizes.get(ts.base_type, 4)
 
 

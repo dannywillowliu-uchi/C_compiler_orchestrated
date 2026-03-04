@@ -9,6 +9,7 @@ from typing import Optional
 
 class IRType(Enum):
 	"""Primitive types in the IR."""
+	BOOL = auto()
 	INT = auto()
 	CHAR = auto()
 	SHORT = auto()
@@ -22,6 +23,7 @@ class IRType(Enum):
 def ir_type_byte_width(ir_type: IRType) -> int:
 	"""Return the byte width for a given IR type."""
 	_widths = {
+		IRType.BOOL: 1,
 		IRType.CHAR: 1,
 		IRType.SHORT: 2,
 		IRType.INT: 4,
@@ -36,12 +38,13 @@ def ir_type_byte_width(ir_type: IRType) -> int:
 
 def ir_type_is_integer(ir_type: IRType) -> bool:
 	"""Return True if the IR type is an integer type."""
-	return ir_type in (IRType.CHAR, IRType.SHORT, IRType.INT, IRType.LONG)
+	return ir_type in (IRType.BOOL, IRType.CHAR, IRType.SHORT, IRType.INT, IRType.LONG)
 
 
 def ir_type_asm_suffix(ir_type: IRType) -> str:
 	"""Return the AT&T assembly suffix for a given IR type."""
 	_suffixes = {
+		IRType.BOOL: "b",
 		IRType.CHAR: "b",
 		IRType.SHORT: "w",
 		IRType.INT: "l",
