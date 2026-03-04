@@ -164,7 +164,9 @@ class CodeGenerator:
 				if g.storage_class != "static":
 					self._emit(f".globl {g.name}")
 				self._emit(f"{g.name}:")
-				if g.ir_type == IRType.CHAR:
+				if g.total_size > 0:
+					self._emit_instr(f".zero {g.total_size}")
+				elif g.ir_type == IRType.CHAR:
 					self._emit_instr(".zero 1")
 				elif g.ir_type == IRType.SHORT:
 					self._emit_instr(".zero 2")
