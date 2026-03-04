@@ -553,6 +553,9 @@ class SemanticAnalyzer(ASTVisitor):
 	def visit_compound_assignment(self, node: CompoundAssignment) -> TypeSpec | None:
 		target_type = self.visit(node.target)
 		value_type = self.visit(node.value)
+		# Const check
+		if self._is_const_target(node.target):
+			self._error("assignment to const variable", node)
 		if target_type is None or value_type is None:
 			return None
 		# Arithmetic compound ops require numeric types
@@ -661,6 +664,9 @@ class SemanticAnalyzer(ASTVisitor):
 		operand_type = self.visit(node.operand)
 		if operand_type is None:
 			return None
+		if node.op in ("++", "--"):
+			if self._is_const_target(node.operand):
+				self._error("increment/decrement of const variable", node)
 		if node.op == "*":
 			if operand_type.pointer_count < 1:
 				self._error("dereference of non-pointer type", node)
@@ -704,6 +710,9 @@ class SemanticAnalyzer(ASTVisitor):
 
 	def visit_assignment(self, node: Assignment) -> TypeSpec | None:
 		target_type = self.visit(node.target)
+		# Const check
+		if self._is_const_target(node.target):
+			self._error("assignment to const variable", node)
 		# Check if target is a function pointer
 		if isinstance(node.target, Identifier):
 			sym = self.symbols.lookup(node.target.name)
@@ -868,6 +877,8 @@ class SemanticAnalyzer(ASTVisitor):
 		operand_type = self.visit(node.operand)
 		if not self._is_lvalue(node.operand):
 			self._error("operand of postfix operator must be an lvalue", node)
+		if self._is_const_target(node.operand):
+			self._error("increment/decrement of const variable", node)
 		return operand_type
 
 	def visit_cast_expr(self, node: CastExpr) -> TypeSpec:
@@ -893,6 +904,21 @@ class SemanticAnalyzer(ASTVisitor):
 	def visit_comma_expr(self, node: CommaExpr) -> TypeSpec | None:
 		self.visit(node.left)
 		return self.visit(node.right)
+
+	def _is_const_target(self, node: ASTNode) -> bool:
+		"""Return True if *node* refers to a const-qualified variable.
+
+		For pointer types like ``const int *p``, the const applies to the
+		pointee, not the pointer itself, so ``p`` is NOT const.
+		"""
+		if isinstance(node, Identifier):
+			sym = self.symbols.lookup(node.name)
+			if sym is not None and "const" in sym.type_spec.qualifiers:
+				# const int *p  ->  p is mutable (pointee is const)
+				if sym.type_spec.pointer_count > 0:
+					return False
+				return True
+		return False
 
 	def _is_lvalue(self, node: ASTNode) -> bool:
 		if isinstance(node, Identifier):
