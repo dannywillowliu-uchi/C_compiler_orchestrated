@@ -283,10 +283,11 @@ class CompoundAssignment(ASTNode):
 
 @dataclass
 class FunctionCall(ASTNode):
-	"""Function call: name(arguments)."""
+	"""Function call: name(arguments) or callee(arguments) for indirect calls."""
 
 	name: str = ""
 	arguments: list[ASTNode] = field(default_factory=list)
+	callee: ASTNode | None = None
 
 	def accept(self, visitor: ASTVisitor) -> Any:
 		return visitor.visit_function_call(self)

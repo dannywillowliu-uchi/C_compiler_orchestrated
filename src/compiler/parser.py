@@ -1161,7 +1161,7 @@ class Parser:
 		node = self._parse_primary()
 
 		while True:
-			if self._check(TokenType.LPAREN) and isinstance(node, Identifier):
+			if self._check(TokenType.LPAREN):
 				self._advance()  # consume '('
 				args: list[ASTNode] = []
 				if not self._check(TokenType.RPAREN):
@@ -1169,7 +1169,10 @@ class Parser:
 					while self._match(TokenType.COMMA):
 						args.append(self._parse_assignment())
 				self._expect(TokenType.RPAREN, "Expected ')' after function arguments")
-				node = FunctionCall(name=node.name, arguments=args, loc=node.loc)
+				if isinstance(node, Identifier):
+					node = FunctionCall(name=node.name, arguments=args, loc=node.loc)
+				else:
+					node = FunctionCall(callee=node, arguments=args, loc=node.loc)
 			elif self._check(TokenType.LBRACKET):
 				self._advance()  # consume '['
 				index = self._parse_expression()

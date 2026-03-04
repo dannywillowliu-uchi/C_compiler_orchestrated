@@ -761,6 +761,19 @@ class IRGenerator(ASTVisitor):
 		for av in arg_vals:
 			self._emit(IRParam(value=av))
 		dest = self._new_temp()
+		# Indirect call via expression callee (e.g. (*fp)(args), arr[i](args))
+		if node.callee is not None:
+			func_val = self.visit(node.callee)
+			if not isinstance(func_val, IRTemp):
+				tmp = self._new_temp()
+				self._set_temp_type(tmp, IRType.POINTER)
+				self._emit(IRCopy(dest=tmp, source=func_val, ir_type=IRType.POINTER))
+				func_val = tmp
+			self._emit(IRCall(
+				dest=dest, function_name="<indirect>", args=arg_vals,
+				arg_types=arg_types, indirect=True, func_value=func_val,
+			))
+			return dest
 		# Check if this is an indirect call through a function pointer
 		if node.name in self._func_ptr_locals:
 			fp_temp = self._locals.get(node.name)
