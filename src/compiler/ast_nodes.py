@@ -412,9 +412,10 @@ class ExprStmt(ASTNode):
 
 @dataclass
 class ReturnStmt(ASTNode):
-	"""Return statement with expression."""
+	"""Return statement with optional expression."""
 
 	expression: ASTNode = field(default_factory=ASTNode)
+	has_expression: bool = True
 
 	def accept(self, visitor: ASTVisitor) -> Any:
 		return visitor.visit_return_stmt(self)

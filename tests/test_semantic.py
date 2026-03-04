@@ -703,7 +703,7 @@ class TestErrorLocationInfo:
 	def test_undeclared_error_preserves_location(self) -> None:
 		prog = Program(declarations=[
 			FunctionDecl(
-				return_type=void_type(),
+				return_type=int_type(),
 				name="f",
 				params=[],
 				body=CompoundStmt(statements=[

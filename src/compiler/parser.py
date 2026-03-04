@@ -781,9 +781,10 @@ class Parser:
 			expr = self._parse_expression()
 		self._expect(TokenType.SEMICOLON, "Expected ';' after return statement")
 		# ReturnStmt always has an expression field (ASTNode), use IntLiteral(0) for bare return
+		has_expr = expr is not None
 		if expr is None:
 			expr = IntLiteral(value=0, loc=self._loc(tok))
-		return ReturnStmt(expression=expr, loc=self._loc(tok))
+		return ReturnStmt(expression=expr, has_expression=has_expr, loc=self._loc(tok))
 
 	def _parse_if_stmt(self) -> IfStmt:
 		"""Parse 'if (cond) stmt [else stmt]'."""

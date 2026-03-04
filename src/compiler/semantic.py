@@ -197,6 +197,7 @@ class SemanticAnalyzer(ASTVisitor):
 	def __init__(self) -> None:
 		self.symbols = SymbolTable()
 		self.errors: list[SemanticError] = []
+		self.warnings: list[str] = []
 		self._current_function: FunctionDecl | None = None
 		self._loop_depth: int = 0
 		self._switch_depth: int = 0
@@ -314,6 +315,15 @@ class SemanticAnalyzer(ASTVisitor):
 		for goto_label, goto_node in self._goto_refs:
 			if goto_label not in self._label_defs:
 				self._error(f"use of undeclared label '{goto_label}'", goto_node)
+		# Warn if non-void function may fall off without returning
+		if (
+			node.return_type.base_type != "void" or node.return_type.pointer_count > 0
+		) and node.body is not None:
+			stmts = node.body.statements
+			if not stmts or not isinstance(stmts[-1], ReturnStmt):
+				self.warnings.append(
+					f"control reaches end of non-void function '{node.name}'"
+				)
 		self.symbols.pop_scope()
 		self._current_function = prev_func
 		self._label_defs = prev_label_defs
@@ -543,6 +553,18 @@ class SemanticAnalyzer(ASTVisitor):
 		self.symbols.pop_scope()
 
 	def visit_return_stmt(self, node: ReturnStmt) -> None:
+		is_void_func = (
+			self._current_function is not None
+			and self._current_function.return_type.base_type == "void"
+			and self._current_function.return_type.pointer_count == 0
+		)
+		# Check: void function must not return a value
+		if is_void_func and node.has_expression:
+			self._error("void function should not return a value", node)
+			return
+		# Bare return in void function is fine; skip type check
+		if is_void_func and not node.has_expression:
+			return
 		ret_type = self.visit(node.expression)
 		if self._current_function is not None and ret_type is not None:
 			expected = self._current_function.return_type
@@ -705,6 +727,12 @@ class SemanticAnalyzer(ASTVisitor):
 			sym = self.symbols.lookup(node.operand.name)
 			if sym is not None and sym.is_function:
 				return TypeSpec(base_type="void", pointer_count=1)
+			# Check: cannot take address of register variable (C89 6.3.3.2)
+			if sym is not None and sym.storage_class == "register":
+				self._error(
+					f"address of register variable '{node.operand.name}' requested",
+					node,
+				)
 		# Address-of: inhibit array decay for the operand
 		if node.op == "&":
 			old_flag = self._in_sizeof_or_addressof
