@@ -12,6 +12,7 @@ from compiler.ir import (
 	IRConst,
 	IRConvert,
 	IRCopy,
+	IRFloatConst,
 	IRFunction,
 	IRInstruction,
 	IRJump,
@@ -68,16 +69,42 @@ class IROptimizer:
 		"""Replace operations on two constants with the computed result."""
 		result: list[IRInstruction] = []
 		for instr in body:
-			if isinstance(instr, IRBinOp) and isinstance(instr.left, IRConst) and isinstance(instr.right, IRConst):
-				folded = self._eval_binop(instr.left.value, instr.op, instr.right.value)
-				if folded is not None:
-					result.append(IRCopy(dest=instr.dest, source=IRConst(folded)))
-					continue
-			elif isinstance(instr, IRUnaryOp) and isinstance(instr.operand, IRConst):
-				folded = self._eval_unaryop(instr.op, instr.operand.value)
-				if folded is not None:
-					result.append(IRCopy(dest=instr.dest, source=IRConst(folded)))
-					continue
+			if isinstance(instr, IRBinOp):
+				left_const = isinstance(instr.left, (IRConst, IRFloatConst))
+				right_const = isinstance(instr.right, (IRConst, IRFloatConst))
+				if left_const and right_const:
+					left_is_float = isinstance(instr.left, IRFloatConst)
+					right_is_float = isinstance(instr.right, IRFloatConst)
+					if left_is_float or right_is_float:
+						lv = float(instr.left.value)
+						rv = float(instr.right.value)
+						ir_type = (
+							instr.left.ir_type if left_is_float
+							else instr.right.ir_type
+						)
+						folded = self._eval_float_binop(lv, instr.op, rv)
+						if folded is not None:
+							if isinstance(folded, int):
+								result.append(IRCopy(dest=instr.dest, source=IRConst(folded)))
+							else:
+								result.append(IRCopy(dest=instr.dest, source=IRFloatConst(folded, ir_type=ir_type)))
+							continue
+					else:
+						folded = self._eval_binop(instr.left.value, instr.op, instr.right.value)
+						if folded is not None:
+							result.append(IRCopy(dest=instr.dest, source=IRConst(folded)))
+							continue
+			elif isinstance(instr, IRUnaryOp):
+				if isinstance(instr.operand, IRFloatConst):
+					folded = self._eval_float_unaryop(instr.op, instr.operand.value)
+					if folded is not None:
+						result.append(IRCopy(dest=instr.dest, source=IRFloatConst(folded, ir_type=instr.operand.ir_type)))
+						continue
+				elif isinstance(instr.operand, IRConst):
+					folded = self._eval_unaryop(instr.op, instr.operand.value)
+					if folded is not None:
+						result.append(IRCopy(dest=instr.dest, source=IRConst(folded)))
+						continue
 			result.append(instr)
 		return result
 
@@ -118,6 +145,38 @@ class IROptimizer:
 			return ~operand
 		if op == "!":
 			return int(not operand)
+		return None
+
+	def _eval_float_binop(self, left: float, op: str, right: float) -> float | int | None:
+		"""Evaluate a binary operation on float constants. Comparisons return int."""
+		if op == "/" and right == 0.0:
+			return None
+		arithmetic: dict[str, object] = {
+			"+": lambda a, b: a + b,
+			"-": lambda a, b: a - b,
+			"*": lambda a, b: a * b,
+			"/": lambda a, b: a / b,
+		}
+		fn = arithmetic.get(op)
+		if fn is not None:
+			return fn(left, right)  # type: ignore[operator]
+		comparisons: dict[str, object] = {
+			"<": lambda a, b: int(a < b),
+			">": lambda a, b: int(a > b),
+			"<=": lambda a, b: int(a <= b),
+			">=": lambda a, b: int(a >= b),
+			"==": lambda a, b: int(a == b),
+			"!=": lambda a, b: int(a != b),
+		}
+		fn = comparisons.get(op)
+		if fn is not None:
+			return fn(left, right)  # type: ignore[operator]
+		return None
+
+	def _eval_float_unaryop(self, op: str, operand: float) -> float | None:
+		"""Evaluate a unary operation on a float constant."""
+		if op == "-":
+			return -operand
 		return None
 
 	# -- Redundant Convert Elimination --
@@ -200,7 +259,7 @@ class IROptimizer:
 					del copies[k]
 
 			# Track new copy relationships
-			if isinstance(new_instr, IRCopy) and isinstance(new_instr.source, (IRTemp, IRConst)):
+			if isinstance(new_instr, IRCopy) and isinstance(new_instr.source, (IRTemp, IRConst, IRFloatConst)):
 				source = new_instr.source
 				if isinstance(source, IRTemp) and source.name in copies:
 					source = copies[source.name]
