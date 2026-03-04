@@ -408,9 +408,12 @@ class Preprocessor:
 			raise PreprocessorError("Empty #if expression", filename, line_num)
 
 		try:
-			# Support C-style logical/bitwise operators
-			# Replace C operators that differ from Python
 			py_expr = expr
+			# Convert C logical operators to Python equivalents
+			py_expr = py_expr.replace("&&", " and ")
+			py_expr = py_expr.replace("||", " or ")
+			# Replace '!' (logical not) but not '!=' (not-equal)
+			py_expr = re.sub(r"!(?!=)", " not ", py_expr)
 			# Handle character literals like 'A'
 			py_expr = re.sub(r"'\\?(.)'", lambda m: str(ord(m.group(0)[1:-1].encode().decode("unicode_escape"))), py_expr)
 			result = eval(py_expr, {"__builtins__": {}}, {})  # noqa: S307
