@@ -488,3 +488,146 @@ class TestEndToEnd:
 		# Should use at least one allocatable register
 		has_alloc_reg = any(reg in assembly for reg in ALLOCATABLE_REGS)
 		assert has_alloc_reg, f"Expected allocatable registers in assembly:\n{assembly}"
+
+
+# ---------------------------------------------------------------------------
+# Tests: move coalescing
+# ---------------------------------------------------------------------------
+
+class TestMoveCoalescing:
+	def test_copy_chain_coalesced_same_register(self) -> None:
+		"""A chain of copies (a -> b -> c) with no interference should coalesce."""
+		func = _simple_func("f", [
+			IRLabelInstr("entry"),
+			IRCopy(dest=_t("a"), source=_c(42)),
+			IRCopy(dest=_t("b"), source=_t("a")),
+			IRCopy(dest=_t("c"), source=_t("b")),
+			IRReturn(value=_t("c")),
+		])
+		allocator = RegisterAllocator(func)
+		result = allocator.allocate()
+		# All three temps should be coalesced to the same register
+		assert "a" in result
+		assert "b" in result
+		assert "c" in result
+		assert result["a"] == result["b"] == result["c"]
+
+	def test_interfering_copies_not_coalesced(self) -> None:
+		"""Copies between interfering temps must not be coalesced."""
+		func = _simple_func("f", [
+			IRLabelInstr("entry"),
+			IRCopy(dest=_t("a"), source=_c(1)),
+			IRCopy(dest=_t("b"), source=_c(2)),
+			# a and b are both live here
+			IRCopy(dest=_t("c"), source=_t("a")),
+			IRBinOp(dest=_t("d"), left=_t("c"), op="+", right=_t("b")),
+			IRReturn(value=_t("d")),
+		])
+		allocator = RegisterAllocator(func)
+		result = allocator.allocate()
+		# a and b interfere, so they must have different registers
+		assert result["a"] != result["b"]
+
+	def test_coalesced_copy_eliminates_movq(self) -> None:
+		"""When source and dest are coalesced, codegen should not emit a reg-to-reg movq for the copy."""
+		func = _simple_func("f", [
+			IRLabelInstr("entry"),
+			IRCopy(dest=_t("a"), source=_c(10)),
+			IRCopy(dest=_t("b"), source=_t("a")),
+			IRReturn(value=_t("b")),
+		])
+		program = IRProgram(functions=[func])
+		reg_maps = allocate_registers(program)
+
+		# Verify coalescing happened: a and b must share the same register
+		func_map = reg_maps.get("f", {})
+		assert func_map["a"] == func_map["b"], (
+			f"a and b should be coalesced to same register: a={func_map.get('a')}, b={func_map.get('b')}"
+		)
+
+		codegen = CodeGenerator(regalloc_maps=reg_maps)
+		assembly = codegen.generate(program)
+
+		# Count reg-to-reg movq between allocatable registers (not const loads or stack ops)
+		alloc_set = set(ALLOCATABLE_REGS)
+		reg_to_reg_moves = 0
+		for line in assembly.splitlines():
+			stripped = line.strip()
+			if not stripped.startswith("movq"):
+				continue
+			parts = stripped.split()
+			if len(parts) >= 2:
+				src = parts[1].rstrip(",")
+				dst = parts[2] if len(parts) > 2 else ""
+				if src in alloc_set and dst in alloc_set:
+					reg_to_reg_moves += 1
+
+		# With coalescing, the copy b=a should produce no reg-to-reg move
+		assert reg_to_reg_moves == 0, (
+			f"Expected 0 reg-to-reg moves between allocatable regs, got {reg_to_reg_moves}.\n{assembly}"
+		)
+
+	def test_multiple_copies_reduced_moves(self) -> None:
+		"""Multiple sequential copies should produce fewer moves with coalescing."""
+		func = _simple_func("f", [
+			IRLabelInstr("entry"),
+			IRCopy(dest=_t("x"), source=_c(5)),
+			IRCopy(dest=_t("y"), source=_t("x")),
+			IRCopy(dest=_t("z"), source=_t("y")),
+			IRCopy(dest=_t("w"), source=_t("z")),
+			IRReturn(value=_t("w")),
+		])
+		allocator = RegisterAllocator(func)
+		result = allocator.allocate()
+		# All should coalesce to same register
+		assert result["x"] == result["y"] == result["z"] == result["w"]
+
+	def test_coalescing_preserves_correctness(self) -> None:
+		"""Coalescing must not violate the interference graph constraint."""
+		func = _simple_func("f", [
+			IRLabelInstr("entry"),
+			IRCopy(dest=_t("a"), source=_c(1)),
+			IRCopy(dest=_t("b"), source=_c(2)),
+			IRBinOp(dest=_t("c"), left=_t("a"), op="+", right=_t("b")),
+			IRCopy(dest=_t("d"), source=_t("c")),
+			IRBinOp(dest=_t("e"), left=_t("d"), op="*", right=_c(3)),
+			IRReturn(value=_t("e")),
+		])
+		allocator = RegisterAllocator(func)
+		result = allocator.allocate()
+
+		# Validate coloring against interference graph
+		cfg = CFG(func.body)
+		analyzer = LivenessAnalyzer(cfg)
+		ig = analyzer.interference_graph()
+		for node, neighbors in ig.items():
+			if node in result:
+				for neighbor in neighbors:
+					if neighbor in result:
+						assert result[node] != result[neighbor], (
+							f"{node}={result[node]} conflicts with {neighbor}={result[neighbor]}"
+						)
+
+	def test_spill_heuristic_prefers_low_use(self) -> None:
+		"""The improved spill heuristic should prefer spilling less-used temps."""
+		# Create K+1 temps all live simultaneously, where one is used much more
+		num_temps = K + 1
+		body: list = [IRLabelInstr("entry")]
+		for i in range(num_temps):
+			body.append(IRCopy(dest=_t(f"t{i}"), source=_c(i)))
+		# Use t0 multiple times to increase its use count
+		body.append(IRBinOp(dest=_t("extra1"), left=_t("t0"), op="+", right=_t("t0")))
+		body.append(IRBinOp(dest=_t("extra2"), left=_t("extra1"), op="+", right=_t("t0")))
+		# Use all temps to keep them live
+		result_temp = _t("extra2")
+		for i in range(1, num_temps):
+			new_dest = _t(f"sum{i}")
+			body.append(IRBinOp(dest=new_dest, left=result_temp, op="+", right=_t(f"t{i}")))
+			result_temp = new_dest
+		body.append(IRReturn(value=result_temp))
+
+		func = _simple_func("f", body)
+		allocator = RegisterAllocator(func)
+		result = allocator.allocate()
+		# t0 is heavily used, so it should NOT be spilled
+		assert "t0" in result, "Heavily-used temp t0 should not be spilled"

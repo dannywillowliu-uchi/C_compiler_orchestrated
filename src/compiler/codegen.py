@@ -580,6 +580,14 @@ class CodeGenerator:
 		self._store_to_temp("%rax", instr.dest)
 
 	def _gen_copy(self, instr: IRCopy) -> None:
+		# Optimize register-to-register copies: skip %rax intermediary
+		if isinstance(instr.source, IRTemp) and instr.source.name in self._reg_map and instr.dest.name in self._reg_map:
+			src_reg = self._reg_map[instr.source.name]
+			dst_reg = self._reg_map[instr.dest.name]
+			if src_reg == dst_reg:
+				return  # Coalesced: same register, no-op
+			self._emit_instr(f"movq {src_reg}, {dst_reg}")
+			return
 		self._load_value(instr.source, "%rax")
 		self._store_to_temp("%rax", instr.dest)
 
