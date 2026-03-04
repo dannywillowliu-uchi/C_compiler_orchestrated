@@ -191,6 +191,7 @@ class IntLiteral(ASTNode):
 	"""Integer literal, e.g. 42."""
 
 	value: int = 0
+	suffix: str = ""
 
 	def accept(self, visitor: ASTVisitor) -> Any:
 		return visitor.visit_int_literal(self)

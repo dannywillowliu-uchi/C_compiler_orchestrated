@@ -1243,7 +1243,7 @@ class Parser:
 
 		if tok.type == TokenType.INTEGER_LITERAL:
 			self._advance()
-			return IntLiteral(value=int(tok.value, 0), loc=self._loc(tok))
+			return IntLiteral(value=int(tok.value, 0), suffix=tok.suffix.value, loc=self._loc(tok))
 
 		if tok.type == TokenType.FLOAT_LITERAL:
 			self._advance()

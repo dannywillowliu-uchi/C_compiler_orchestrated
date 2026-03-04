@@ -3,7 +3,7 @@
 import pytest
 
 from compiler.lexer import Lexer, LexerError
-from compiler.tokens import Token, TokenType
+from compiler.tokens import IntegerSuffix, Token, TokenType
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -136,22 +136,26 @@ class TestIntegerLiterals:
 	def test_long_suffix(self) -> None:
 		tok = first_token("42L")
 		assert tok.type == TokenType.INTEGER_LITERAL
-		assert tok.value == "42L"
+		assert tok.value == "42"
+		assert tok.suffix == IntegerSuffix.L
 
 	def test_unsigned_suffix(self) -> None:
 		tok = first_token("42U")
 		assert tok.type == TokenType.INTEGER_LITERAL
-		assert tok.value == "42U"
+		assert tok.value == "42"
+		assert tok.suffix == IntegerSuffix.U
 
 	def test_unsigned_long_suffix(self) -> None:
 		tok = first_token("42UL")
 		assert tok.type == TokenType.INTEGER_LITERAL
-		assert tok.value == "42UL"
+		assert tok.value == "42"
+		assert tok.suffix == IntegerSuffix.UL
 
 	def test_hex_with_suffix(self) -> None:
 		tok = first_token("0xFFu")
 		assert tok.type == TokenType.INTEGER_LITERAL
-		assert tok.value == "0xFFu"
+		assert tok.value == "0xFF"
+		assert tok.suffix == IntegerSuffix.U
 
 
 # ── Float Literals ───────────────────────────────────────────────────────────

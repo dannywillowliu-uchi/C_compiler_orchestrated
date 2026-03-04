@@ -1,6 +1,6 @@
 """Lexer for the C compiler. Tokenizes C source code into a list of Tokens."""
 
-from compiler.tokens import KEYWORDS, Token, TokenType
+from compiler.tokens import KEYWORDS, IntegerSuffix, Token, TokenType
 
 _SIMPLE_ESCAPES = {
 	"n": "\n",
@@ -120,8 +120,15 @@ class Lexer:
 		self._advance()
 		return True
 
-	def _make_token(self, token_type: TokenType, value: str, line: int, column: int) -> Token:
-		return Token(type=token_type, value=value, line=line, column=column)
+	def _make_token(
+		self,
+		token_type: TokenType,
+		value: str,
+		line: int,
+		column: int,
+		suffix: IntegerSuffix = IntegerSuffix.NONE,
+	) -> Token:
+		return Token(type=token_type, value=value, line=line, column=column, suffix=suffix)
 
 	def _skip_whitespace(self) -> None:
 		while not self._at_end() and self._peek() in " \t\n\r\f\v":
@@ -196,12 +203,14 @@ class Lexer:
 				raise LexerError("Invalid hex literal", start_line, start_col)
 			while not self._at_end() and self._is_hex_digit(self._peek()):
 				self._advance()
-			self._consume_integer_suffix()
+			num_end = self.pos
+			suffix = self._consume_integer_suffix()
 			return self._make_token(
 				TokenType.INTEGER_LITERAL,
-				self.source[start_pos:self.pos],
+				self.source[start_pos:num_end],
 				start_line,
 				start_col,
+				suffix=suffix,
 			)
 
 		if ch == "0" and self._peek(1) not in (".", "e", "E") and self._is_octal_digit(self._peek(1)):
@@ -209,12 +218,14 @@ class Lexer:
 			self._advance()  # 0
 			while not self._at_end() and self._is_octal_digit(self._peek()):
 				self._advance()
-			self._consume_integer_suffix()
+			num_end = self.pos
+			suffix = self._consume_integer_suffix()
 			return self._make_token(
 				TokenType.INTEGER_LITERAL,
-				self.source[start_pos:self.pos],
+				self.source[start_pos:num_end],
 				start_line,
 				start_col,
+				suffix=suffix,
 			)
 
 		# Decimal integer or float
@@ -248,25 +259,51 @@ class Lexer:
 				start_col,
 			)
 
-		self._consume_integer_suffix()
+		num_end = self.pos
+		suffix = self._consume_integer_suffix()
 		return self._make_token(
 			TokenType.INTEGER_LITERAL,
-			self.source[start_pos:self.pos],
+			self.source[start_pos:num_end],
 			start_line,
 			start_col,
+			suffix=suffix,
 		)
 
-	def _consume_integer_suffix(self) -> None:
-		# u/U, l/L, ul/UL, lu/LU, ll/LL, ull/ULL
+	def _consume_integer_suffix(self) -> IntegerSuffix:
+		"""Consume and return the integer literal suffix (u/U, l/L, ll/LL, ul/UL, ull/ULL)."""
+		has_u = False
+		long_count = 0
+
 		if not self._at_end() and self._peek() in ("u", "U"):
 			self._advance()
+			has_u = True
 		if not self._at_end() and self._peek() in ("l", "L"):
 			self._advance()
+			long_count = 1
 			if not self._at_end() and self._peek() in ("l", "L"):
 				self._advance()
-		elif not self._at_end() and self._peek() in ("u", "U"):
-			# handle LU ordering
+				long_count = 2
+		elif not has_u and not self._at_end() and self._peek() in ("l", "L"):
 			self._advance()
+			long_count = 1
+			if not self._at_end() and self._peek() in ("l", "L"):
+				self._advance()
+				long_count = 2
+		if not has_u and not self._at_end() and self._peek() in ("u", "U"):
+			self._advance()
+			has_u = True
+
+		if has_u and long_count == 2:
+			return IntegerSuffix.ULL
+		if has_u and long_count == 1:
+			return IntegerSuffix.UL
+		if has_u:
+			return IntegerSuffix.U
+		if long_count == 2:
+			return IntegerSuffix.LL
+		if long_count == 1:
+			return IntegerSuffix.L
+		return IntegerSuffix.NONE
 
 	def _read_identifier_or_keyword(self) -> Token:
 		start_line = self.line
