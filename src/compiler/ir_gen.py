@@ -1655,6 +1655,18 @@ class IRGenerator(ASTVisitor):
 		for elem in init_list.elements:
 			if isinstance(elem, IntLiteral):
 				values.append(elem.value)
+			elif isinstance(elem, CharLiteral):
+				values.append(ord(elem.value))
+			elif isinstance(elem, UnaryOp) and elem.op == "-":
+				operand = elem.operand
+				if isinstance(operand, IntLiteral):
+					values.append(-operand.value)
+				elif isinstance(operand, CharLiteral):
+					values.append(-ord(operand.value))
+				else:
+					values.append(0)
+			elif isinstance(elem, Identifier) and elem.name in self._enum_constants:
+				values.append(self._enum_constants[elem.name])
 			elif isinstance(elem, InitializerList):
 				values.extend(self._collect_init_values(elem))
 			else:
