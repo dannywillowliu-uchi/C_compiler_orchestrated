@@ -318,7 +318,29 @@ class IRGenerator(ASTVisitor):
 		"""Emit a global variable declaration with proper initializer handling."""
 		ir_type = _resolve_ir_type(node.type_spec) if not node.type_spec.is_function_pointer else IRType.POINTER
 		sc = storage_class if storage_class is not None else node.storage_class
-		if isinstance(node.initializer, InitializerList):
+		# Global char array initialized from string literal
+		if (
+			node.array_sizes is not None
+			and len(node.array_sizes) > 0
+			and node.type_spec.base_type == "char"
+			and node.type_spec.pointer_count == 0
+			and isinstance(node.initializer, StringLiteral)
+		):
+			string_val = node.initializer.value
+			total_size = 0
+			for se in node.array_sizes:
+				if isinstance(se, IntLiteral):
+					total_size = se.value
+			string_bytes = [ord(ch) for ch in string_val] + [0]
+			init_values = list(string_bytes[:total_size])
+			while len(init_values) < total_size:
+				init_values.append(0)
+			self._globals.append(IRGlobalVar(
+				name=name, ir_type=IRType.CHAR,
+				initializer_values=init_values, total_size=total_size,
+				storage_class=sc,
+			))
+		elif isinstance(node.initializer, InitializerList):
 			init_values = self._collect_init_values(node.initializer)
 			total_size = 0
 			if node.array_sizes:
@@ -408,6 +430,14 @@ class IRGenerator(ASTVisitor):
 		if node.initializer is not None:
 			if isinstance(node.initializer, InitializerList):
 				self._emit_initializer_list(dest, node)
+			elif (
+				node.array_sizes is not None
+				and len(node.array_sizes) > 0
+				and node.type_spec.base_type == "char"
+				and node.type_spec.pointer_count == 0
+				and isinstance(node.initializer, StringLiteral)
+			):
+				self._emit_char_array_from_string(dest, node)
 			elif is_fp:
 				val = self._emit_func_ptr_value(node.initializer)
 				self._emit(IRCopy(dest=dest, source=val, ir_type=IRType.POINTER))
@@ -1404,6 +1434,24 @@ class IRGenerator(ASTVisitor):
 				self._emit(IRBinOp(dest=addr, left=dest, op="+", right=IRConst(field_offset)))
 				self._emit(IRStore(address=addr, value=IRConst(0)))
 				field_offset += self._resolve_member_size(members[i].type_spec)
+
+	def _emit_char_array_from_string(self, dest: IRTemp, node: VarDecl) -> None:
+		"""Emit byte-wise stores for a char array initialized from a string literal."""
+		assert isinstance(node.initializer, StringLiteral)
+		string_val = node.initializer.value
+		# Determine the total array size from array_sizes
+		total_size = 0
+		if node.array_sizes:
+			for se in node.array_sizes:
+				if isinstance(se, IntLiteral):
+					total_size = se.value
+		# String bytes + null terminator
+		string_bytes = [ord(ch) for ch in string_val] + [0]
+		for i in range(total_size):
+			val = IRConst(string_bytes[i] if i < len(string_bytes) else 0)
+			addr = self._new_temp()
+			self._emit(IRBinOp(dest=addr, left=dest, op="+", right=IRConst(i)))
+			self._emit(IRStore(address=addr, value=val, ir_type=IRType.CHAR))
 
 	def _collect_init_values(self, init_list: InitializerList) -> list[int]:
 		"""Collect constant integer values from an initializer list (for globals)."""
