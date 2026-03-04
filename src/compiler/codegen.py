@@ -434,6 +434,7 @@ class CodeGenerator:
 		self._load_value(instr.right, "%rcx")
 
 		op = instr.op
+		unsigned = instr.is_unsigned
 		if op == "+":
 			self._emit_instr("addq %rcx, %rax")
 		elif op == "-":
@@ -441,15 +442,26 @@ class CodeGenerator:
 		elif op == "*":
 			self._emit_instr("imulq %rcx, %rax")
 		elif op == "/":
-			self._emit_instr("cqto")
-			self._emit_instr("idivq %rcx")
+			if unsigned:
+				self._emit_instr("xorq %rdx, %rdx")
+				self._emit_instr("divq %rcx")
+			else:
+				self._emit_instr("cqto")
+				self._emit_instr("idivq %rcx")
 		elif op == "%":
-			self._emit_instr("cqto")
-			self._emit_instr("idivq %rcx")
+			if unsigned:
+				self._emit_instr("xorq %rdx, %rdx")
+				self._emit_instr("divq %rcx")
+			else:
+				self._emit_instr("cqto")
+				self._emit_instr("idivq %rcx")
 			self._emit_instr("movq %rdx, %rax")
 		elif op in ("<", ">", "<=", ">=", "==", "!="):
 			self._emit_instr("cmpq %rcx, %rax")
-			setcc = {"<": "setl", ">": "setg", "<=": "setle", ">=": "setge", "==": "sete", "!=": "setne"}[op]
+			if unsigned:
+				setcc = {"<": "setb", ">": "seta", "<=": "setbe", ">=": "setae", "==": "sete", "!=": "setne"}[op]
+			else:
+				setcc = {"<": "setl", ">": "setg", "<=": "setle", ">=": "setge", "==": "sete", "!=": "setne"}[op]
 			self._emit_instr(f"{setcc} %al")
 			self._emit_instr("movzbq %al, %rax")
 		elif op == "&":
@@ -461,7 +473,10 @@ class CodeGenerator:
 		elif op == "<<":
 			self._emit_instr("salq %cl, %rax")
 		elif op == ">>":
-			self._emit_instr("sarq %cl, %rax")
+			if unsigned:
+				self._emit_instr("shrq %cl, %rax")
+			else:
+				self._emit_instr("sarq %cl, %rax")
 		else:
 			raise ValueError(f"Unknown binary operator: {op}")
 

@@ -95,6 +95,7 @@ class IRBinOp(IRInstruction):
 	op: str
 	right: IRValue
 	ir_type: IRType = IRType.INT
+	is_unsigned: bool = False
 
 	def __str__(self) -> str:
 		return f"{self.dest} = {self.left} {self.op} {self.right}"
