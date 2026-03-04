@@ -73,7 +73,6 @@ from compiler.ir import (
 	IRType,
 	IRUnaryOp,
 	IRValue,
-	ir_type_byte_width,
 )
 
 _TYPE_MAP: dict[str, IRType] = {
@@ -1049,33 +1048,14 @@ class IRGenerator(ASTVisitor):
 		self._emit(IRReturn(value=val, ir_type=val_type))
 
 	def visit_compound_stmt(self, node: CompoundStmt) -> None:
-		# Save outer scope mappings that may be shadowed by inner declarations
-		saved_locals: dict[str, IRTemp] = {}
-		saved_types: dict[str, TypeSpec] = {}
-		saved_arrays: dict[str, list[int]] = {}
-		shadow_names: set[str] = set()
+		saved_locals = dict(self._locals)
+		saved_types = dict(self._local_types)
+		saved_arrays = dict(self._local_array)
 		for stmt in node.statements:
-			if isinstance(stmt, VarDecl) and stmt.name in self._locals:
-				name = stmt.name
-				if name not in shadow_names:
-					shadow_names.add(name)
-					saved_locals[name] = self._locals[name]
-					if name in self._local_types:
-						saved_types[name] = self._local_types[name]
-					if name in self._local_array:
-						saved_arrays[name] = self._local_array[name]
 			self.visit(stmt)
-		# Restore outer scope mappings
-		for name in shadow_names:
-			self._locals[name] = saved_locals[name]
-			if name in saved_types:
-				self._local_types[name] = saved_types[name]
-			else:
-				self._local_types.pop(name, None)
-			if name in saved_arrays:
-				self._local_array[name] = saved_arrays[name]
-			else:
-				self._local_array.pop(name, None)
+		self._locals = saved_locals
+		self._local_types = saved_types
+		self._local_array = saved_arrays
 
 	def visit_if_stmt(self, node: IfStmt) -> None:
 		cond = self.visit(node.condition)
@@ -2051,8 +2031,7 @@ class IRGenerator(ASTVisitor):
 			self._emit(IRConvert(dest=dest, source=val, from_type=val_type, to_type=target_ir_type))
 		elif self._is_float_type(target_ir_type) and self._is_float_type(val_type) and target_ir_type != val_type:
 			self._emit(IRConvert(dest=dest, source=val, from_type=val_type, to_type=target_ir_type))
-		elif target_ir_type != val_type and ir_type_byte_width(target_ir_type) < ir_type_byte_width(val_type):
-			# Narrowing integer cast (e.g. int -> char, int -> short, int -> _Bool)
+		elif val_type != target_ir_type:
 			self._emit(IRConvert(dest=dest, source=val, from_type=val_type, to_type=target_ir_type))
 		else:
 			self._emit(IRCopy(dest=dest, source=val, ir_type=target_ir_type))
