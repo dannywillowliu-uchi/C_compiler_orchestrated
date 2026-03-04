@@ -146,6 +146,7 @@ class IRGenerator(ASTVisitor):
 		self._local_types: dict[str, TypeSpec] = {}
 		self._local_array: dict[str, list[int]] = {}
 		self._temp_types: dict[str, IRType] = {}
+		self._temp_unsigned: dict[str, bool] = {}
 		self._functions: list[IRFunction] = []
 		self._globals: list[IRGlobalVar] = []
 		self._global_names: set[str] = set()
@@ -189,6 +190,12 @@ class IRGenerator(ASTVisitor):
 
 	def _is_float_type(self, ir_type: IRType) -> bool:
 		return ir_type in _FLOAT_TYPES
+
+	def _is_unsigned_value(self, val: IRValue) -> bool:
+		"""Check if a value originates from an unsigned type."""
+		if isinstance(val, IRTemp):
+			return self._temp_unsigned.get(val.name, False)
+		return False
 
 	def _resolve_local_ir_type(self, name: str) -> IRType:
 		"""Get the IRType for a local variable by name."""
@@ -243,6 +250,7 @@ class IRGenerator(ASTVisitor):
 		old_types = self._local_types
 		old_arrays = self._local_array
 		old_temp_types = self._temp_types
+		old_temp_unsigned = self._temp_unsigned
 		old_in_function = self._in_function
 		old_func_ptr_locals = self._func_ptr_locals
 		self._instructions = []
@@ -250,6 +258,7 @@ class IRGenerator(ASTVisitor):
 		self._local_types = {}
 		self._local_array = {}
 		self._temp_types = {}
+		self._temp_unsigned = {}
 		self._in_function = True
 		self._func_ptr_locals = set()
 
@@ -286,6 +295,7 @@ class IRGenerator(ASTVisitor):
 		self._local_types = old_types
 		self._local_array = old_arrays
 		self._temp_types = old_temp_types
+		self._temp_unsigned = old_temp_unsigned
 		self._in_function = old_in_function
 		self._func_ptr_locals = old_func_ptr_locals
 
@@ -401,6 +411,9 @@ class IRGenerator(ASTVisitor):
 			dest = self._new_temp()
 			src_type = self._resolve_local_ir_type(node.name)
 			self._set_temp_type(dest, src_type)
+			ts = self._local_types.get(node.name)
+			if ts is not None and ts.signedness == "unsigned":
+				self._temp_unsigned[dest.name] = True
 			self._emit(IRCopy(dest=dest, source=src, ir_type=src_type))
 			return dest
 		if node.name in self._global_names:
@@ -454,8 +467,11 @@ class IRGenerator(ASTVisitor):
 				self._set_temp_type(dest, result_type)
 			self._emit(IRBinOp(dest=dest, left=left, op=node.op, right=right, ir_type=result_type))
 			return dest
+		is_unsigned = self._is_unsigned_value(left) or self._is_unsigned_value(right)
 		dest = self._new_temp()
-		self._emit(IRBinOp(dest=dest, left=left, op=node.op, right=right))
+		if is_unsigned:
+			self._temp_unsigned[dest.name] = True
+		self._emit(IRBinOp(dest=dest, left=left, op=node.op, right=right, is_unsigned=is_unsigned))
 		return dest
 
 	def _emit_short_circuit_and(self, node: BinaryOp) -> IRTemp:
