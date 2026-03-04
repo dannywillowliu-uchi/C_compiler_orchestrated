@@ -314,7 +314,8 @@ class TestLoadStore:
 			IRReturn(IRTemp("val")),
 		]
 		asm = _gen(IRFunction("f", [], body, IRType.INT))
-		assert "movq (%rax), %rax" in asm
+		assert "movl (%rax), %eax" in asm
+		assert "movslq %eax, %rax" in asm
 
 	def test_store(self) -> None:
 		body: list[IRInstruction] = [
@@ -323,7 +324,7 @@ class TestLoadStore:
 			IRReturn(),
 		]
 		asm = _gen(IRFunction("f", [], body, IRType.VOID))
-		assert "movq %rcx, (%rax)" in asm
+		assert "movl %ecx, (%rax)" in asm
 
 	def test_store_and_load_roundtrip(self) -> None:
 		body: list[IRInstruction] = [
@@ -333,8 +334,8 @@ class TestLoadStore:
 			IRReturn(IRTemp("v")),
 		]
 		asm = _gen(IRFunction("f", [], body, IRType.INT))
-		assert "movq %rcx, (%rax)" in asm
-		assert "movq (%rax), %rax" in asm
+		assert "movl %ecx, (%rax)" in asm
+		assert "movl (%rax), %eax" in asm
 
 
 # ---------------------------------------------------------------------------
@@ -699,8 +700,8 @@ class TestIntegration:
 		asm = _gen(func)
 		assert "subq $16, %rsp" in asm  # alloc 8 rounds to 16
 		assert "movq %rsp, %rax" in asm
-		assert "movq %rcx, (%rax)" in asm
-		assert "movq (%rax), %rax" in asm
+		assert "movl %ecx, (%rax)" in asm
+		assert "movl (%rax), %eax" in asm
 		assert "ret" in asm
 
 	def test_call_with_return(self) -> None:
@@ -759,7 +760,7 @@ class TestArrayCodegen:
 		assert "subq $" in asm  # alloc
 		assert "imulq %rcx, %rax" in asm  # offset = 2 * 4
 		assert "addq %rcx, %rax" in asm  # addr = arr + offset
-		assert "movq (%rax), %rax" in asm  # load
+		assert "movl (%rax), %eax" in asm  # load
 		assert "ret" in asm
 
 	def test_array_element_write(self) -> None:
@@ -772,7 +773,7 @@ class TestArrayCodegen:
 			IRReturn(),
 		]
 		asm = _gen(IRFunction("f", [], body, IRType.VOID))
-		assert "movq %rcx, (%rax)" in asm  # store
+		assert "movl %ecx, (%rax)" in asm  # store
 		assert "ret" in asm
 
 	def test_array_loop_access(self) -> None:
@@ -796,7 +797,7 @@ class TestArrayCodegen:
 		assert "loop:" in asm
 		assert "body:" in asm
 		assert "end:" in asm
-		assert "movq (%rax), %rax" in asm
+		assert "movl (%rax), %eax" in asm
 		assert "ret" in asm
 
 
@@ -833,7 +834,7 @@ class TestErrors:
 
 class TestGlobalVars:
 	def test_initialized_global_data_section(self) -> None:
-		"""Initialized global should appear in .data with .quad directive."""
+		"""Initialized global should appear in .data with .long directive for INT."""
 		prog = IRProgram(
 			functions=[IRFunction("main", [], [IRReturn(IRConst(0))], IRType.INT)],
 			globals=[IRGlobalVar("counter", IRType.INT, initializer=42)],
@@ -842,7 +843,7 @@ class TestGlobalVars:
 		assert ".section .data" in asm
 		assert ".globl counter" in asm
 		assert "counter:" in asm
-		assert ".quad 42" in asm
+		assert ".long 42" in asm
 
 	def test_uninitialized_global_bss_section(self) -> None:
 		"""Uninitialized global should appear in .bss with .zero directive."""
@@ -854,7 +855,7 @@ class TestGlobalVars:
 		assert ".section .bss" in asm
 		assert ".globl buffer" in asm
 		assert "buffer:" in asm
-		assert ".zero 8" in asm
+		assert ".zero 4" in asm
 
 	def test_char_global_uses_byte(self) -> None:
 		"""Char-typed initialized global emits .byte instead of .quad."""
@@ -886,8 +887,8 @@ class TestGlobalVars:
 		asm = CodeGenerator().generate(prog)
 		assert ".section .data" in asm
 		assert ".section .bss" in asm
-		assert ".quad 10" in asm
-		assert ".zero 8" in asm
+		assert ".long 10" in asm
+		assert ".zero 4" in asm
 
 	def test_no_data_section_when_no_initialized_globals(self) -> None:
 		"""No .data section emitted when there are no initialized globals."""
@@ -983,7 +984,7 @@ class TestGlobalRef:
 		)
 		asm = CodeGenerator().generate(prog)
 		assert "leaq x(%rip)" in asm
-		assert "movq (%rax), %rax" in asm
+		assert "movl (%rax), %eax" in asm
 
 	def test_store_to_global(self) -> None:
 		"""Store value to a global: get address via IRGlobalRef, then IRStore."""
@@ -998,7 +999,7 @@ class TestGlobalRef:
 		)
 		asm = CodeGenerator().generate(prog)
 		assert "leaq x(%rip)" in asm
-		assert "movq %rcx, (%rax)" in asm
+		assert "movl %ecx, (%rax)" in asm
 
 	def test_string_ref_by_label(self) -> None:
 		"""Reference a string literal label with IRGlobalRef."""
@@ -1040,13 +1041,13 @@ class TestGlobalRef:
 		asm = CodeGenerator().generate(prog)
 		# .data section with initialized global
 		assert ".section .data" in asm
-		assert ".quad 5" in asm
+		assert ".long 5" in asm
 		# .rodata section with string
 		assert ".section .rodata" in asm
 		assert '.asciz "count = %d\\n"' in asm
 		# .bss section with uninitialized global
 		assert ".section .bss" in asm
-		assert ".zero 8" in asm
+		assert ".zero 4" in asm
 		# .text section with code
 		assert ".section .text" in asm
 		assert "leaq .LC0(%rip)" in asm

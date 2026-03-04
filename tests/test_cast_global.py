@@ -183,7 +183,7 @@ class TestGlobalVarCodegen:
 		asm = CodeGenerator().generate(ir_prog)
 		assert ".section .data" in asm
 		assert ".globl x" in asm
-		assert ".quad 42" in asm
+		assert ".long 42" in asm
 
 	def test_uninitialized_global_in_bss_section(self) -> None:
 		src = "int g; int main() { return 0; }"
@@ -193,4 +193,4 @@ class TestGlobalVarCodegen:
 		asm = CodeGenerator().generate(ir_prog)
 		assert ".section .bss" in asm
 		assert ".globl g" in asm
-		assert ".zero 8" in asm
+		assert ".zero 4" in asm

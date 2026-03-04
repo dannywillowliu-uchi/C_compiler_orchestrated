@@ -144,7 +144,7 @@ class TestGlobalVarLinkage:
 		assert ".globl file_local" not in asm
 		# But the label and data should still be emitted
 		assert "file_local:" in asm
-		assert ".quad 42" in asm
+		assert ".long 42" in asm
 
 	def test_extern_global_no_storage(self) -> None:
 		"""An extern global should not allocate storage (no .bss entry)."""

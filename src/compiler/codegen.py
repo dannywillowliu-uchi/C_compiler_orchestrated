@@ -115,6 +115,8 @@ class CodeGenerator:
 						self._emit_instr(f".quad {val}")
 				elif g.ir_type == IRType.CHAR:
 					self._emit_instr(f".byte {g.initializer}")
+				elif g.ir_type == IRType.INT:
+					self._emit_instr(f".long {g.initializer}")
 				else:
 					self._emit_instr(f".quad {g.initializer}")
 
@@ -138,6 +140,8 @@ class CodeGenerator:
 				self._emit(f"{g.name}:")
 				if g.ir_type == IRType.CHAR:
 					self._emit_instr(".zero 1")
+				elif g.ir_type == IRType.INT:
+					self._emit_instr(".zero 4")
 				else:
 					self._emit_instr(".zero 8")
 
@@ -535,6 +539,13 @@ class CodeGenerator:
 			suffix = _ss_sd(instr.ir_type)
 			self._emit_instr(f"mov{suffix} (%rax), %xmm0")
 			self._store_float_to_temp("%xmm0", instr.dest, instr.ir_type)
+		elif instr.ir_type == IRType.CHAR:
+			self._emit_instr("movzbl (%rax), %eax")
+			self._store_to_temp("%rax", instr.dest)
+		elif instr.ir_type == IRType.INT:
+			self._emit_instr("movl (%rax), %eax")
+			self._emit_instr("movslq %eax, %rax")
+			self._store_to_temp("%rax", instr.dest)
 		else:
 			self._emit_instr("movq (%rax), %rax")
 			self._store_to_temp("%rax", instr.dest)
@@ -542,7 +553,12 @@ class CodeGenerator:
 	def _gen_store(self, instr: IRStore) -> None:
 		self._load_value(instr.value, "%rcx")
 		self._load_value(instr.address, "%rax")
-		self._emit_instr("movq %rcx, (%rax)")
+		if instr.ir_type == IRType.CHAR:
+			self._emit_instr("movb %cl, (%rax)")
+		elif instr.ir_type == IRType.INT:
+			self._emit_instr("movl %ecx, (%rax)")
+		else:
+			self._emit_instr("movq %rcx, (%rax)")
 
 	def _gen_condjump(self, instr: IRCondJump) -> None:
 		self._load_value(instr.condition, "%rax")
@@ -582,9 +598,13 @@ class CodeGenerator:
 		for idx, (_, arg) in enumerate(int_args[:len(_ARG_REGS)]):
 			self._load_value(arg, _ARG_REGS[idx])
 
+		# ABI requirement: %al = number of SSE register args (needed for variadic functions)
+		num_sse_args = min(len(float_args), len(_FLOAT_ARG_REGS))
+		self._emit_instr(f"movb ${num_sse_args}, %al")
+
 		if instr.indirect and instr.func_value is not None:
-			self._load_value(instr.func_value, "%rax")
-			self._emit_instr("call *%rax")
+			self._load_value(instr.func_value, "%r11")
+			self._emit_instr("call *%r11")
 		else:
 			self._emit_instr(f"call {instr.function_name}")
 
