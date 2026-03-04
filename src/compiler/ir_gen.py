@@ -1129,8 +1129,14 @@ class IRGenerator(ASTVisitor):
 		dims: list[int] = []
 		if isinstance(current, Identifier):
 			ts = self._local_types.get(current.name)
+			if ts is None:
+				ts = self._global_types.get(current.name)
 			if ts is not None:
-				element_size = self._resolve_member_size(ts)
+				if ts.pointer_count > 0 and current.name not in self._local_array and current.name not in self._global_array:
+					# Pointer subscript: stride is the pointed-to element size
+					element_size = self._pointee_size_from_type(ts)
+				else:
+					element_size = self._resolve_member_size(ts)
 			dims = self._local_array.get(current.name, [])
 
 		addr = base
