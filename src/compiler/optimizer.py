@@ -10,6 +10,7 @@ from compiler.ir import (
 	IRCall,
 	IRCondJump,
 	IRConst,
+	IRConvert,
 	IRCopy,
 	IRFunction,
 	IRInstruction,
@@ -23,6 +24,8 @@ from compiler.ir import (
 	IRUnaryOp,
 	IRValue,
 	IRLabelInstr,
+	IRType,
+	ir_type_byte_width,
 )
 
 
@@ -43,6 +46,7 @@ class IROptimizer:
 				self._constant_fold,
 				self._strength_reduction,
 				self._copy_propagation,
+				self._convert_elimination,
 				self._cse,
 				self._dead_code_elimination,
 				self._jump_threading,
@@ -115,6 +119,58 @@ class IROptimizer:
 		if op == "!":
 			return int(not operand)
 		return None
+
+	# -- Redundant Convert Elimination --
+
+	def _convert_elimination(self, body: list[IRInstruction]) -> list[IRInstruction]:
+		"""Eliminate redundant IRConvert instructions."""
+		result: list[IRInstruction] = []
+		# Track converts: dest_name -> (original_source, from_type, to_type)
+		convert_map: dict[str, tuple[IRValue, IRType, IRType]] = {}
+
+		for instr in body:
+			if isinstance(instr, IRLabelInstr):
+				convert_map.clear()
+				result.append(instr)
+				continue
+
+			if isinstance(instr, IRConvert):
+				# Pattern 1: No-op conversion (same type)
+				if instr.from_type == instr.to_type:
+					result.append(IRCopy(dest=instr.dest, source=instr.source))
+					continue
+
+				# Check for chained converts
+				if isinstance(instr.source, IRTemp) and instr.source.name in convert_map:
+					orig_source, orig_from, intermediate_to = convert_map[instr.source.name]
+					# Pattern 2: Round-trip with wider intermediate -> use original value
+					if (
+						instr.to_type == orig_from
+						and ir_type_byte_width(intermediate_to) >= ir_type_byte_width(orig_from)
+					):
+						result.append(IRCopy(dest=instr.dest, source=orig_source))
+						convert_map[instr.dest.name] = (orig_source, orig_from, instr.to_type)
+						continue
+					# Pattern 3: Collapse chained converts into a single convert
+					result.append(IRConvert(
+						dest=instr.dest, source=orig_source,
+						from_type=orig_from, to_type=instr.to_type,
+					))
+					convert_map[instr.dest.name] = (orig_source, orig_from, instr.to_type)
+					continue
+
+				convert_map[instr.dest.name] = (instr.source, instr.from_type, instr.to_type)
+				result.append(instr)
+				continue
+
+			# Kill mappings for any redefined temp
+			dest = self._get_dest(instr)
+			if dest is not None:
+				convert_map.pop(dest.name, None)
+
+			result.append(instr)
+
+		return result
 
 	# -- Copy Propagation --
 
@@ -197,6 +253,10 @@ class IROptimizer:
 			nv = resolve(instr.value)
 			if nv is not instr.value:
 				return IRParam(value=nv)
+		elif isinstance(instr, IRConvert):
+			ns = resolve(instr.source)
+			if ns is not instr.source:
+				return IRConvert(dest=instr.dest, source=ns, from_type=instr.from_type, to_type=instr.to_type)
 		return instr
 
 	# -- Dead Code Elimination --
@@ -210,7 +270,7 @@ class IROptimizer:
 					used.add(val.name)
 		return [
 			instr for instr in body
-			if not (isinstance(instr, (IRBinOp, IRUnaryOp, IRCopy)) and instr.dest.name not in used)
+			if not (isinstance(instr, (IRBinOp, IRUnaryOp, IRCopy, IRConvert)) and instr.dest.name not in used)
 		]
 
 	# -- Strength Reduction --
@@ -445,7 +505,7 @@ class IROptimizer:
 
 	def _get_dest(self, instr: IRInstruction) -> IRTemp | None:
 		"""Return the destination temp written by an instruction, if any."""
-		if isinstance(instr, (IRBinOp, IRUnaryOp, IRCopy, IRLoad, IRAlloc)):
+		if isinstance(instr, (IRBinOp, IRUnaryOp, IRCopy, IRLoad, IRAlloc, IRConvert)):
 			return instr.dest
 		if isinstance(instr, IRCall):
 			return instr.dest
@@ -471,4 +531,6 @@ class IROptimizer:
 			return [instr.value] if instr.value is not None else []
 		if isinstance(instr, IRParam):
 			return [instr.value]
+		if isinstance(instr, IRConvert):
+			return [instr.source]
 		return []
