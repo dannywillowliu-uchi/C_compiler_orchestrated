@@ -240,7 +240,9 @@ def _type_size(ts: TypeSpec) -> int:
 
 
 def _is_numeric(ts: TypeSpec) -> bool:
-	return ts.base_type in _NUMERIC_TYPES and ts.pointer_count == 0
+	if ts.pointer_count != 0:
+		return False
+	return ts.base_type in _NUMERIC_TYPES or ts.base_type.startswith("enum ")
 
 
 def _is_pointer(ts: TypeSpec) -> bool:
@@ -1261,7 +1263,7 @@ class SemanticAnalyzer(ASTVisitor):
 			union_decl = self._union_types[base_name]
 			for member in union_decl.members:
 				if member.name == node.member:
-					return member.type_spec
+					return self._resolve_type(member.type_spec)
 			self._error(
 				f"union {base_name} has no member {node.member}",
 				node,
@@ -1273,7 +1275,7 @@ class SemanticAnalyzer(ASTVisitor):
 		struct_decl = self._struct_types[base_name]
 		for member in struct_decl.members:
 			if member.name == node.member:
-				return member.type_spec
+				return self._resolve_type(member.type_spec)
 		self._error(
 			f"struct {base_name} has no member {node.member}",
 			node,

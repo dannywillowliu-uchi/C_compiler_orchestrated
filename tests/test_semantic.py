@@ -13,6 +13,8 @@ from compiler.ast_nodes import (
 	CompoundStmt,
 	ContinueStmt,
 	DoWhileStmt,
+	EnumConstant,
+	EnumDecl,
 	ExprStmt,
 	ForStmt,
 	FunctionCall,
@@ -32,6 +34,7 @@ from compiler.ast_nodes import (
 	StructMember,
 	SwitchStmt,
 	TernaryExpr,
+	TypedefDecl,
 	TypeSpec,
 	UnaryOp,
 	VarDecl,
@@ -1888,6 +1891,205 @@ class TestMemberAccessSemantic:
 						member="x",
 						is_arrow=False,
 					)),
+				]),
+			),
+		])
+		SemanticAnalyzer().analyze(prog)
+
+
+# ---------------------------------------------------------------------------
+# Enum/int interoperability
+# ---------------------------------------------------------------------------
+
+
+class TestEnumIntCompat:
+	def test_enum_var_init_from_constant(self) -> None:
+		"""enum Color c = RED; should be valid (enum compatible with int)."""
+		prog = Program(declarations=[
+			EnumDecl(name="Color", constants=[
+				EnumConstant(name="RED"),
+				EnumConstant(name="GREEN"),
+				EnumConstant(name="BLUE"),
+			]),
+			FunctionDecl(
+				return_type=int_type(),
+				name="main",
+				params=[],
+				body=CompoundStmt(statements=[
+					VarDecl(
+						type_spec=TypeSpec(base_type="enum Color"),
+						name="c",
+						initializer=Identifier(name="RED"),
+					),
+					ReturnStmt(expression=IntLiteral(value=0)),
+				]),
+			),
+		])
+		SemanticAnalyzer().analyze(prog)
+
+	def test_enum_var_to_int(self) -> None:
+		"""int x = c; where c is enum Color should be valid."""
+		prog = Program(declarations=[
+			EnumDecl(name="Color", constants=[
+				EnumConstant(name="RED"),
+			]),
+			FunctionDecl(
+				return_type=int_type(),
+				name="main",
+				params=[],
+				body=CompoundStmt(statements=[
+					VarDecl(
+						type_spec=TypeSpec(base_type="enum Color"),
+						name="c",
+						initializer=Identifier(name="RED"),
+					),
+					VarDecl(
+						type_spec=int_type(),
+						name="x",
+						initializer=Identifier(name="c"),
+					),
+					ReturnStmt(expression=Identifier(name="x")),
+				]),
+			),
+		])
+		SemanticAnalyzer().analyze(prog)
+
+	def test_int_to_enum(self) -> None:
+		"""enum Color c = 0; should be valid (int assignable to enum)."""
+		prog = Program(declarations=[
+			EnumDecl(name="Color", constants=[
+				EnumConstant(name="RED"),
+			]),
+			FunctionDecl(
+				return_type=int_type(),
+				name="main",
+				params=[],
+				body=CompoundStmt(statements=[
+					VarDecl(
+						type_spec=TypeSpec(base_type="enum Color"),
+						name="c",
+						initializer=IntLiteral(value=0),
+					),
+					ReturnStmt(expression=IntLiteral(value=0)),
+				]),
+			),
+		])
+		SemanticAnalyzer().analyze(prog)
+
+	def test_enum_in_binary_op(self) -> None:
+		"""enum Color c = RED; int x = c + 1; should be valid."""
+		prog = Program(declarations=[
+			EnumDecl(name="Color", constants=[
+				EnumConstant(name="RED"),
+			]),
+			FunctionDecl(
+				return_type=int_type(),
+				name="main",
+				params=[],
+				body=CompoundStmt(statements=[
+					VarDecl(
+						type_spec=TypeSpec(base_type="enum Color"),
+						name="c",
+						initializer=Identifier(name="RED"),
+					),
+					VarDecl(
+						type_spec=int_type(),
+						name="x",
+						initializer=BinaryOp(
+							left=Identifier(name="c"),
+							op="+",
+							right=IntLiteral(value=1),
+						),
+					),
+					ReturnStmt(expression=Identifier(name="x")),
+				]),
+			),
+		])
+		SemanticAnalyzer().analyze(prog)
+
+	def test_enum_assignment(self) -> None:
+		"""c = 1; where c is enum Color should be valid."""
+		prog = Program(declarations=[
+			EnumDecl(name="Color", constants=[
+				EnumConstant(name="RED"),
+			]),
+			FunctionDecl(
+				return_type=int_type(),
+				name="main",
+				params=[],
+				body=CompoundStmt(statements=[
+					VarDecl(
+						type_spec=TypeSpec(base_type="enum Color"),
+						name="c",
+						initializer=Identifier(name="RED"),
+					),
+					ExprStmt(expression=Assignment(
+						target=Identifier(name="c"),
+						value=IntLiteral(value=1),
+					)),
+					ReturnStmt(expression=IntLiteral(value=0)),
+				]),
+			),
+		])
+		SemanticAnalyzer().analyze(prog)
+
+
+# ---------------------------------------------------------------------------
+# Typedef alias resolution in member access
+# ---------------------------------------------------------------------------
+
+
+class TestTypedefMemberResolution:
+	def test_typedef_struct_member_assign(self) -> None:
+		"""Assigning a typedef'd struct member to its underlying type should work."""
+		prog = Program(declarations=[
+			TypedefDecl(name="i32", type_spec=TypeSpec(base_type="int")),
+			StructDecl(name="Foo", members=[
+				StructMember(name="x", type_spec=TypeSpec(base_type="i32")),
+			]),
+			FunctionDecl(
+				return_type=int_type(),
+				name="main",
+				params=[],
+				body=CompoundStmt(statements=[
+					VarDecl(type_spec=TypeSpec(base_type="struct Foo"), name="f"),
+					VarDecl(
+						type_spec=int_type(),
+						name="y",
+						initializer=MemberAccess(
+							object=Identifier(name="f"),
+							member="x",
+							is_arrow=False,
+						),
+					),
+					ReturnStmt(expression=Identifier(name="y")),
+				]),
+			),
+		])
+		SemanticAnalyzer().analyze(prog)
+
+	def test_typedef_struct_member_write(self) -> None:
+		"""Writing int to a typedef'd struct member should work."""
+		prog = Program(declarations=[
+			TypedefDecl(name="i32", type_spec=TypeSpec(base_type="int")),
+			StructDecl(name="Bar", members=[
+				StructMember(name="val", type_spec=TypeSpec(base_type="i32")),
+			]),
+			FunctionDecl(
+				return_type=int_type(),
+				name="main",
+				params=[],
+				body=CompoundStmt(statements=[
+					VarDecl(type_spec=TypeSpec(base_type="struct Bar"), name="b"),
+					ExprStmt(expression=Assignment(
+						target=MemberAccess(
+							object=Identifier(name="b"),
+							member="val",
+							is_arrow=False,
+						),
+						value=IntLiteral(value=5),
+					)),
+					ReturnStmt(expression=IntLiteral(value=0)),
 				]),
 			),
 		])
