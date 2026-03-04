@@ -229,14 +229,16 @@ class Parser:
 			if peek_offset == 0:
 				return self._parse_enum_decl()
 
-		# Check for struct definition: struct name { ... };
-		if self._peek(peek_offset).type == TokenType.STRUCT and self._peek(peek_offset + 1).type == TokenType.IDENTIFIER and self._peek(peek_offset + 2).type == TokenType.LBRACE:
-			if peek_offset == 0:
+		# Check for struct definition or forward declaration: struct name { ... }; or struct name;
+		if self._peek(peek_offset).type == TokenType.STRUCT and self._peek(peek_offset + 1).type == TokenType.IDENTIFIER:
+			next_after_name = self._peek(peek_offset + 2).type
+			if peek_offset == 0 and next_after_name in (TokenType.LBRACE, TokenType.SEMICOLON):
 				return self._parse_struct_decl()
 
-		# Check for union definition: union name { ... };
-		if self._peek(peek_offset).type == TokenType.UNION and self._peek(peek_offset + 1).type == TokenType.IDENTIFIER and self._peek(peek_offset + 2).type == TokenType.LBRACE:
-			if peek_offset == 0:
+		# Check for union definition or forward declaration: union name { ... }; or union name;
+		if self._peek(peek_offset).type == TokenType.UNION and self._peek(peek_offset + 1).type == TokenType.IDENTIFIER:
+			next_after_name = self._peek(peek_offset + 2).type
+			if peek_offset == 0 and next_after_name in (TokenType.LBRACE, TokenType.SEMICOLON):
 				return self._parse_union_decl()
 
 		self._last_storage_class = None
@@ -399,9 +401,11 @@ class Parser:
 		)
 
 	def _parse_struct_decl(self) -> StructDecl:
-		"""Parse 'struct name { type member; ... };'."""
+		"""Parse 'struct name { type member; ... };' or forward declaration 'struct name;'."""
 		tok = self._advance()  # consume 'struct'
 		name_tok = self._expect(TokenType.IDENTIFIER, "Expected struct name")
+		if self._match(TokenType.SEMICOLON):
+			return StructDecl(name=name_tok.value, members=[], loc=self._loc(tok))
 		self._expect(TokenType.LBRACE, "Expected '{' after struct name")
 		members: list[StructMember] = []
 		while not self._check(TokenType.RBRACE) and not self._at_end():
@@ -413,9 +417,11 @@ class Parser:
 	# -- Union declaration ---------------------------------------------------
 
 	def _parse_union_decl(self) -> UnionDecl:
-		"""Parse 'union name { type member; ... };'."""
+		"""Parse 'union name { type member; ... };' or forward declaration 'union name;'."""
 		tok = self._advance()  # consume 'union'
 		name_tok = self._expect(TokenType.IDENTIFIER, "Expected union name")
+		if self._match(TokenType.SEMICOLON):
+			return UnionDecl(name=name_tok.value, members=[], loc=self._loc(tok))
 		self._expect(TokenType.LBRACE, "Expected '{' after union name")
 		members: list[StructMember] = []
 		while not self._check(TokenType.RBRACE) and not self._at_end():
