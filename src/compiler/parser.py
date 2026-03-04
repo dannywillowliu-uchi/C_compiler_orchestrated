@@ -114,6 +114,11 @@ _COMPOUND_ASSIGN: dict[TokenType, str] = {
 	TokenType.STAR_ASSIGN: "*",
 	TokenType.SLASH_ASSIGN: "/",
 	TokenType.PERCENT_ASSIGN: "%",
+	TokenType.AMP_ASSIGN: "&",
+	TokenType.PIPE_ASSIGN: "|",
+	TokenType.CARET_ASSIGN: "^",
+	TokenType.LSHIFT_ASSIGN: "<<",
+	TokenType.RSHIFT_ASSIGN: ">>",
 }
 
 _TYPE_KEYWORDS: set[TokenType] = {
@@ -638,7 +643,7 @@ class Parser:
 	def _parse_function_decl(self, return_type: TypeSpec, name_tok: Token) -> FunctionDecl:
 		"""Parse function parameters and body (or prototype with ';') after seeing 'type name'."""
 		self._expect(TokenType.LPAREN)
-		params = self._parse_param_list()
+		params, is_variadic = self._parse_param_list()
 		self._expect(TokenType.RPAREN, "Expected ')' after parameter list")
 		if self._match(TokenType.SEMICOLON):
 			return FunctionDecl(
@@ -646,6 +651,7 @@ class Parser:
 				name=name_tok.value,
 				params=params,
 				body=None,
+				is_variadic=is_variadic,
 				loc=self._loc(name_tok),
 			)
 		body = self._parse_compound_stmt()
@@ -654,22 +660,31 @@ class Parser:
 			name=name_tok.value,
 			params=params,
 			body=body,
+			is_variadic=is_variadic,
 			loc=self._loc(name_tok),
 		)
 
-	def _parse_param_list(self) -> list[ParamDecl]:
-		"""Parse a comma-separated parameter list (possibly empty)."""
+	def _parse_param_list(self) -> tuple[list[ParamDecl], bool]:
+		"""Parse a comma-separated parameter list (possibly empty).
+
+		Returns (params, is_variadic) where is_variadic is True if the list
+		ends with '...'.
+		"""
 		params: list[ParamDecl] = []
+		is_variadic = False
 		if self._check(TokenType.RPAREN):
-			return params
+			return params, is_variadic
 		# Handle 'void' as sole parameter meaning no params
 		if self._check(TokenType.VOID) and self._peek(1).type == TokenType.RPAREN:
 			self._advance()
-			return params
+			return params, is_variadic
 		params.append(self._parse_param_decl())
 		while self._match(TokenType.COMMA):
+			if self._match(TokenType.ELLIPSIS):
+				is_variadic = True
+				break
 			params.append(self._parse_param_decl())
-		return params
+		return params, is_variadic
 
 	def _parse_param_decl(self) -> ParamDecl:
 		"""Parse a single parameter declaration: type name, type name[], or type (*name)(params)."""

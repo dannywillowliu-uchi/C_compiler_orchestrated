@@ -626,6 +626,7 @@ class FunctionDecl(ASTNode):
 	params: list[ParamDecl] = field(default_factory=list)
 	body: CompoundStmt | None = None
 	storage_class: str | None = None
+	is_variadic: bool = False
 
 	def accept(self, visitor: ASTVisitor) -> Any:
 		return visitor.visit_function_decl(self)
