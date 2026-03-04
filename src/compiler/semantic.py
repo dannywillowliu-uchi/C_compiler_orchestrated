@@ -41,6 +41,7 @@ from compiler.ast_nodes import (
 	TypedefDecl,
 	TypeSpec,
 	UnaryOp,
+	UnionDecl,
 	VarDecl,
 	WhileStmt,
 )
@@ -172,6 +173,7 @@ class SemanticAnalyzer(ASTVisitor):
 		self._loop_depth: int = 0
 		self._switch_depth: int = 0
 		self._struct_types: dict[str, StructDecl] = {}
+		self._union_types: dict[str, UnionDecl] = {}
 		self._typedef_types: dict[str, TypeSpec] = {}
 
 	def analyze(self, node: ASTNode) -> list[SemanticError]:
@@ -625,11 +627,25 @@ class SemanticAnalyzer(ASTVisitor):
 				seen.add(member.name)
 		self._struct_types[node.name] = node
 
+	def visit_union_decl(self, node: UnionDecl) -> None:
+		if node.name in self._union_types:
+			self._error(f"redefinition of union '{node.name}'", node)
+			return
+		seen: set[str] = set()
+		for member in node.members:
+			if member.name in seen:
+				self._error(f"duplicate member '{member.name}' in union '{node.name}'", member)
+			else:
+				seen.add(member.name)
+		self._union_types[node.name] = node
+
 	def visit_typedef_decl(self, node: TypedefDecl) -> None:
 		if node.struct_decl is not None:
 			self.visit_struct_decl(node.struct_decl)
 		if node.enum_decl is not None:
 			self.visit_enum_decl(node.enum_decl)
+		if node.union_decl is not None:
+			self.visit_union_decl(node.union_decl)
 		resolved = self._resolve_type(node.type_spec)
 		if node.name in self._typedef_types:
 			self._error(f"redefinition of typedef '{node.name}'", node)
@@ -645,26 +661,44 @@ class SemanticAnalyzer(ASTVisitor):
 			return None
 		if node.is_arrow:
 			if obj_type.pointer_count < 1:
-				self._error("member access with '->' requires pointer to struct", node)
+				self._error("member access with '->' requires pointer to struct/union", node)
 				return None
-			struct_name = obj_type.base_type
+			base_name = obj_type.base_type
 		else:
 			if obj_type.pointer_count > 0:
-				self._error("member access with '.' requires non-pointer struct (use '->' instead)", node)
+				self._error("member access with '.' requires non-pointer struct/union (use '->' instead)", node)
 				return None
-			struct_name = obj_type.base_type
-		# Strip "struct " prefix if present
-		if struct_name.startswith("struct "):
-			struct_name = struct_name[len("struct "):]
-		if struct_name not in self._struct_types:
+			base_name = obj_type.base_type
+		# Strip "struct " or "union " prefix if present
+		is_union = False
+		if base_name.startswith("struct "):
+			base_name = base_name[len("struct "):]
+		elif base_name.startswith("union "):
+			base_name = base_name[len("union "):]
+			is_union = True
+		# Look up in union types first, then struct types
+		if is_union or base_name in self._union_types:
+			if base_name not in self._union_types:
+				self._error(f"member access on non-union type '{obj_type.base_type}'", node)
+				return None
+			union_decl = self._union_types[base_name]
+			for member in union_decl.members:
+				if member.name == node.member:
+					return member.type_spec
+			self._error(
+				f"no member named '{node.member}' in union '{base_name}'",
+				node,
+			)
+			return None
+		if base_name not in self._struct_types:
 			self._error(f"member access on non-struct type '{obj_type.base_type}'", node)
 			return None
-		struct_decl = self._struct_types[struct_name]
+		struct_decl = self._struct_types[base_name]
 		for member in struct_decl.members:
 			if member.name == node.member:
 				return member.type_spec
 		self._error(
-			f"no member named '{node.member}' in struct '{struct_name}'",
+			f"no member named '{node.member}' in struct '{base_name}'",
 			node,
 		)
 		return None

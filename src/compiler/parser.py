@@ -44,6 +44,7 @@ from compiler.ast_nodes import (
 	TypedefDecl,
 	TypeSpec,
 	UnaryOp,
+	UnionDecl,
 	VarDecl,
 	WhileStmt,
 )
@@ -113,7 +114,7 @@ _COMPOUND_ASSIGN: dict[TokenType, str] = {
 
 _TYPE_KEYWORDS: set[TokenType] = {
 	TokenType.INT, TokenType.CHAR, TokenType.VOID, TokenType.STRUCT, TokenType.ENUM,
-	TokenType.FLOAT, TokenType.DOUBLE,
+	TokenType.FLOAT, TokenType.DOUBLE, TokenType.UNION,
 }
 
 
@@ -203,6 +204,10 @@ class Parser:
 		if self._check(TokenType.STRUCT) and self._peek(1).type == TokenType.IDENTIFIER and self._peek(2).type == TokenType.LBRACE:
 			return self._parse_struct_decl()
 
+		# Check for union definition: union name { ... };
+		if self._check(TokenType.UNION) and self._peek(1).type == TokenType.IDENTIFIER and self._peek(2).type == TokenType.LBRACE:
+			return self._parse_union_decl()
+
 		type_spec = self._parse_type_spec()
 		name_tok = self._expect(TokenType.IDENTIFIER, "Expected declaration name")
 
@@ -244,6 +249,9 @@ class Parser:
 			if tok.type == TokenType.STRUCT:
 				name_tok = self._expect(TokenType.IDENTIFIER, "Expected struct name")
 				base_type = f"struct {name_tok.value}"
+			elif tok.type == TokenType.UNION:
+				name_tok = self._expect(TokenType.IDENTIFIER, "Expected union name")
+				base_type = f"union {name_tok.value}"
 			elif tok.type == TokenType.ENUM:
 				name_tok = self._expect(TokenType.IDENTIFIER, "Expected enum name")
 				base_type = f"enum {name_tok.value}"
@@ -274,6 +282,27 @@ class Parser:
 		self._expect(TokenType.RBRACE, "Expected '}' after struct members")
 		self._expect(TokenType.SEMICOLON, "Expected ';' after struct definition")
 		return StructDecl(name=name_tok.value, members=members, loc=self._loc(tok))
+
+	# -- Union declaration ---------------------------------------------------
+
+	def _parse_union_decl(self) -> UnionDecl:
+		"""Parse 'union name { type member; ... };'."""
+		tok = self._advance()  # consume 'union'
+		name_tok = self._expect(TokenType.IDENTIFIER, "Expected union name")
+		self._expect(TokenType.LBRACE, "Expected '{' after union name")
+		members: list[StructMember] = []
+		while not self._check(TokenType.RBRACE) and not self._at_end():
+			member_type = self._parse_type_spec()
+			member_name_tok = self._expect(TokenType.IDENTIFIER, "Expected member name")
+			self._expect(TokenType.SEMICOLON, "Expected ';' after union member")
+			members.append(StructMember(
+				type_spec=member_type,
+				name=member_name_tok.value,
+				loc=self._loc(member_name_tok),
+			))
+		self._expect(TokenType.RBRACE, "Expected '}' after union members")
+		self._expect(TokenType.SEMICOLON, "Expected ';' after union definition")
+		return UnionDecl(name=name_tok.value, members=members, loc=self._loc(tok))
 
 	# -- Enum declaration ----------------------------------------------------
 
@@ -382,6 +411,41 @@ class Parser:
 					loc=self._loc(tok),
 				)
 			type_spec = self._parse_type_spec()
+		elif self._check(TokenType.UNION):
+			# Check for inline union definition: typedef union [name] { ... } alias;
+			if self._peek(1).type == TokenType.LBRACE or (
+				self._peek(1).type == TokenType.IDENTIFIER and self._peek(2).type == TokenType.LBRACE
+			):
+				self._advance()  # consume 'union'
+				union_name = ""
+				if self._check(TokenType.IDENTIFIER):
+					union_name = self._advance().value
+				self._expect(TokenType.LBRACE, "Expected '{' in union definition")
+				u_members: list[StructMember] = []
+				while not self._check(TokenType.RBRACE) and not self._at_end():
+					member_type = self._parse_type_spec()
+					member_name_tok = self._expect(TokenType.IDENTIFIER, "Expected member name")
+					self._expect(TokenType.SEMICOLON, "Expected ';' after union member")
+					u_members.append(StructMember(
+						type_spec=member_type,
+						name=member_name_tok.value,
+						loc=self._loc(member_name_tok),
+					))
+				self._expect(TokenType.RBRACE, "Expected '}' after union members")
+				alias_tok = self._expect(TokenType.IDENTIFIER, "Expected typedef name")
+				if not union_name:
+					union_name = alias_tok.value
+				union_decl = UnionDecl(name=union_name, members=u_members, loc=self._loc(tok))
+				type_spec = TypeSpec(base_type=f"union {union_name}", pointer_count=0, loc=self._loc(tok))
+				self._expect(TokenType.SEMICOLON, "Expected ';' after typedef declaration")
+				self._typedef_names.add(alias_tok.value)
+				return TypedefDecl(
+					type_spec=type_spec,
+					name=alias_tok.value,
+					union_decl=union_decl,
+					loc=self._loc(tok),
+				)
+			type_spec = self._parse_type_spec()
 		else:
 			type_spec = self._parse_type_spec()
 
@@ -472,6 +536,11 @@ class Parser:
 		if self._check(TokenType.STRUCT):
 			if self._peek(1).type == TokenType.IDENTIFIER and self._peek(2).type == TokenType.LBRACE:
 				return self._parse_struct_decl()
+			return self._parse_var_decl_stmt()
+		# union keyword: either a union definition or a union variable declaration
+		if self._check(TokenType.UNION):
+			if self._peek(1).type == TokenType.IDENTIFIER and self._peek(2).type == TokenType.LBRACE:
+				return self._parse_union_decl()
 			return self._parse_var_decl_stmt()
 		if self._check(*_TYPE_KEYWORDS):
 			return self._parse_var_decl_stmt()

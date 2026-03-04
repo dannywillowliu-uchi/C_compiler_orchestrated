@@ -38,6 +38,7 @@ from compiler.ast_nodes import (
 	TernaryExpr,
 	TypeSpec,
 	UnaryOp,
+	UnionDecl,
 	VarDecl,
 	WhileStmt,
 )
@@ -116,6 +117,7 @@ class IRGenerator(ASTVisitor):
 		self._in_function: bool = False
 		self._loop_stack: list[tuple[str, str]] = []  # (continue_label, break_label)
 		self._structs: dict[str, list[StructMember]] = {}  # struct name -> members
+		self._unions: dict[str, list[StructMember]] = {}  # union name -> members
 		self._string_data: list[IRStringData] = []
 		self._string_counter: int = 0
 		self._enum_constants: dict[str, int] = {}
@@ -253,7 +255,7 @@ class IRGenerator(ASTVisitor):
 			self._local_array[node.name] = size_vals
 			self._emit(IRAlloc(dest=dest, size=element_size * total_elements))
 		else:
-			self._emit(IRAlloc(dest=dest, size=_resolve_size(node.type_spec)))
+			self._emit(IRAlloc(dest=dest, size=self._resolve_type_size(node.type_spec)))
 		if node.initializer is not None:
 			val = self.visit(node.initializer)
 			val_type = self._value_ir_type(val)
@@ -462,6 +464,11 @@ class IRGenerator(ASTVisitor):
 			return val if isinstance(val, IRTemp) else self._new_temp()
 		if isinstance(node.target, UnaryOp) and node.target.op == "*":
 			addr = self.visit(node.target.operand)
+			val_type = self._value_ir_type(val)
+			self._emit(IRStore(address=addr, value=val, ir_type=val_type))
+			return val if isinstance(val, IRTemp) else self._new_temp()
+		if isinstance(node.target, MemberAccess):
+			addr = self._compute_member_addr(node.target)
 			val_type = self._value_ir_type(val)
 			self._emit(IRStore(address=addr, value=val, ir_type=val_type))
 			return val if isinstance(val, IRTemp) else self._new_temp()
@@ -737,17 +744,35 @@ class IRGenerator(ASTVisitor):
 	def visit_sizeof_expr(self, node: SizeofExpr) -> IRConst:
 		if node.type_operand is not None:
 			ts = node.type_operand
-			struct_key = ts.base_type
-			if struct_key.startswith("struct "):
-				struct_key = struct_key[len("struct "):]
-			if struct_key in self._structs and ts.pointer_count == 0:
-				size = self._compute_struct_size(struct_key)
-			else:
-				size = _resolve_size(ts)
-			return IRConst(size)
+			key = ts.base_type
+			if key.startswith("struct "):
+				key = key[len("struct "):]
+			elif key.startswith("union "):
+				key = key[len("union "):]
+			if ts.pointer_count == 0:
+				if key in self._structs:
+					return IRConst(self._compute_struct_size(key))
+				if key in self._unions:
+					return IRConst(self._compute_union_size(key))
+			return IRConst(_resolve_size(ts))
 		# sizeof(expr) -- compute based on expression type heuristic
 		# For simplicity, default to 4 (int-sized)
 		return IRConst(4)
+
+	def _resolve_type_size(self, ts: TypeSpec) -> int:
+		"""Resolve the size of a type, handling struct/union types."""
+		if ts.pointer_count > 0:
+			return 8
+		key = ts.base_type
+		if key.startswith("struct "):
+			key = key[len("struct "):]
+			if key in self._structs:
+				return self._compute_struct_size(key)
+		elif key.startswith("union "):
+			key = key[len("union "):]
+			if key in self._unions:
+				return self._compute_union_size(key)
+		return _resolve_size(ts)
 
 	def _compute_struct_size(self, name: str) -> int:
 		members = self._structs.get(name, [])
@@ -755,6 +780,12 @@ class IRGenerator(ASTVisitor):
 		for m in members:
 			total += _resolve_size(m.type_spec)
 		return total
+
+	def _compute_union_size(self, name: str) -> int:
+		members = self._unions.get(name, [])
+		if not members:
+			return 0
+		return max(_resolve_size(m.type_spec) for m in members)
 
 	# ------------------------------------------------------------------
 	# Postfix increment/decrement
@@ -808,21 +839,33 @@ class IRGenerator(ASTVisitor):
 			self.visit_struct_decl(node.struct_decl)
 		if node.enum_decl is not None:
 			self.visit_enum_decl(node.enum_decl)
+		if node.union_decl is not None:
+			self.visit_union_decl(node.union_decl)
 
 	def visit_struct_decl(self, node: StructDecl) -> None:
 		self._structs[node.name] = list(node.members)
 
-	def visit_member_access(self, node: MemberAccess) -> IRTemp:
+	def visit_union_decl(self, node: UnionDecl) -> None:
+		self._unions[node.name] = list(node.members)
+
+	def _compute_member_addr(self, node: MemberAccess) -> IRTemp:
+		"""Compute the memory address of a struct/union member."""
 		base = self.visit(node.object)
+		type_name = self._resolve_aggregate_name(node.object)
+		is_union = type_name in self._unions
 
-		# If arrow access, base is already a pointer -- use it directly
-		# If dot access, base is the struct value (its address in our IR)
-		# In both cases, compute offset and add to base
-		struct_name = self._resolve_struct_name(node.object)
-		offset = self._compute_field_offset(struct_name, node.member)
+		if is_union:
+			# Union: all members at offset 0
+			return base
 
+		# Struct: compute field offset
+		offset = self._compute_field_offset(type_name, node.member)
 		addr = self._new_temp()
 		self._emit(IRBinOp(dest=addr, left=base, op="+", right=IRConst(offset)))
+		return addr
+
+	def visit_member_access(self, node: MemberAccess) -> IRTemp:
+		addr = self._compute_member_addr(node)
 		dest = self._new_temp()
 		self._emit(IRLoad(dest=dest, address=addr))
 		return dest
@@ -844,12 +887,18 @@ class IRGenerator(ASTVisitor):
 
 	def _resolve_struct_name(self, node: object) -> str:
 		"""Try to determine the struct type name from an AST node."""
+		return self._resolve_aggregate_name(node)
+
+	def _resolve_aggregate_name(self, node: object) -> str:
+		"""Try to determine the struct/union type name from an AST node."""
 		if isinstance(node, Identifier):
 			ts = self._local_types.get(node.name)
 			if ts is not None:
 				name = ts.base_type
 				if name.startswith("struct "):
 					name = name[len("struct "):]
+				elif name.startswith("union "):
+					name = name[len("union "):]
 				return name
 		return ""
 
