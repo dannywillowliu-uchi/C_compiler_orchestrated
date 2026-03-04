@@ -205,6 +205,7 @@ class SemanticAnalyzer(ASTVisitor):
 		self._in_sizeof_or_addressof: bool = False
 		self._label_defs: dict[str, ASTNode] = {}
 		self._goto_refs: list[tuple[str, ASTNode]] = []
+		self._enum_constants: dict[str, int] = {}
 
 	def analyze(self, node: ASTNode) -> list[SemanticError]:
 		self.visit(node)
@@ -798,13 +799,18 @@ class SemanticAnalyzer(ASTVisitor):
 					self._error("duplicate default label in switch", case)
 				has_default = True
 			else:
-				if not isinstance(case.value, (IntLiteral, CharLiteral)):
-					self._error("case expression must be a constant integer", case)
-				else:
+				if isinstance(case.value, (IntLiteral, CharLiteral)):
 					val: int | str = case.value.value
 					if val in seen_values:
 						self._error(f"duplicate case value {val!r}", case)
 					seen_values.add(val)
+				elif isinstance(case.value, Identifier) and case.value.name in self._enum_constants:
+					val = self._enum_constants[case.value.name]
+					if val in seen_values:
+						self._error(f"duplicate case value {val!r}", case)
+					seen_values.add(val)
+				else:
+					self._error("case expression must be a constant integer", case)
 			for stmt in case.statements:
 				self.visit(stmt)
 		self._switch_depth -= 1
@@ -887,6 +893,7 @@ class SemanticAnalyzer(ASTVisitor):
 					next_value = const.value.value
 				else:
 					self.visit(const.value)
+			self._enum_constants[const.name] = next_value
 			self._define_symbol(const.name, TypeSpec(base_type="int"), const)
 			next_value += 1
 
