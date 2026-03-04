@@ -2,21 +2,21 @@
 name = "C_compiler_orchestrated"
 path = "/Users/dannyliu/personal_projects/C_compiler_orchestrated"
 branch = "main"
-objective = """Build a functioning C compiler from scratch in Python. The compiler should take C source code as input and produce x86-64 assembly output.
+objective = """Continue building and improving the C compiler. Focus on closing known gaps and increasing correctness.
 
-Implement the standard compiler pipeline:
-1. Lexer/Tokenizer - tokenize C source into tokens
-2. Preprocessor - handle #include, #define, #ifdef etc.
-3. Parser - parse tokens into an AST (support C89/C90 subset at minimum)
-4. Semantic analysis - type checking, symbol table management
-5. IR generation - produce an intermediate representation
-6. Code generation - emit x86-64 assembly from the IR
+Priority areas:
+1. Add long, short, signed type modifiers
+2. Add variadic function support (...)
+3. Add goto/labels
+4. Add bitfields in structs
+5. Reduce unnecessary stack spills in register allocator
+6. Add #include path search to preprocessor
+7. Add _Bool / stdbool.h support
+8. Improve codegen quality -- reduce redundant moves and unnecessary temporaries
+9. Add more edge-case tests for existing features
+10. Fix any bugs discovered by expanding test coverage
 
-Start with a minimal subset of C (integers, basic arithmetic, functions, if/else, while/for loops, pointers, arrays, structs) and expand from there. Each phase should have comprehensive tests.
-
-The compiler should be invocable as: python -m compiler input.c -o output.s
-
-Use .venv/bin/python for all Python commands.
+Use PYTHONPATH=src .venv/bin/python for all Python commands.
 """
 
 [target.verification]
