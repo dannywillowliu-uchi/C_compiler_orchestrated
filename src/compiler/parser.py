@@ -198,7 +198,11 @@ class Parser:
 		"""Parse the full token stream into a Program AST node."""
 		declarations: list[ASTNode] = []
 		while not self._at_end():
-			declarations.append(self._parse_top_level_decl())
+			result = self._parse_top_level_decl()
+			if isinstance(result, list):
+				declarations.extend(result)
+			else:
+				declarations.append(result)
 		return Program(declarations=declarations, loc=SourceLocation(1, 1))
 
 	def _parse_top_level_decl(self) -> ASTNode:
@@ -253,24 +257,10 @@ class Parser:
 			decl.storage_class = storage_class
 			return decl
 
-		# Global variable declaration (possibly array)
-		array_sizes: list[ASTNode] | None = None
-		if self._check(TokenType.LBRACKET):
-			array_sizes = []
-			while self._match(TokenType.LBRACKET):
-				if self._check(TokenType.RBRACKET):
-					array_sizes.append(IntLiteral(value=0, loc=self._loc(self._current())))
-				else:
-					array_sizes.append(self._parse_expression())
-				self._expect(TokenType.RBRACKET, "Expected ']' after array size")
-		initializer = None
-		if self._match(TokenType.ASSIGN):
-			if self._check(TokenType.LBRACE):
-				initializer = self._parse_initializer_list()
-			else:
-				initializer = self._parse_expression()
-		self._expect(TokenType.SEMICOLON, "Expected ';' after variable declaration")
-		return VarDecl(
+		# Global variable declaration (possibly array, possibly multi-decl)
+		array_sizes = self._parse_array_dimensions()
+		initializer = self._parse_optional_initializer()
+		first_decl = VarDecl(
 			type_spec=type_spec,
 			name=name_tok.value,
 			initializer=initializer,
@@ -278,6 +268,16 @@ class Parser:
 			storage_class=storage_class,
 			loc=self._loc(name_tok),
 		)
+		if self._match(TokenType.COMMA):
+			decls: list[ASTNode] = [first_decl]
+			while True:
+				decls.append(self._parse_additional_declarator(type_spec, storage_class))
+				if not self._match(TokenType.COMMA):
+					break
+			self._expect(TokenType.SEMICOLON, "Expected ';' after variable declaration")
+			return decls
+		self._expect(TokenType.SEMICOLON, "Expected ';' after variable declaration")
+		return first_decl
 
 	# -- Type specifier ------------------------------------------------------
 
@@ -744,7 +744,10 @@ class Parser:
 		tok = self._expect(TokenType.LBRACE, "Expected '{'")
 		stmts: list[ASTNode] = []
 		while not self._check(TokenType.RBRACE) and not self._at_end():
-			stmts.append(self._parse_statement())
+			if self._is_var_decl_start():
+				stmts.extend(self._parse_var_decl_list())
+			else:
+				stmts.append(self._parse_statement())
 		self._expect(TokenType.RBRACE, "Expected '}'")
 		return CompoundStmt(statements=stmts, loc=self._loc(tok))
 
@@ -791,10 +794,11 @@ class Parser:
 		tok = self._advance()  # consume 'for'
 		self._expect(TokenType.LPAREN, "Expected '(' after 'for'")
 
-		# init
-		init: ASTNode | None = None
+		# init (may be a multi-variable declaration)
+		init: ASTNode | list[ASTNode] | None = None
 		if self._is_type_start():
-			init = self._parse_var_decl_stmt()  # includes semicolon
+			init_decls = self._parse_var_decl_list()  # includes semicolon
+			init = init_decls if len(init_decls) > 1 else init_decls[0]
 		elif not self._check(TokenType.SEMICOLON):
 			init = self._parse_expression()
 			self._expect(TokenType.SEMICOLON, "Expected ';' in for statement")
@@ -878,45 +882,85 @@ class Parser:
 		self._expect(TokenType.RBRACE, "Expected '}' after switch body")
 		return SwitchStmt(expression=expression, cases=cases, loc=self._loc(tok))
 
-	def _parse_var_decl_stmt(self) -> VarDecl:
-		"""Parse a local variable declaration: type name [= expr]; or type name[size][...];"""
+	def _parse_array_dimensions(self) -> list[ASTNode] | None:
+		"""Parse optional array dimensions: [size][size]..."""
+		if not self._check(TokenType.LBRACKET):
+			return None
+		array_sizes: list[ASTNode] = []
+		while self._match(TokenType.LBRACKET):
+			if self._check(TokenType.RBRACKET):
+				array_sizes.append(IntLiteral(value=0, loc=self._loc(self._current())))
+			else:
+				array_sizes.append(self._parse_expression())
+			self._expect(TokenType.RBRACKET, "Expected ']' after array size")
+		return array_sizes
+
+	def _parse_optional_initializer(self) -> ASTNode | None:
+		"""Parse optional initializer: = expr or = {list}."""
+		if not self._match(TokenType.ASSIGN):
+			return None
+		if self._check(TokenType.LBRACE):
+			return self._parse_initializer_list()
+		return self._parse_expression()
+
+	def _parse_additional_declarator(self, first_type_spec: TypeSpec, storage_class: str | None) -> VarDecl:
+		"""Parse an additional declarator in a comma-separated declaration list.
+
+		Each declarator can have its own pointer count, array dimensions, and initializer.
+		The base type (without pointers) is derived from the first type_spec.
+		"""
+		pointer_count = 0
+		while self._match(TokenType.STAR):
+			pointer_count += 1
+		name_tok = self._expect(TokenType.IDENTIFIER, "Expected variable name")
+		array_sizes = self._parse_array_dimensions()
+		initializer = self._parse_optional_initializer()
+		decl_type = TypeSpec(
+			base_type=first_type_spec.base_type,
+			pointer_count=pointer_count,
+			qualifiers=first_type_spec.qualifiers[:],
+			signedness=first_type_spec.signedness,
+			width_modifier=first_type_spec.width_modifier,
+			loc=first_type_spec.loc,
+		)
+		return VarDecl(
+			type_spec=decl_type,
+			name=name_tok.value,
+			initializer=initializer,
+			array_sizes=array_sizes,
+			storage_class=storage_class,
+			loc=self._loc(name_tok),
+		)
+
+	def _parse_var_decl_list(self) -> list[VarDecl]:
+		"""Parse a variable declaration with optional comma-separated declarators.
+
+		Handles: int a, b; | int *a, b; | int a = 1, b[5], *c; etc.
+		Returns a list of VarDecl nodes (one per declarator).
+		"""
 		self._last_storage_class = None
 		type_spec = self._parse_type_spec()
 		storage_class = self._last_storage_class
 
-		# Check for function pointer declaration: type (*name)(params)
+		# Function pointer declaration (no multi-decl support)
 		if self._is_func_ptr_start():
 			fp_type, name_tok = self._parse_func_ptr_type(type_spec)
 			initializer = None
 			if self._match(TokenType.ASSIGN):
 				initializer = self._parse_expression()
 			self._expect(TokenType.SEMICOLON, "Expected ';' after function pointer declaration")
-			return VarDecl(
+			return [VarDecl(
 				type_spec=fp_type,
 				name=name_tok.value,
 				initializer=initializer,
 				storage_class=storage_class,
 				loc=self._loc(name_tok),
-			)
+			)]
 
 		name_tok = self._expect(TokenType.IDENTIFIER, "Expected variable name")
-		array_sizes: list[ASTNode] | None = None
-		if self._check(TokenType.LBRACKET):
-			array_sizes = []
-			while self._match(TokenType.LBRACKET):
-				if self._check(TokenType.RBRACKET):
-					array_sizes.append(IntLiteral(value=0, loc=self._loc(self._current())))
-				else:
-					array_sizes.append(self._parse_expression())
-				self._expect(TokenType.RBRACKET, "Expected ']' after array size")
-		initializer = None
-		if self._match(TokenType.ASSIGN):
-			if self._check(TokenType.LBRACE):
-				initializer = self._parse_initializer_list()
-			else:
-				initializer = self._parse_expression()
-		self._expect(TokenType.SEMICOLON, "Expected ';' after variable declaration")
-		return VarDecl(
+		array_sizes = self._parse_array_dimensions()
+		initializer = self._parse_optional_initializer()
+		first_decl = VarDecl(
 			type_spec=type_spec,
 			name=name_tok.value,
 			initializer=initializer,
@@ -924,6 +968,37 @@ class Parser:
 			storage_class=storage_class,
 			loc=self._loc(name_tok),
 		)
+		decls = [first_decl]
+		while self._match(TokenType.COMMA):
+			decls.append(self._parse_additional_declarator(type_spec, storage_class))
+		self._expect(TokenType.SEMICOLON, "Expected ';' after variable declaration")
+		return decls
+
+	def _is_var_decl_start(self) -> bool:
+		"""Check if current position starts a variable declaration (not typedef/struct/enum/union definition)."""
+		if self._check(TokenType.TYPEDEF):
+			return False
+		if self._check(TokenType.STRUCT, TokenType.UNION):
+			if self._peek(1).type == TokenType.IDENTIFIER and self._peek(2).type == TokenType.LBRACE:
+				return False
+			return True
+		if self._check(TokenType.ENUM):
+			if self._peek(1).type == TokenType.IDENTIFIER and self._peek(2).type == TokenType.LBRACE:
+				return False
+			return True
+		if self._check(TokenType.INT, TokenType.CHAR, TokenType.VOID, TokenType.FLOAT, TokenType.DOUBLE,
+			TokenType.LONG, TokenType.SHORT, TokenType.SIGNED, TokenType.UNSIGNED):
+			return True
+		if self._check(*_QUALIFIER_KEYWORDS) or self._check(*_STORAGE_CLASS_KEYWORDS):
+			return True
+		if self._check(TokenType.IDENTIFIER) and self._current().value in self._typedef_names:
+			return True
+		return False
+
+	def _parse_var_decl_stmt(self) -> VarDecl:
+		"""Parse a single local variable declaration (backward compat for non-compound contexts)."""
+		decls = self._parse_var_decl_list()
+		return decls[0]
 
 	def _parse_expr_stmt(self) -> ExprStmt:
 		"""Parse an expression statement: expr;"""

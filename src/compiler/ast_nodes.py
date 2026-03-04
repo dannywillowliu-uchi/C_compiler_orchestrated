@@ -421,7 +421,7 @@ class WhileStmt(ASTNode):
 class ForStmt(ASTNode):
 	"""For loop: for(init; condition; update) body."""
 
-	init: ASTNode | None = None
+	init: ASTNode | list[ASTNode] | None = None
 	condition: ASTNode | None = None
 	update: ASTNode | None = None
 	body: ASTNode = field(default_factory=ASTNode)

@@ -478,7 +478,11 @@ class SemanticAnalyzer(ASTVisitor):
 	def visit_for_stmt(self, node: ForStmt) -> None:
 		self.symbols.push_scope()
 		if node.init is not None:
-			self.visit(node.init)
+			if isinstance(node.init, list):
+				for decl in node.init:
+					self.visit(decl)
+			else:
+				self.visit(node.init)
 		if node.condition is not None:
 			self.visit(node.condition)
 		if node.update is not None:
