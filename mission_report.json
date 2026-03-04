@@ -1,0 +1,623 @@
+{
+  "objective": "Continue building and improving the C compiler. Focus on closing known gaps and increasing correctness.\n\nUse PYTHONPATH=src .venv/bin/python for all Python commands.\n",
+  "outcome": {
+    "objective_met": false,
+    "stopped_reason": "ema_budget_exceeded"
+  },
+  "mission_id": "9ff04947dae4",
+  "units_dispatched": 46,
+  "units_merged": 45,
+  "units_failed": 0,
+  "wall_time_seconds": 30476.849378000014,
+  "total_cost_usd": 196.89175664999993,
+  "files_changed": [
+    "src/compiler/codegen.py",
+    "src/compiler/ir.py",
+    "src/compiler/ir_gen.py",
+    "src/compiler/liveness.py",
+    "src/compiler/optimizer.py",
+    "src/compiler/parser.py",
+    "src/compiler/regalloc.py",
+    "src/compiler/semantic.py",
+    "src/compiler/tokens.py",
+    "tests/test_codegen.py",
+    "tests/test_ir_gen.py",
+    "tests/test_lexer.py",
+    "tests/test_optimizer_integration.py",
+    "tests/test_parser.py",
+    "tests/test_semantic.py",
+    "tests/torture/__init__.py",
+    "tests/torture/test_arith_cast.py",
+    "tests/torture/test_decl_multi_ptr.py",
+    "tests/torture/test_decl_nested_scope.py",
+    "tests/torture/test_misc_enum.py",
+    "tests/torture/test_misc_string_literal.py",
+    "tests/torture/test_misc_typedef.py",
+    "tests/torture/test_ptr_array_decay.py",
+    "tests/torture/test_ptr_array_equiv.py",
+    "tests/torture/test_ptr_basic.py",
+    "tests/torture/test_ptr_diff.py",
+    "tests/torture/test_ptr_function.py",
+    "tests/torture/test_struct_array_field.py",
+    "tests/torture/test_struct_in_array.py"
+  ],
+  "verification_passed": false,
+  "verification_output": "........................................................................ [  2%]\n........................................................................ [  5%]\n........................................................................ [  7%]\n........................................................................ [ 10%]\n........................................................................ [ 12%]\n........................................................................ [ 15%]\nss..sss......ss................F........................................ [ 17%]\n........................................................................ [ 20%]\n................FFFxxxF..F.FF.....x.xx......xxxxxx.x..x....x............ [ 22%]\n........................................................................ [ 25%]\n........................................................................ [ 27%]\n........................................................................ [ 30%]\n........................................................................ [ 32%]\n........................................................................ [ 35%]\n........................................................................ [ 37%]\n........................................................................ [ 40%]\n........................................................................ [ 42%]\n........................................................................ [ 45%]\n........................................................................ [ 47%]\n........................................................................ [ 50%]\n........................................................................ [ 52%]\n........................................................................ [ 55%]\n........................................................................ [ 57%]\n........................................................................ [ 60%]\n........................................................................ [ 62%]\n........................................................................ [ 65%]\n........................................................................ [ 67%]\n........................................................................ [ 70%]\n........................................................................ [ 72%]\n........................................................................ [ 75%]\n........................................................................ [ 77%]\n........................................................................ [ 80%]\n........................................................................ [ 82%]\n........................................................................ [ 85%]\n............................FFFFFFF..................................... [ 87%]\n........................................................................ [ 90%]\n........................................................................ [ 93%]\n........................................................................ [ 95%]\n........................................................................ [ 98%]\n..............FFF.....FF.FFFFFFFFFFF.FFF......FF...F....                 [100%]\n=================================== FAILURES ===================================\n_____ TestE2EStructMemberAccessAndSizeof.test_struct_pointer_member_access _____\n\nself = <tests.test_compile_and_link.TestE2EStructMemberAccessAndSizeof object at 0x10b232850>\ntmp_path = PosixPath('/private/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/pytest-of-dannyliu/pytest-1503/test_struct_pointer_member_acc0')\n\n    @can_link\n    def test_struct_pointer_member_access(self, tmp_path: Path) -> None:\n    \tsource = \"\"\"\n    \tstruct Pair {\n    \t\tint first;\n    \t\tint second;\n    \t};\n    \tint sum_pair(struct Pair *p) {\n    \t\treturn p->first + p->second;\n    \t}\n    \tint main() {\n    \t\tstruct Pair pair;\n    \t\tpair.first = 25;\n    \t\tpair.second = 75;\n    \t\treturn sum_pair(&pair);\n    \t}\n    \t\"\"\"\n>   \tassert _compile_and_run(source, tmp_path) == 100\nE    AssertionError: assert 131 == 100\nE     +  where 131 = _compile_and_run('\\n\\t\\tstruct Pair {\\n\\t\\t\\tint first;\\n\\t\\t\\tint second;\\n\\t\\t};\\n\\t\\tint sum_pair(struct Pair *p) {\\n\\t\\t\\treturn p-...\\n\\t\\t\\tstruct Pair pair;\\n\\t\\t\\tpair.first = 25;\\n\\t\\t\\tpair.second = 75;\\n\\t\\t\\treturn sum_pair(&pair);\\n\\t\\t}\\n\\t\\t', PosixPath('/private/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/pytest-of-dannyliu/pytest-1503/test_struct_pointer_member_acc0'))\n\ntests/test_compile_and_link.py:590: AssertionError\n_________ TestRecursiveStructPointers.test_linked_list_sum_three_nodes _________\n\nself = <tests.test_e2e_feature_combos.TestRecursiveStructPointers object at 0x10b59d450>\ntmp_path = PosixPath('/private/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/pytest-of-dannyliu/pytest-1503/test_linked_list_sum_three_nod0')\n\n    @can_link\n    def test_linked_list_sum_three_nodes(self, tmp_path: Path) -> None:\n    \t\"\"\"Build a 3-node linked list on the stack and sum values via recursive traversal.\"\"\"\n    \tsource = \"\"\"\n    \tstruct Node {\n    \t\tint value;\n    \t\tstruct Node *next;\n    \t};\n    \tint list_sum(struct Node *n) {\n    \t\tif (n == 0) {\n    \t\t\treturn 0;\n    \t\t}\n    \t\treturn n->value + list_sum(n->next);\n    \t}\n    \tint main() {\n    \t\tstruct Node a;\n    \t\tstruct Node b;\n    \t\tstruct Node c;\n    \t\ta.value = 10;\n    \t\tb.value = 20;\n    \t\tc.value = 30;\n    \t\tc.next = 0;\n    \t\tb.next = &c;\n    \t\ta.next = &b;\n    \t\treturn list_sum(&a);\n    \t}\n    \t\"\"\"\n    \t# 10 + 20 + 30 = 60\n>   \tassert _compile_and_run(source, tmp_path) == 60\nE    AssertionError: assert 32 == 60\nE     +  where 32 = _compile_and_run('\\n\\t\\tstruct Node {\\n\\t\\t\\tint value;\\n\\t\\t\\tstruct Node *next;\\n\\t\\t};\\n\\t\\tint list_sum(struct Node *n) {\\n\\t\\t\\tif...t\\t\\tc.value = 30;\\n\\t\\t\\tc.next = 0;\\n\\t\\t\\tb.next = &c;\\n\\t\\t\\ta.next = &b;\\n\\t\\t\\treturn list_sum(&a);\\n\\t\\t}\\n\\t\\t', PosixPath('/private/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/pytest-of-dannyliu/pytest-1503/test_linked_list_sum_three_nod0'))\n\ntests/test_e2e_feature_combos.py:95: AssertionError\n___________ TestRecursiveStructPointers.test_linked_list_count_nodes ___________\n\nself = <tests.test_e2e_feature_combos.TestRecursiveStructPointers object at 0x10b59d590>\ntmp_path = PosixPath('/private/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/pytest-of-dannyliu/pytest-1503/test_linked_list_count_nodes0')\n\n    @can_link\n    def test_linked_list_count_nodes(self, tmp_path: Path) -> None:\n    \t\"\"\"Count nodes in a linked list recursively.\"\"\"\n    \tsource = \"\"\"\n    \tstruct Node {\n    \t\tint value;\n    \t\tstruct Node *next;\n    \t};\n    \tint list_count(struct Node *n) {\n    \t\tif (n == 0) {\n    \t\t\treturn 0;\n    \t\t}\n    \t\treturn 1 + list_count(n->next);\n    \t}\n    \tint main() {\n    \t\tstruct Node a;\n    \t\tstruct Node b;\n    \t\tstruct Node c;\n    \t\tstruct Node d;\n    \t\ta.value = 1;\n    \t\tb.value = 2;\n    \t\tc.value = 3;\n    \t\td.value = 4;\n    \t\td.next = 0;\n    \t\tc.next = &d;\n    \t\tb.next = &c;\n    \t\ta.next = &b;\n    \t\treturn list_count(&a);\n    \t}\n    \t\"\"\"\n>   \tassert _compile_and_run(source, tmp_path) == 4\nE    AssertionError: assert -11 == 4\nE     +  where -11 = _compile_and_run('\\n\\t\\tstruct Node {\\n\\t\\t\\tint value;\\n\\t\\t\\tstruct Node *next;\\n\\t\\t};\\n\\t\\tint list_count(struct Node *n) {\\n\\t\\t\\t...\\t\\td.next = 0;\\n\\t\\t\\tc.next = &d;\\n\\t\\t\\tb.next = &c;\\n\\t\\t\\ta.next = &b;\\n\\t\\t\\treturn list_count(&a);\\n\\t\\t}\\n\\t\\t', PosixPath('/private/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/pytest-of-dannyliu/pytest-1503/test_linked_list_count_nodes0'))\n\ntests/test_e2e_feature_combos.py:127: AssertionError\n____________ TestRecursiveStructPointers.test_linked_list_find_max _____________\n\nself = <tests.test_e2e_feature_combos.TestRecursiveStructPointers object at 0x10b5ca650>\ntmp_path = PosixPath('/private/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/pytest-of-dannyliu/pytest-1503/test_linked_list_find_max0')\n\n    @can_link\n    def test_linked_list_find_max(self, tmp_path: Path) -> None:\n    \t\"\"\"Find maximum value in a linked list recursively.\"\"\"\n    \tsource = \"\"\"\n    \tstruct Node {\n    \t\tint value;\n    \t\tstruct Node *next;\n    \t};\n    \tint list_max(struct Node *n) {\n    \t\tint rest;\n    \t\tif (n->next == 0) {\n    \t\t\treturn n->value;\n    \t\t}\n    \t\trest = list_max(n->next);\n    \t\treturn (n->value > rest) ? n->value : rest;\n    \t}\n    \tint main() {\n    \t\tstruct Node a;\n    \t\tstruct Node b;\n    \t\tstruct Node c;\n    \t\ta.value = 15;\n    \t\tb.value = 42;\n    \t\tc.value = 7;\n    \t\tc.next = 0;\n    \t\tb.next = &c;\n    \t\ta.next = &b;\n    \t\treturn list_max(&a);\n    \t}\n    \t\"\"\"\n>   \tassert _compile_and_run(source, tmp_path) == 42\nE    AssertionError: assert 64 == 42\nE     +  where 64 = _compile_and_run('\\n\\t\\tstruct Node {\\n\\t\\t\\tint value;\\n\\t\\t\\tstruct Node *next;\\n\\t\\t};\\n\\t\\tint list_max(struct Node *n) {\\n\\t\\t\\tin...\\t\\t\\tc.value = 7;\\n\\t\\t\\tc.next = 0;\\n\\t\\t\\tb.next = &c;\\n\\t\\t\\ta.next = &b;\\n\\t\\t\\treturn list_max(&a);\\n\\t\\t}\\n\\t\\t', PosixPath('/private/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/pytest-of-dannyliu/pytest-1503/test_linked_list_find_max0'))\n\ntests/test_e2e_feature_combos.py:158: AssertionError\n____ TestSwitchStructPointerArray.test_switch_dispatches_struct_operations _____\n\nself = <tests.test_e2e_feature_combos.TestSwitchStructPointerArray object at 0x10b59d950>\ntmp_path = PosixPath('/private/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/pytest-of-dannyliu/pytest-1503/test_switch_dispatches_struct_0')\n\n    @can_link\n    def test_switch_dispatches_struct_operations(self, tmp_path: Path) -> None:\n    \t\"\"\"Use switch to select operation on struct fields.\"\"\"\n    \tsource = \"\"\"\n    \tstruct Vec2 {\n    \t\tint x;\n    \t\tint y;\n    \t};\n    \tint operate(struct Vec2 *v, int op) {\n    \t\tint result;\n    \t\tswitch (op) {\n    \t\t\tcase 0:\n    \t\t\t\tresult = v->x + v->y;\n    \t\t\t\tbreak;\n    \t\t\tcase 1:\n    \t\t\t\tresult = v->x - v->y;\n    \t\t\t\tbreak;\n    \t\t\tcase 2:\n    \t\t\t\tresult = v->x * v->y;\n    \t\t\t\tbreak;\n    \t\t\tdefault:\n    \t\t\t\tresult = 0;\n    \t\t\t\tbreak;\n    \t\t}\n    \t\treturn result;\n    \t}\n    \tint main() {\n    \t\tstruct Vec2 v;\n    \t\tv.x = 12;\n    \t\tv.y = 5;\n    \t\treturn operate(&v, 2);\n    \t}\n    \t\"\"\"\n    \t# 12 * 5 = 60\n>   \tassert _compile_and_run(source, tmp_path) == 60\nE    AssertionError: assert 128 == 60\nE     +  where 128 = _compile_and_run('\\n\\t\\tstruct Vec2 {\\n\\t\\t\\tint x;\\n\\t\\t\\tint y;\\n\\t\\t};\\n\\t\\tint operate(struct Vec2 *v, int op) {\\n\\t\\t\\tint result;...t}\\n\\t\\tint main() {\\n\\t\\t\\tstruct Vec2 v;\\n\\t\\t\\tv.x = 12;\\n\\t\\t\\tv.y = 5;\\n\\t\\t\\treturn operate(&v, 2);\\n\\t\\t}\\n\\t\\t', PosixPath('/private/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/pytest-of-dannyliu/pytest-1503/test_switch_dispatches_struct_0'))\n\ntests/test_e2e_feature_combos.py:292: AssertionError\n___ TestNestedFunctionCallsWithStructPointers.test_nested_struct_transforms ____\n\nself = <tests.test_e2e_feature_combos.TestNestedFunctionCallsWithStructPointers object at 0x10b59dbd0>\ntmp_path = PosixPath('/private/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/pytest-of-dannyliu/pytest-1503/test_nested_struct_transforms0')\n\n    @can_link\n    def test_nested_struct_transforms(self, tmp_path: Path) -> None:\n    \t\"\"\"Pass struct pointer through chain of functions that modify fields.\"\"\"\n    \tsource = \"\"\"\n    \tstruct Data {\n    \t\tint x;\n    \t\tint y;\n    \t};\n    \tvoid double_x(struct Data *d) {\n    \t\td->x = d->x * 2;\n    \t}\n    \tvoid add_to_y(struct Data *d, int amount) {\n    \t\td->y = d->y + amount;\n    \t}\n    \tint sum_fields(struct Data *d) {\n    \t\treturn d->x + d->y;\n    \t}\n    \tint main() {\n    \t\tstruct Data d;\n    \t\td.x = 10;\n    \t\td.y = 5;\n    \t\tdouble_x(&d);\n    \t\tadd_to_y(&d, 15);\n    \t\treturn sum_fields(&d);\n    \t}\n    \t\"\"\"\n    \t# x: 10*2=20, y: 5+15=20, sum=40\n>   \tassert _compile_and_run(source, tmp_path) == 40\nE    AssertionError: assert 210 == 40\nE     +  where 210 = _compile_and_run('\\n\\t\\tstruct Data {\\n\\t\\t\\tint x;\\n\\t\\t\\tint y;\\n\\t\\t};\\n\\t\\tvoid double_x(struct Data *d) {\\n\\t\\t\\td->x = d->x * 2;\\...\\t\\td.x = 10;\\n\\t\\t\\td.y = 5;\\n\\t\\t\\tdouble_x(&d);\\n\\t\\t\\tadd_to_y(&d, 15);\\n\\t\\t\\treturn sum_fields(&d);\\n\\t\\t}\\n\\t\\t', PosixPath('/private/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/pytest-of-dannyliu/pytest-1503/test_nested_struct_transforms0'))\n\ntests/test_e2e_feature_combos.py:404: AssertionError\n_ TestNestedFunctionCallsWithStructPointers.test_nested_calls_accumulate_struct _\n\nself = <tests.test_e2e_feature_combos.TestNestedFunctionCallsWithStructPointers object at 0x10b5ca9e0>\ntmp_path = PosixPath('/private/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/pytest-of-dannyliu/pytest-1503/test_nested_calls_accumulate_s0')\n\n    @can_link\n    def test_nested_calls_accumulate_struct(self, tmp_path: Path) -> None:\n    \t\"\"\"Multiple nested function calls that read/write the same struct.\"\"\"\n    \tsource = \"\"\"\n    \tstruct Counter {\n    \t\tint count;\n    \t\tint total;\n    \t};\n    \tvoid increment(struct Counter *c) {\n    \t\tc->count = c->count + 1;\n    \t}\n    \tvoid add_value(struct Counter *c, int v) {\n    \t\tc->total = c->total + v;\n    \t\tincrement(c);\n    \t}\n    \tint main() {\n    \t\tstruct Counter c;\n    \t\tc.count = 0;\n    \t\tc.total = 0;\n    \t\tadd_value(&c, 10);\n    \t\tadd_value(&c, 20);\n    \t\tadd_value(&c, 30);\n    \t\treturn c.count + c.total;\n    \t}\n    \t\"\"\"\n    \t# count=3, total=60 => 63\n>   \tassert _compile_and_run(source, tmp_path) == 63\nE    AssertionError: assert -10 == 63\nE     +  where -10 = _compile_and_run('\\n\\t\\tstruct Counter {\\n\\t\\t\\tint count;\\n\\t\\t\\tint total;\\n\\t\\t};\\n\\t\\tvoid increment(struct Counter *c) {\\n\\t\\t\\tc-...\\tadd_value(&c, 10);\\n\\t\\t\\tadd_value(&c, 20);\\n\\t\\t\\tadd_value(&c, 30);\\n\\t\\t\\treturn c.count + c.total;\\n\\t\\t}\\n\\t\\t', PosixPath('/private/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/pytest-of-dannyliu/pytest-1503/test_nested_calls_accumulate_s0'))\n\ntests/test_e2e_feature_combos.py:460: AssertionError\n_ TestNestedFunctionCallsWithStructPointers.test_compute_via_struct_pointer_chain _\n\nself = <tests.test_e2e_feature_combos.TestNestedFunctionCallsWithStructPointers object at 0x10b5cab10>\ntmp_path = PosixPath('/private/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/pytest-of-dannyliu/pytest-1503/test_compute_via_struct_pointe0')\n\n    @can_link\n    def test_compute_via_struct_pointer_chain(self, tmp_path: Path) -> None:\n    \t\"\"\"Chain of functions each reading a struct pointer and returning a computed value.\"\"\"\n    \tsource = \"\"\"\n    \tstruct Rect {\n    \t\tint width;\n    \t\tint height;\n    \t};\n    \tint area(struct Rect *r) {\n    \t\treturn r->width * r->height;\n    \t}\n    \tint perimeter(struct Rect *r) {\n    \t\treturn 2 * (r->width + r->height);\n    \t}\n    \tint main() {\n    \t\tstruct Rect r;\n    \t\tr.width = 5;\n    \t\tr.height = 8;\n    \t\treturn area(&r) + perimeter(&r);\n    \t}\n    \t\"\"\"\n    \t# area=40, perimeter=26 => 66\n>   \tassert _compile_and_run(source, tmp_path) == 66\nE    AssertionError: assert 230 == 66\nE     +  where 230 = _compile_and_run('\\n\\t\\tstruct Rect {\\n\\t\\t\\tint width;\\n\\t\\t\\tint height;\\n\\t\\t};\\n\\t\\tint area(struct Rect *r) {\\n\\t\\t\\treturn r->wid... {\\n\\t\\t\\tstruct Rect r;\\n\\t\\t\\tr.width = 5;\\n\\t\\t\\tr.height = 8;\\n\\t\\t\\treturn area(&r) + perimeter(&r);\\n\\t\\t}\\n\\t\\t', PosixPath('/private/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/pytest-of-dannyliu/pytest-1503/test_compute_via_struct_pointe0'))\n\ntests/test_e2e_feature_combos.py:484: AssertionError\n______________ TestEnumIntCompat.test_enum_var_init_from_constant ______________\n\nself = <tests.test_semantic.TestEnumIntCompat object at 0x10c852e90>\n\n    def test_enum_var_init_from_constant(self) -> None:\n    \t\"\"\"enum Color c = RED; should be valid (enum compatible with int).\"\"\"\n    \tprog = Program(declarations=[\n    \t\tEnumDecl(name=\"Color\", constants=[\n    \t\t\tEnumConstant(name=\"RED\"),\n    \t\t\tEnumConstant(name=\"GREEN\"),\n    \t\t\tEnumConstant(name=\"BLUE\"),\n    \t\t]),\n    \t\tFunctionDecl(\n    \t\t\treturn_type=int_type(),\n    \t\t\tname=\"main\",\n    \t\t\tparams=[],\n    \t\t\tbody=CompoundStmt(statements=[\n    \t\t\t\tVarDecl(\n    \t\t\t\t\ttype_spec=TypeSpec(base_type=\"enum Color\"),\n    \t\t\t\t\tname=\"c\",\n    \t\t\t\t\tinitializer=Identifier(name=\"RED\"),\n    \t\t\t\t),\n    \t\t\t\tReturnStmt(expression=IntLiteral(value=0)),\n    \t\t\t]),\n    \t\t),\n    \t])\n>   \tSemanticAnalyzer().analyze(prog)\n\ntests/test_semantic.py:1928: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nself = <compiler.semantic.SemanticAnalyzer object at 0x10bb67f50>\nnode = Program(loc=SourceLocation(line=0, col=0), declarations=[EnumDecl(loc=SourceLocation(line=0, col=0), name='Color', con...oc=SourceLocation(line=0, col=0), value=0, suffix=''), has_expression=True)]), storage_class=None, is_variadic=False)])\n\n    def analyze(self, node: ASTNode) -> list[SemanticError]:\n    \tself.visit(node)\n    \tif self.errors:\n>   \t\traise self.errors[0]\nE     compiler.semantic.SemanticError: 0:0: incompatible types in initialization of 'c': 'enum Color' and 'int'\n\nsrc/compiler/semantic.py:318: SemanticError\n____________________ TestEnumIntCompat.test_enum_var_to_int ____________________\n\nself = <tests.test_semantic.TestEnumIntCompat object at 0x10c852fd0>\n\n    def test_enum_var_to_int(self) -> None:\n    \t\"\"\"int x = c; where c is enum Color should be valid.\"\"\"\n    \tprog = Program(declarations=[\n    \t\tEnumDecl(name=\"Color\", constants=[\n    \t\t\tEnumConstant(name=\"RED\"),\n    \t\t]),\n    \t\tFunctionDecl(\n    \t\t\treturn_type=int_type(),\n    \t\t\tname=\"main\",\n    \t\t\tparams=[],\n    \t\t\tbody=CompoundStmt(statements=[\n    \t\t\t\tVarDecl(\n    \t\t\t\t\ttype_spec=TypeSpec(base_type=\"enum Color\"),\n    \t\t\t\t\tname=\"c\",\n    \t\t\t\t\tinitializer=Identifier(name=\"RED\"),\n    \t\t\t\t),\n    \t\t\t\tVarDecl(\n    \t\t\t\t\ttype_spec=int_type(),\n    \t\t\t\t\tname=\"x\",\n    \t\t\t\t\tinitializer=Identifier(name=\"c\"),\n    \t\t\t\t),\n    \t\t\t\tReturnStmt(expression=Identifier(name=\"x\")),\n    \t\t\t]),\n    \t\t),\n    \t])\n>   \tSemanticAnalyzer().analyze(prog)\n\ntests/test_semantic.py:1955: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nself = <compiler.semantic.SemanticAnalyzer object at 0x10bb67dd0>\nnode = Program(loc=SourceLocation(line=0, col=0), declarations=[EnumDecl(loc=SourceLocation(line=0, col=0), name='Color', con...entifier(loc=SourceLocation(line=0, col=0), name='x'), has_expression=True)]), storage_class=None, is_variadic=False)])\n\n    def analyze(self, node: ASTNode) -> list[SemanticError]:\n    \tself.visit(node)\n    \tif self.errors:\n>   \t\traise self.errors[0]\nE     compiler.semantic.SemanticError: 0:0: incompatible types in initialization of 'c': 'enum Color' and 'int'\n\nsrc/compiler/semantic.py:318: SemanticError\n______________________ TestEnumIntCompat.test_int_to_enum ______________________\n\nself = <tests.test_semantic.TestEnumIntCompat object at 0x10c9915b0>\n\n    def test_int_to_enum(self) -> None:\n    \t\"\"\"enum Color c = 0; should be valid (int assignable to enum).\"\"\"\n    \tprog = Program(declarations=[\n    \t\tEnumDecl(name=\"Color\", constants=[\n    \t\t\tEnumConstant(name=\"RED\"),\n    \t\t]),\n    \t\tFunctionDecl(\n    \t\t\treturn_type=int_type(),\n    \t\t\tname=\"main\",\n    \t\t\tparams=[],\n    \t\t\tbody=CompoundStmt(statements=[\n    \t\t\t\tVarDecl(\n    \t\t\t\t\ttype_spec=TypeSpec(base_type=\"enum Color\"),\n    \t\t\t\t\tname=\"c\",\n    \t\t\t\t\tinitializer=IntLiteral(value=0),\n    \t\t\t\t),\n    \t\t\t\tReturnStmt(expression=IntLiteral(value=0)),\n    \t\t\t]),\n    \t\t),\n    \t])\n>   \tSemanticAnalyzer().analyze(prog)\n\ntests/test_semantic.py:1977: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nself = <compiler.semantic.SemanticAnalyzer object at 0x10bb67e90>\nnode = Program(loc=SourceLocation(line=0, col=0), declarations=[EnumDecl(loc=SourceLocation(line=0, col=0), name='Color', con...oc=SourceLocation(line=0, col=0), value=0, suffix=''), has_expression=True)]), storage_class=None, is_variadic=False)])\n\n    def analyze(self, node: ASTNode) -> list[SemanticError]:\n    \tself.visit(node)\n    \tif self.errors:\n>   \t\traise self.errors[0]\nE     compiler.semantic.SemanticError: 0:0: incompatible types in initialization of 'c': 'enum Color' and 'int'\n\nsrc/compiler/semantic.py:318: SemanticError\n___________________ TestEnumIntCompat.test_enum_in_binary_op ___________________\n\nself = <tests.test_semantic.TestEnumIntCompat object at 0x10c9916e0>\n\n    def test_enum_in_binary_op(self) -> None:\n    \t\"\"\"enum Color c = RED; int x = c + 1; should be valid.\"\"\"\n    \tprog = Program(declarations=[\n    \t\tEnumDecl(name=\"Color\", constants=[\n    \t\t\tEnumConstant(name=\"RED\"),\n    \t\t]),\n    \t\tFunctionDecl(\n    \t\t\treturn_type=int_type(),\n    \t\t\tname=\"main\",\n    \t\t\tparams=[],\n    \t\t\tbody=CompoundStmt(statements=[\n    \t\t\t\tVarDecl(\n    \t\t\t\t\ttype_spec=TypeSpec(base_type=\"enum Color\"),\n    \t\t\t\t\tname=\"c\",\n    \t\t\t\t\tinitializer=Identifier(name=\"RED\"),\n    \t\t\t\t),\n    \t\t\t\tVarDecl(\n    \t\t\t\t\ttype_spec=int_type(),\n    \t\t\t\t\tname=\"x\",\n    \t\t\t\t\tinitializer=BinaryOp(\n    \t\t\t\t\t\tleft=Identifier(name=\"c\"),\n    \t\t\t\t\t\top=\"+\",\n    \t\t\t\t\t\tright=IntLiteral(value=1),\n    \t\t\t\t\t),\n    \t\t\t\t),\n    \t\t\t\tReturnStmt(expression=Identifier(name=\"x\")),\n    \t\t\t]),\n    \t\t),\n    \t])\n>   \tSemanticAnalyzer().analyze(prog)\n\ntests/test_semantic.py:2008: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nself = <compiler.semantic.SemanticAnalyzer object at 0x10bb67dd0>\nnode = Program(loc=SourceLocation(line=0, col=0), declarations=[EnumDecl(loc=SourceLocation(line=0, col=0), name='Color', con...entifier(loc=SourceLocation(line=0, col=0), name='x'), has_expression=True)]), storage_class=None, is_variadic=False)])\n\n    def analyze(self, node: ASTNode) -> list[SemanticError]:\n    \tself.visit(node)\n    \tif self.errors:\n>   \t\traise self.errors[0]\nE     compiler.semantic.SemanticError: 0:0: incompatible types in initialization of 'c': 'enum Color' and 'int'\n\nsrc/compiler/semantic.py:318: SemanticError\n____________________ TestEnumIntCompat.test_enum_assignment ____________________\n\nself = <tests.test_semantic.TestEnumIntCompat object at 0x10c7acb90>\n\n    def test_enum_assignment(self) -> None:\n    \t\"\"\"c = 1; where c is enum Color should be valid.\"\"\"\n    \tprog = Program(declarations=[\n    \t\tEnumDecl(name=\"Color\", constants=[\n    \t\t\tEnumConstant(name=\"RED\"),\n    \t\t]),\n    \t\tFunctionDecl(\n    \t\t\treturn_type=int_type(),\n    \t\t\tname=\"main\",\n    \t\t\tparams=[],\n    \t\t\tbody=CompoundStmt(statements=[\n    \t\t\t\tVarDecl(\n    \t\t\t\t\ttype_spec=TypeSpec(base_type=\"enum Color\"),\n    \t\t\t\t\tname=\"c\",\n    \t\t\t\t\tinitializer=Identifier(name=\"RED\"),\n    \t\t\t\t),\n    \t\t\t\tExprStmt(expression=Assignment(\n    \t\t\t\t\ttarget=Identifier(name=\"c\"),\n    \t\t\t\t\tvalue=IntLiteral(value=1),\n    \t\t\t\t)),\n    \t\t\t\tReturnStmt(expression=IntLiteral(value=0)),\n    \t\t\t]),\n    \t\t),\n    \t])\n>   \tSemanticAnalyzer().analyze(prog)\n\ntests/test_semantic.py:2034: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nself = <compiler.semantic.SemanticAnalyzer object at 0x10bb67ad0>\nnode = Program(loc=SourceLocation(line=0, col=0), declarations=[EnumDecl(loc=SourceLocation(line=0, col=0), name='Color', con...oc=SourceLocation(line=0, col=0), value=0, suffix=''), has_expression=True)]), storage_class=None, is_variadic=False)])\n\n    def analyze(self, node: ASTNode) -> list[SemanticError]:\n    \tself.visit(node)\n    \tif self.errors:\n>   \t\traise self.errors[0]\nE     compiler.semantic.SemanticError: 0:0: incompatible types in initialization of 'c': 'enum Color' and 'int'\n\nsrc/compiler/semantic.py:318: SemanticError\n________ TestTypedefMemberResolution.test_typedef_struct_member_assign _________\n\nself = <tests.test_semantic.TestTypedefMemberResolution object at 0x10c853110>\n\n    def test_typedef_struct_member_assign(self) -> None:\n    \t\"\"\"Assigning a typedef'd struct member to its underlying type should work.\"\"\"\n    \tprog = Program(declarations=[\n    \t\tTypedefDecl(name=\"i32\", type_spec=TypeSpec(base_type=\"int\")),\n    \t\tStructDecl(name=\"Foo\", members=[\n    \t\t\tStructMember(name=\"x\", type_spec=TypeSpec(base_type=\"i32\")),\n    \t\t]),\n    \t\tFunctionDecl(\n    \t\t\treturn_type=int_type(),\n    \t\t\tname=\"main\",\n    \t\t\tparams=[],\n    \t\t\tbody=CompoundStmt(statements=[\n    \t\t\t\tVarDecl(type_spec=TypeSpec(base_type=\"struct Foo\"), name=\"f\"),\n    \t\t\t\tVarDecl(\n    \t\t\t\t\ttype_spec=int_type(),\n    \t\t\t\t\tname=\"y\",\n    \t\t\t\t\tinitializer=MemberAccess(\n    \t\t\t\t\t\tobject=Identifier(name=\"f\"),\n    \t\t\t\t\t\tmember=\"x\",\n    \t\t\t\t\t\tis_arrow=False,\n    \t\t\t\t\t),\n    \t\t\t\t),\n    \t\t\t\tReturnStmt(expression=Identifier(name=\"y\")),\n    \t\t\t]),\n    \t\t),\n    \t])\n>   \tSemanticAnalyzer().analyze(prog)\n\ntests/test_semantic.py:2069: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nself = <compiler.semantic.SemanticAnalyzer object at 0x10bb67890>\nnode = Program(loc=SourceLocation(line=0, col=0), declarations=[TypedefDecl(loc=SourceLocation(line=0, col=0), type_spec=Type...entifier(loc=SourceLocation(line=0, col=0), name='y'), has_expression=True)]), storage_class=None, is_variadic=False)])\n\n    def analyze(self, node: ASTNode) -> list[SemanticError]:\n    \tself.visit(node)\n    \tif self.errors:\n>   \t\traise self.errors[0]\nE     compiler.semantic.SemanticError: 0:0: incompatible types in initialization of 'y': 'int' and 'i32'\n\nsrc/compiler/semantic.py:318: SemanticError\n_________ TestTypedefMemberResolution.test_typedef_struct_member_write _________\n\nself = <tests.test_semantic.TestTypedefMemberResolution object at 0x10c853250>\n\n    def test_typedef_struct_member_write(self) -> None:\n    \t\"\"\"Writing int to a typedef'd struct member should work.\"\"\"\n    \tprog = Program(declarations=[\n    \t\tTypedefDecl(name=\"i32\", type_spec=TypeSpec(base_type=\"int\")),\n    \t\tStructDecl(name=\"Bar\", members=[\n    \t\t\tStructMember(name=\"val\", type_spec=TypeSpec(base_type=\"i32\")),\n    \t\t]),\n    \t\tFunctionDecl(\n    \t\t\treturn_type=int_type(),\n    \t\t\tname=\"main\",\n    \t\t\tparams=[],\n    \t\t\tbody=CompoundStmt(statements=[\n    \t\t\t\tVarDecl(type_spec=TypeSpec(base_type=\"struct Bar\"), name=\"b\"),\n    \t\t\t\tExprStmt(expression=Assignment(\n    \t\t\t\t\ttarget=MemberAccess(\n    \t\t\t\t\t\tobject=Identifier(name=\"b\"),\n    \t\t\t\t\t\tmember=\"val\",\n    \t\t\t\t\t\tis_arrow=False,\n    \t\t\t\t\t),\n    \t\t\t\t\tvalue=IntLiteral(value=5),\n    \t\t\t\t)),\n    \t\t\t\tReturnStmt(expression=IntLiteral(value=0)),\n    \t\t\t]),\n    \t\t),\n    \t])\n>   \tSemanticAnalyzer().analyze(prog)\n\ntests/test_semantic.py:2096: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nself = <compiler.semantic.SemanticAnalyzer object at 0x10bb677d0>\nnode = Program(loc=SourceLocation(line=0, col=0), declarations=[TypedefDecl(loc=SourceLocation(line=0, col=0), type_spec=Type...oc=SourceLocation(line=0, col=0), value=0, suffix=''), has_expression=True)]), storage_class=None, is_variadic=False)])\n\n    def analyze(self, node: ASTNode) -> list[SemanticError]:\n    \tself.visit(node)\n    \tif self.errors:\n>   \t\traise self.errors[0]\nE     compiler.semantic.SemanticError: 0:0: incompatible types in assignment: 'i32' and 'int'\n\nsrc/compiler/semantic.py:318: SemanticError\n_________________________ test_arith_cast_int_to_char __________________________\n\n    def test_arith_cast_int_to_char() -> None:\n    \t\"\"\"(char)321 should truncate via IRConvert to CHAR type.\"\"\"\n    \tprog = _make_program(\n    \t\tFunctionDecl(\n    \t\t\treturn_type=_int_type(),\n    \t\t\tname=\"f\",\n    \t\t\tbody=CompoundStmt(\n    \t\t\t\tstatements=[\n    \t\t\t\t\tReturnStmt(expression=CastExpr(\n    \t\t\t\t\t\ttarget_type=TypeSpec(base_type=\"char\"),\n    \t\t\t\t\t\toperand=IntLiteral(value=321),\n    \t\t\t\t\t)),\n    \t\t\t\t]\n    \t\t\t),\n    \t\t)\n    \t)\n    \tir = IRGenerator().generate(prog)\n    \tbody = ir.functions[0].body\n    \tconverts = [i for i in body if isinstance(i, IRConvert)]\n>   \tassert len(converts) >= 1\nE    assert 0 >= 1\nE     +  where 0 = len([])\n\ntests/torture/test_arith_cast.py:43: AssertionError\n_________________________ test_arith_cast_int_to_short _________________________\n\n    def test_arith_cast_int_to_short() -> None:\n    \t\"\"\"(short)70000 should truncate via IRConvert to SHORT type.\"\"\"\n    \tprog = _make_program(\n    \t\tFunctionDecl(\n    \t\t\treturn_type=_int_type(),\n    \t\t\tname=\"f\",\n    \t\t\tbody=CompoundStmt(\n    \t\t\t\tstatements=[\n    \t\t\t\t\tReturnStmt(expression=CastExpr(\n    \t\t\t\t\t\ttarget_type=TypeSpec(base_type=\"short\"),\n    \t\t\t\t\t\toperand=IntLiteral(value=70000),\n    \t\t\t\t\t)),\n    \t\t\t\t]\n    \t\t\t),\n    \t\t)\n    \t)\n    \tir = IRGenerator().generate(prog)\n    \tbody = ir.functions[0].body\n    \tconverts = [i for i in body if isinstance(i, IRConvert)]\n>   \tassert len(converts) >= 1\nE    assert 0 >= 1\nE     +  where 0 = len([])\n\ntests/torture/test_arith_cast.py:67: AssertionError\n_________________________ test_arith_cast_int_to_bool __________________________\n\n    def test_arith_cast_int_to_bool() -> None:\n    \t\"\"\"(_Bool)42 should truncate via IRConvert to BOOL type.\"\"\"\n    \tprog = _make_program(\n    \t\tFunctionDecl(\n    \t\t\treturn_type=_int_type(),\n    \t\t\tname=\"f\",\n    \t\t\tbody=CompoundStmt(\n    \t\t\t\tstatements=[\n    \t\t\t\t\tReturnStmt(expression=CastExpr(\n    \t\t\t\t\t\ttarget_type=TypeSpec(base_type=\"_Bool\"),\n    \t\t\t\t\t\toperand=IntLiteral(value=42),\n    \t\t\t\t\t)),\n    \t\t\t\t]\n    \t\t\t),\n    \t\t)\n    \t)\n    \tir = IRGenerator().generate(prog)\n    \tbody = ir.functions[0].body\n    \tconverts = [i for i in body if isinstance(i, IRConvert)]\n>   \tassert len(converts) >= 1\nE    assert 0 >= 1\nE     +  where 0 = len([])\n\ntests/torture/test_arith_cast.py:91: AssertionError\n_________________________ test_decl_nested_scope_basic _________________________\n\n    def test_decl_nested_scope_basic() -> None:\n    \t\"\"\"int x = 10; { int x = 20; } return x; -- returns outer x.\"\"\"\n    \tprog = _make_program(\n    \t\tFunctionDecl(\n    \t\t\treturn_type=_int_type(),\n    \t\t\tname=\"f\",\n    \t\t\tbody=CompoundStmt(\n    \t\t\t\tstatements=[\n    \t\t\t\t\tVarDecl(type_spec=_int_type(), name=\"x\", initializer=IntLiteral(value=10)),\n    \t\t\t\t\tCompoundStmt(\n    \t\t\t\t\t\tstatements=[\n    \t\t\t\t\t\t\tVarDecl(type_spec=_int_type(), name=\"x\", initializer=IntLiteral(value=20)),\n    \t\t\t\t\t\t]\n    \t\t\t\t\t),\n    \t\t\t\t\tReturnStmt(expression=Identifier(name=\"x\")),\n    \t\t\t\t]\n    \t\t\t),\n    \t\t)\n    \t)\n    \tir = IRGenerator().generate(prog)\n    \tfn = ir.functions[0]\n    \tallocs = [i for i in fn.body if isinstance(i, IRAlloc)]\n    \tassert len(allocs) == 2  # outer x, inner x\n    \touter_x = allocs[0].dest\n    \t# The return value should come from a copy of outer_x, not inner_x\n    \tcopies_from_outer = [\n    \t\ti for i in fn.body\n    \t\tif isinstance(i, IRCopy) and i.source == outer_x\n    \t]\n>   \tassert len(copies_from_outer) >= 1\nE    assert 0 >= 1\nE     +  where 0 = len([])\n\ntests/torture/test_decl_nested_scope.py:55: AssertionError\n____________________ test_decl_nested_scope_multiple_levels ____________________\n\n    def test_decl_nested_scope_multiple_levels() -> None:\n    \t\"\"\"int x = 1; { int x = 2; { int x = 3; } } return x;\"\"\"\n    \tprog = _make_program(\n    \t\tFunctionDecl(\n    \t\t\treturn_type=_int_type(),\n    \t\t\tname=\"f\",\n    \t\t\tbody=CompoundStmt(\n    \t\t\t\tstatements=[\n    \t\t\t\t\tVarDecl(type_spec=_int_type(), name=\"x\", initializer=IntLiteral(value=1)),\n    \t\t\t\t\tCompoundStmt(\n    \t\t\t\t\t\tstatements=[\n    \t\t\t\t\t\t\tVarDecl(type_spec=_int_type(), name=\"x\", initializer=IntLiteral(value=2)),\n    \t\t\t\t\t\t\tCompoundStmt(\n    \t\t\t\t\t\t\t\tstatements=[\n    \t\t\t\t\t\t\t\t\tVarDecl(type_spec=_int_type(), name=\"x\", initializer=IntLiteral(value=3)),\n    \t\t\t\t\t\t\t\t]\n    \t\t\t\t\t\t\t),\n    \t\t\t\t\t\t]\n    \t\t\t\t\t),\n    \t\t\t\t\tReturnStmt(expression=Identifier(name=\"x\")),\n    \t\t\t\t]\n    \t\t\t),\n    \t\t)\n    \t)\n    \tir = IRGenerator().generate(prog)\n    \tfn = ir.functions[0]\n    \tallocs = [i for i in fn.body if isinstance(i, IRAlloc)]\n    \tassert len(allocs) == 3  # three separate x allocations\n    \touter_x = allocs[0].dest\n    \t# Return should use outer x\n    \tcopies_from_outer = [\n    \t\ti for i in fn.body\n    \t\tif isinstance(i, IRCopy) and i.source == outer_x\n    \t]\n>   \tassert len(copies_from_outer) >= 1\nE    assert 0 >= 1\nE     +  where 0 = len([])\n\ntests/torture/test_decl_nested_scope.py:92: AssertionError\n________________________ test_decl_nested_scope_in_for _________________________\n\n    def test_decl_nested_scope_in_for() -> None:\n    \t\"\"\"int x = 5; for (...) { int x = 0; } return x; -- outer x survives loop.\"\"\"\n    \tprog = _make_program(\n    \t\tFunctionDecl(\n    \t\t\treturn_type=_int_type(),\n    \t\t\tname=\"f\",\n    \t\t\tbody=CompoundStmt(\n    \t\t\t\tstatements=[\n    \t\t\t\t\tVarDecl(type_spec=_int_type(), name=\"x\", initializer=IntLiteral(value=5)),\n    \t\t\t\t\tForStmt(\n    \t\t\t\t\t\tinit=VarDecl(type_spec=_int_type(), name=\"i\", initializer=IntLiteral(value=0)),\n    \t\t\t\t\t\tbody=CompoundStmt(\n    \t\t\t\t\t\t\tstatements=[\n    \t\t\t\t\t\t\t\tVarDecl(type_spec=_int_type(), name=\"x\", initializer=IntLiteral(value=0)),\n    \t\t\t\t\t\t\t]\n    \t\t\t\t\t\t),\n    \t\t\t\t\t),\n    \t\t\t\t\tReturnStmt(expression=Identifier(name=\"x\")),\n    \t\t\t\t]\n    \t\t\t),\n    \t\t)\n    \t)\n    \tir = IRGenerator().generate(prog)\n    \tfn = ir.functions[0]\n    \tallocs = [i for i in fn.body if isinstance(i, IRAlloc)]\n    \t# outer x, loop var i, inner x\n    \tassert len(allocs) >= 3\n    \touter_x = allocs[0].dest\n    \tcopies_from_outer = [\n    \t\ti for i in fn.body\n    \t\tif isinstance(i, IRCopy) and i.source == outer_x\n    \t]\n>   \tassert len(copies_from_outer) >= 1\nE    assert 0 >= 1\nE     +  where 0 = len([])\n\ntests/torture/test_decl_nested_scope.py:156: AssertionError\n________________ TestMiscEnum.test_enum_var_init_from_constant _________________\n\nself = <tests.torture.test_misc_enum.TestMiscEnum object at 0x10b96b890>\n\n    def test_enum_var_init_from_constant(self) -> None:\n>   \t_analyze(\"\"\"\n    \t\tenum Color { RED, GREEN, BLUE };\n    \t\tint main() { enum Color c = RED; return 0; }\n    \t\"\"\")\n\ntests/torture/test_misc_enum.py:14: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \ntests/torture/test_misc_enum.py:9: in _analyze\n    SemanticAnalyzer().analyze(prog)\n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nself = <compiler.semantic.SemanticAnalyzer object at 0x10bb66750>\nnode = Program(loc=SourceLocation(line=1, col=1), declarations=[EnumDecl(loc=SourceLocation(line=2, col=4), name='Color', con...c=SourceLocation(line=3, col=44), value=0, suffix=''), has_expression=True)]), storage_class=None, is_variadic=False)])\n\n    def analyze(self, node: ASTNode) -> list[SemanticError]:\n    \tself.visit(node)\n    \tif self.errors:\n>   \t\traise self.errors[0]\nE     compiler.semantic.SemanticError: 3:28: incompatible types in initialization of 'c': 'enum Color' and 'int'\n\nsrc/compiler/semantic.py:318: SemanticError\n__________________ TestMiscEnum.test_enum_var_assigned_to_int __________________\n\nself = <tests.torture.test_misc_enum.TestMiscEnum object at 0x10b96bb10>\n\n    def test_enum_var_assigned_to_int(self) -> None:\n>   \t_analyze(\"\"\"\n    \t\tenum Color { RED, GREEN, BLUE };\n    \t\tint main() {\n    \t\t\tenum Color c = GREEN;\n    \t\t\tint x = c;\n    \t\t\treturn x;\n    \t\t}\n    \t\"\"\")\n\ntests/torture/test_misc_enum.py:20: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \ntests/torture/test_misc_enum.py:9: in _analyze\n    SemanticAnalyzer().analyze(prog)\n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nself = <compiler.semantic.SemanticAnalyzer object at 0x10bb665d0>\nnode = Program(loc=SourceLocation(line=1, col=1), declarations=[EnumDecl(loc=SourceLocation(line=2, col=4), name='Color', con...ntifier(loc=SourceLocation(line=6, col=12), name='x'), has_expression=True)]), storage_class=None, is_variadic=False)])\n\n    def analyze(self, node: ASTNode) -> list[SemanticError]:\n    \tself.visit(node)\n    \tif self.errors:\n>   \t\traise self.errors[0]\nE     compiler.semantic.SemanticError: 4:16: incompatible types in initialization of 'c': 'enum Color' and 'int'\n\nsrc/compiler/semantic.py:318: SemanticError\n____________________ TestMiscEnum.test_int_assigned_to_enum ____________________\n\nself = <tests.torture.test_misc_enum.TestMiscEnum object at 0x10b9a1f30>\n\n    def test_int_assigned_to_enum(self) -> None:\n>   \t_analyze(\"\"\"\n    \t\tenum Color { RED, GREEN, BLUE };\n    \t\tint main() {\n    \t\t\tint x = 1;\n    \t\t\tenum Color c = x;\n    \t\t\treturn 0;\n    \t\t}\n    \t\"\"\")\n\ntests/torture/test_misc_enum.py:30: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \ntests/torture/test_misc_enum.py:9: in _analyze\n    SemanticAnalyzer().analyze(prog)\n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nself = <compiler.semantic.SemanticAnalyzer object at 0x10bb66450>\nnode = Program(loc=SourceLocation(line=1, col=1), declarations=[EnumDecl(loc=SourceLocation(line=2, col=4), name='Color', con...c=SourceLocation(line=6, col=12), value=0, suffix=''), has_expression=True)]), storage_class=None, is_variadic=False)])\n\n    def analyze(self, node: ASTNode) -> list[SemanticError]:\n    \tself.visit(node)\n    \tif self.errors:\n>   \t\traise self.errors[0]\nE     compiler.semantic.SemanticError: 5:16: incompatible types in initialization of 'c': 'enum Color' and 'int'\n\nsrc/compiler/semantic.py:318: SemanticError\n_____________________ TestMiscEnum.test_enum_in_arithmetic _____________________\n\nself = <tests.torture.test_misc_enum.TestMiscEnum object at 0x10b9a2060>\n\n    def test_enum_in_arithmetic(self) -> None:\n>   \t_analyze(\"\"\"\n    \t\tenum Dir { UP, DOWN, LEFT, RIGHT };\n    \t\tint main() {\n    \t\t\tenum Dir d = UP;\n    \t\t\tint result = d + 1;\n    \t\t\treturn result;\n    \t\t}\n    \t\"\"\")\n\ntests/torture/test_misc_enum.py:40: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \ntests/torture/test_misc_enum.py:9: in _analyze\n    SemanticAnalyzer().analyze(prog)\n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nself = <compiler.semantic.SemanticAnalyzer object at 0x10bb66390>\nnode = Program(loc=SourceLocation(line=1, col=1), declarations=[EnumDecl(loc=SourceLocation(line=2, col=4), name='Dir', const...er(loc=SourceLocation(line=6, col=12), name='result'), has_expression=True)]), storage_class=None, is_variadic=False)])\n\n    def analyze(self, node: ASTNode) -> list[SemanticError]:\n    \tself.visit(node)\n    \tif self.errors:\n>   \t\traise self.errors[0]\nE     compiler.semantic.SemanticError: 4:14: incompatible types in initialization of 'd': 'enum Dir' and 'int'\n\nsrc/compiler/semantic.py:318: SemanticError\n_____________________ TestMiscEnum.test_enum_in_comparison _____________________\n\nself = <tests.torture.test_misc_enum.TestMiscEnum object at 0x10ba19130>\n\n    def test_enum_in_comparison(self) -> None:\n>   \t_analyze(\"\"\"\n    \t\tenum State { OFF, ON };\n    \t\tint main() {\n    \t\t\tenum State s = ON;\n    \t\t\tif (s == 1) { return 1; }\n    \t\t\treturn 0;\n    \t\t}\n    \t\"\"\")\n\ntests/torture/test_misc_enum.py:50: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \ntests/torture/test_misc_enum.py:9: in _analyze\n    SemanticAnalyzer().analyze(prog)\n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nself = <compiler.semantic.SemanticAnalyzer object at 0x10bb66bd0>\nnode = Program(loc=SourceLocation(line=1, col=1), declarations=[EnumDecl(loc=SourceLocation(line=2, col=4), name='State', con...c=SourceLocation(line=6, col=12), value=0, suffix=''), has_expression=True)]), storage_class=None, is_variadic=False)])\n\n    def analyze(self, node: ASTNode) -> list[SemanticError]:\n    \tself.visit(node)\n    \tif self.errors:\n>   \t\traise self.errors[0]\nE     compiler.semantic.SemanticError: 4:16: incompatible types in initialization of 's': 'enum State' and 'int'\n\nsrc/compiler/semantic.py:318: SemanticError\n______________________ TestMiscEnum.test_enum_assignment _______________________\n\nself = <tests.torture.test_misc_enum.TestMiscEnum object at 0x10ba10f30>\n\n    def test_enum_assignment(self) -> None:\n>   \t_analyze(\"\"\"\n    \t\tenum Color { RED, GREEN, BLUE };\n    \t\tint main() {\n    \t\t\tenum Color c = RED;\n    \t\t\tc = 2;\n    \t\t\treturn c;\n    \t\t}\n    \t\"\"\")\n\ntests/torture/test_misc_enum.py:60: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \ntests/torture/test_misc_enum.py:9: in _analyze\n    SemanticAnalyzer().analyze(prog)\n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nself = <compiler.semantic.SemanticAnalyzer object at 0x10bb644d0>\nnode = Program(loc=SourceLocation(line=1, col=1), declarations=[EnumDecl(loc=SourceLocation(line=2, col=4), name='Color', con...ntifier(loc=SourceLocation(line=6, col=12), name='c'), has_expression=True)]), storage_class=None, is_variadic=False)])\n\n    def analyze(self, node: ASTNode) -> list[SemanticError]:\n    \tself.visit(node)\n    \tif self.errors:\n>   \t\traise self.errors[0]\nE     compiler.semantic.SemanticError: 4:16: incompatible types in initialization of 'c': 'enum Color' and 'int'\n\nsrc/compiler/semantic.py:318: SemanticError\n________________________ TestMiscEnum.test_typedef_enum ________________________\n\nself = <tests.torture.test_misc_enum.TestMiscEnum object at 0x10ba11040>\n\n    def test_typedef_enum(self) -> None:\n>   \t_analyze(\"\"\"\n    \t\ttypedef enum { A, B, C } Letter;\n    \t\tint main() {\n    \t\t\tLetter x = A;\n    \t\t\tint y = x;\n    \t\t\treturn y;\n    \t\t}\n    \t\"\"\")\n\ntests/torture/test_misc_enum.py:70: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \ntests/torture/test_misc_enum.py:9: in _analyze\n    SemanticAnalyzer().analyze(prog)\n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nself = <compiler.semantic.SemanticAnalyzer object at 0x10bb64410>\nnode = Program(loc=SourceLocation(line=1, col=1), declarations=[TypedefDecl(loc=SourceLocation(line=2, col=4), type_spec=Type...ntifier(loc=SourceLocation(line=6, col=12), name='y'), has_expression=True)]), storage_class=None, is_variadic=False)])\n\n    def analyze(self, node: ASTNode) -> list[SemanticError]:\n    \tself.visit(node)\n    \tif self.errors:\n>   \t\traise self.errors[0]\nE     compiler.semantic.SemanticError: 4:12: incompatible types in initialization of 'x': 'enum Letter' and 'int'\n\nsrc/compiler/semantic.py:318: SemanticError\n________________________ TestMiscEnum.test_enum_switch _________________________\n\nself = <tests.torture.test_misc_enum.TestMiscEnum object at 0x10b980250>\n\n    def test_enum_switch(self) -> None:\n>   \t_analyze(\"\"\"\n    \t\tenum Color { RED, GREEN, BLUE };\n    \t\tint main() {\n    \t\t\tenum Color c = RED;\n    \t\t\tswitch (c) {\n    \t\t\t\tcase 0: return 0;\n    \t\t\t\tcase 1: return 1;\n    \t\t\t\tdefault: return 2;\n    \t\t\t}\n    \t\t}\n    \t\"\"\")\n\ntests/torture/test_misc_enum.py:80: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \ntests/torture/test_misc_enum.py:9: in _analyze\n    SemanticAnalyzer().analyze(prog)\n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nself = <compiler.semantic.SemanticAnalyzer object at 0x10bb64350>\nnode = Program(loc=SourceLocation(line=1, col=1), declarations=[EnumDecl(loc=SourceLocation(line=2, col=4), name='Color', con...col=22), value=2, suffix=''), has_expression=True)], is_pre_switch=False)])]), storage_class=None, is_variadic=False)])\n\n    def analyze(self, node: ASTNode) -> list[SemanticError]:\n    \tself.visit(node)\n    \tif self.errors:\n>   \t\traise self.errors[0]\nE     compiler.semantic.SemanticError: 4:16: incompatible types in initialization of 'c': 'enum Color' and 'int'\n\nsrc/compiler/semantic.py:318: SemanticError\n_________________ test_misc_string_literal_char_ptr_subscript __________________\n\n    def test_misc_string_literal_char_ptr_subscript() -> None:\n    \t\"\"\"char *s = \"hello\"; return s[1]; -- stride should be 1.\"\"\"\n    \tprog = _make_program(\n    \t\tFunctionDecl(\n    \t\t\treturn_type=_int_type(),\n    \t\t\tname=\"f\",\n    \t\t\tbody=CompoundStmt(\n    \t\t\t\tstatements=[\n    \t\t\t\t\tVarDecl(\n    \t\t\t\t\t\ttype_spec=TypeSpec(base_type=\"char\", pointer_count=1),\n    \t\t\t\t\t\tname=\"s\",\n    \t\t\t\t\t\tinitializer=StringLiteral(value=\"hello\"),\n    \t\t\t\t\t),\n    \t\t\t\t\tReturnStmt(expression=ArraySubscript(\n    \t\t\t\t\t\tarray=Identifier(name=\"s\"),\n    \t\t\t\t\t\tindex=IntLiteral(value=1),\n    \t\t\t\t\t)),\n    \t\t\t\t]\n    \t\t\t),\n    \t\t)\n    \t)\n    \tir = IRGenerator().generate(prog)\n    \tbody = ir.functions[0].body\n    \tbinops = [i for i in body if isinstance(i, IRBinOp)]\n    \tmul_ops = [b for b in binops if b.op == \"*\"]\n    \tassert len(mul_ops) >= 1\n    \tstride_op = mul_ops[-1]\n    \tassert isinstance(stride_op.right, IRConst)\n>   \tassert stride_op.right.value == 1\nE    AssertionError: assert 8 == 1\nE     +  where 8 = IRConst(value=8, ir_type=<IRType.INT: 2>, is_unsigned=False).value\nE     +    where IRConst(value=8, ir_type=<IRType.INT: 2>, is_unsigned=False) = IRBinOp(dest=IRTemp(name='t2'), left=IRConst(value=1, ir_type=<IRType.INT: 2>, is_unsigned=False), op='*', right=IRConst(value=8, ir_type=<IRType.INT: 2>, is_unsigned=False), ir_type=<IRType.INT: 2>, is_unsigned=False).right\n\ntests/torture/test_misc_string_literal.py:56: AssertionError\n__________________ test_misc_string_literal_int_ptr_subscript __________________\n\n    def test_misc_string_literal_int_ptr_subscript() -> None:\n    \t\"\"\"int *p param; return p[2]; -- stride should be 4.\"\"\"\n    \tprog = _make_program(\n    \t\tFunctionDecl(\n    \t\t\treturn_type=_int_type(),\n    \t\t\tname=\"f\",\n    \t\t\tparams=[ParamDecl(name=\"p\", type_spec=TypeSpec(base_type=\"int\", pointer_count=1))],\n    \t\t\tbody=CompoundStmt(\n    \t\t\t\tstatements=[\n    \t\t\t\t\tReturnStmt(expression=ArraySubscript(\n    \t\t\t\t\t\tarray=Identifier(name=\"p\"),\n    \t\t\t\t\t\tindex=IntLiteral(value=2),\n    \t\t\t\t\t)),\n    \t\t\t\t]\n    \t\t\t),\n    \t\t)\n    \t)\n    \tir = IRGenerator().generate(prog)\n    \tbody = ir.functions[0].body\n    \tbinops = [i for i in body if isinstance(i, IRBinOp)]\n    \tmul_ops = [b for b in binops if b.op == \"*\"]\n    \tassert len(mul_ops) >= 1\n    \tstride_op = mul_ops[-1]\n    \tassert isinstance(stride_op.right, IRConst)\n>   \tassert stride_op.right.value == 4\nE    AssertionError: assert 8 == 4\nE     +  where 8 = IRConst(value=8, ir_type=<IRType.INT: 2>, is_unsigned=False).value\nE     +    where IRConst(value=8, ir_type=<IRType.INT: 2>, is_unsigned=False) = IRBinOp(dest=IRTemp(name='t2'), left=IRConst(value=2, ir_type=<IRType.INT: 2>, is_unsigned=False), op='*', right=IRConst(value=8, ir_type=<IRType.INT: 2>, is_unsigned=False), ir_type=<IRType.INT: 2>, is_unsigned=False).right\n\ntests/torture/test_misc_string_literal.py:83: AssertionError\n_______________ TestMiscTypedef.test_typedef_struct_member_read ________________\n\nself = <tests.torture.test_misc_typedef.TestMiscTypedef object at 0x10b96bc50>\n\n    def test_typedef_struct_member_read(self) -> None:\n>   \t_analyze(\"\"\"\n    \t\ttypedef int i32;\n    \t\tstruct Vec { i32 x; i32 y; };\n    \t\tint main() {\n    \t\t\tstruct Vec v;\n    \t\t\tv.x = 10;\n    \t\t\tint result = v.x;\n    \t\t\treturn result;\n    \t\t}\n    \t\"\"\")\n\ntests/torture/test_misc_typedef.py:14: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \ntests/torture/test_misc_typedef.py:9: in _analyze\n    SemanticAnalyzer().analyze(prog)\n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nself = <compiler.semantic.SemanticAnalyzer object at 0x10c7dfe90>\nnode = Program(loc=SourceLocation(line=1, col=1), declarations=[TypedefDecl(loc=SourceLocation(line=2, col=4), type_spec=Type...er(loc=SourceLocation(line=8, col=12), name='result'), has_expression=True)]), storage_class=None, is_variadic=False)])\n\n    def analyze(self, node: ASTNode) -> list[SemanticError]:\n    \tself.visit(node)\n    \tif self.errors:\n>   \t\traise self.errors[0]\nE     compiler.semantic.SemanticError: 6:5: incompatible types in assignment: 'i32' and 'int'\n\nsrc/compiler/semantic.py:318: SemanticError\n_______________ TestMiscTypedef.test_typedef_struct_member_write _______________\n\nself = <tests.torture.test_misc_typedef.TestMiscTypedef object at 0x10b96bd90>\n\n    def test_typedef_struct_member_write(self) -> None:\n>   \t_analyze(\"\"\"\n    \t\ttypedef int i32;\n    \t\tstruct Pair { i32 a; i32 b; };\n    \t\tint main() {\n    \t\t\tstruct Pair p;\n    \t\t\tp.a = 1;\n    \t\t\tp.b = 2;\n    \t\t\treturn p.a + p.b;\n    \t\t}\n    \t\"\"\")\n\ntests/torture/test_misc_typedef.py:26: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \ntests/torture/test_misc_typedef.py:9: in _analyze\n    SemanticAnalyzer().analyze(prog)\n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nself = <compiler.semantic.SemanticAnalyzer object at 0x10c7dfad0>\nnode = Program(loc=SourceLocation(line=1, col=1), declarations=[TypedefDecl(loc=SourceLocation(line=2, col=4), type_spec=Type...e=8, col=18), name='p'), member='b', is_arrow=False)), has_expression=True)]), storage_class=None, is_variadic=False)])\n\n    def analyze(self, node: ASTNode) -> list[SemanticError]:\n    \tself.visit(node)\n    \tif self.errors:\n>   \t\traise self.errors[0]\nE     compiler.semantic.SemanticError: 6:5: incompatible types in assignment: 'i32' and 'int'\n\nsrc/compiler/semantic.py:318: SemanticError\n_______________ TestMiscTypedef.test_typedef_struct_member_init ________________\n\nself = <tests.torture.test_misc_typedef.TestMiscTypedef object at 0x10b9a2190>\n\n    def test_typedef_struct_member_init(self) -> None:\n>   \t_analyze(\"\"\"\n    \t\ttypedef int num;\n    \t\tstruct Box { num val; };\n    \t\tint main() {\n    \t\t\tstruct Box b;\n    \t\t\tb.val = 42;\n    \t\t\tnum x = b.val;\n    \t\t\treturn x;\n    \t\t}\n    \t\"\"\")\n\ntests/torture/test_misc_typedef.py:38: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \ntests/torture/test_misc_typedef.py:9: in _analyze\n    SemanticAnalyzer().analyze(prog)\n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nself = <compiler.semantic.SemanticAnalyzer object at 0x10c7dfd10>\nnode = Program(loc=SourceLocation(line=1, col=1), declarations=[TypedefDecl(loc=SourceLocation(line=2, col=4), type_spec=Type...ntifier(loc=SourceLocation(line=8, col=12), name='x'), has_expression=True)]), storage_class=None, is_variadic=False)])\n\n    def analyze(self, node: ASTNode) -> list[SemanticError]:\n    \tself.visit(node)\n    \tif self.errors:\n>   \t\traise self.errors[0]\nE     compiler.semantic.SemanticError: 6:5: incompatible types in assignment: 'num' and 'int'\n\nsrc/compiler/semantic.py:318: SemanticError\n____________________ test_ptr_array_equiv_int_ptr_subscript ____________________\n\n    def test_ptr_array_equiv_int_ptr_subscript() -> None:\n    \t\"\"\"int *p; p[3] should use stride 4.\"\"\"\n    \tprog = _make_program(\n    \t\tFunctionDecl(\n    \t\t\treturn_type=_int_type(),\n    \t\t\tname=\"f\",\n    \t\t\tparams=[ParamDecl(name=\"p\", type_spec=TypeSpec(base_type=\"int\", pointer_count=1))],\n    \t\t\tbody=CompoundStmt(\n    \t\t\t\tstatements=[\n    \t\t\t\t\tReturnStmt(expression=ArraySubscript(\n    \t\t\t\t\t\tarray=Identifier(name=\"p\"),\n    \t\t\t\t\t\tindex=IntLiteral(value=3),\n    \t\t\t\t\t)),\n    \t\t\t\t]\n    \t\t\t),\n    \t\t)\n    \t)\n    \tir = IRGenerator().generate(prog)\n    \tbody = ir.functions[0].body\n    \tmul_ops = [i for i in body if isinstance(i, IRBinOp) and i.op == \"*\"]\n    \tassert len(mul_ops) >= 1\n    \tstride_op = mul_ops[-1]\n    \tassert isinstance(stride_op.right, IRConst)\n>   \tassert stride_op.right.value == 4\nE    AssertionError: assert 8 == 4\nE     +  where 8 = IRConst(value=8, ir_type=<IRType.INT: 2>, is_unsigned=False).value\nE     +    where IRConst(value=8, ir_type=<IRType.INT: 2>, is_unsigned=False) = IRBinOp(dest=IRTemp(name='t2'), left=IRConst(value=3, ir_type=<IRType.INT: 2>, is_unsigned=False), op='*', right=IRConst(value=8, ir_type=<IRType.INT: 2>, is_unsigned=False), ir_type=<IRType.INT: 2>, is_unsigned=False).right\n\ntests/torture/test_ptr_array_equiv.py:49: AssertionError\n___________________ test_ptr_array_equiv_char_ptr_subscript ____________________\n\n    def test_ptr_array_equiv_char_ptr_subscript() -> None:\n    \t\"\"\"char *s; s[1] should use stride 1.\"\"\"\n    \tprog = _make_program(\n    \t\tFunctionDecl(\n    \t\t\treturn_type=_int_type(),\n    \t\t\tname=\"f\",\n    \t\t\tparams=[ParamDecl(name=\"s\", type_spec=TypeSpec(base_type=\"char\", pointer_count=1))],\n    \t\t\tbody=CompoundStmt(\n    \t\t\t\tstatements=[\n    \t\t\t\t\tReturnStmt(expression=ArraySubscript(\n    \t\t\t\t\t\tarray=Identifier(name=\"s\"),\n    \t\t\t\t\t\tindex=IntLiteral(value=1),\n    \t\t\t\t\t)),\n    \t\t\t\t]\n    \t\t\t),\n    \t\t)\n    \t)\n    \tir = IRGenerator().generate(prog)\n    \tbody = ir.functions[0].body\n    \tmul_ops = [i for i in body if isinstance(i, IRBinOp) and i.op == \"*\"]\n    \tassert len(mul_ops) >= 1\n    \tstride_op = mul_ops[-1]\n    \tassert isinstance(stride_op.right, IRConst)\n>   \tassert stride_op.right.value == 1\nE    AssertionError: assert 8 == 1\nE     +  where 8 = IRConst(value=8, ir_type=<IRType.INT: 2>, is_unsigned=False).value\nE     +    where IRConst(value=8, ir_type=<IRType.INT: 2>, is_unsigned=False) = IRBinOp(dest=IRTemp(name='t2'), left=IRConst(value=1, ir_type=<IRType.INT: 2>, is_unsigned=False), op='*', right=IRConst(value=8, ir_type=<IRType.INT: 2>, is_unsigned=False), ir_type=<IRType.INT: 2>, is_unsigned=False).right\n\ntests/torture/test_ptr_array_equiv.py:75: AssertionError\n______________________ test_ptr_diff_short_ptr_subscript _______________________\n\n    def test_ptr_diff_short_ptr_subscript() -> None:\n    \t\"\"\"short *sp; sp[2] should use stride 2.\"\"\"\n    \tprog = _make_program(\n    \t\tFunctionDecl(\n    \t\t\treturn_type=_int_type(),\n    \t\t\tname=\"f\",\n    \t\t\tparams=[ParamDecl(name=\"sp\", type_spec=TypeSpec(base_type=\"short\", pointer_count=1))],\n    \t\t\tbody=CompoundStmt(\n    \t\t\t\tstatements=[\n    \t\t\t\t\tReturnStmt(expression=ArraySubscript(\n    \t\t\t\t\t\tarray=Identifier(name=\"sp\"),\n    \t\t\t\t\t\tindex=IntLiteral(value=2),\n    \t\t\t\t\t)),\n    \t\t\t\t]\n    \t\t\t),\n    \t\t)\n    \t)\n    \tir = IRGenerator().generate(prog)\n    \tbody = ir.functions[0].body\n    \tmul_ops = [i for i in body if isinstance(i, IRBinOp) and i.op == \"*\"]\n    \tassert len(mul_ops) >= 1\n    \tstride_op = mul_ops[-1]\n    \tassert isinstance(stride_op.right, IRConst)\n>   \tassert stride_op.right.value == 2\nE    AssertionError: assert 8 == 2\nE     +  where 8 = IRConst(value=8, ir_type=<IRType.INT: 2>, is_unsigned=False).value\nE     +    where IRConst(value=8, ir_type=<IRType.INT: 2>, is_unsigned=False) = IRBinOp(dest=IRTemp(name='t2'), left=IRConst(value=2, ir_type=<IRType.INT: 2>, is_unsigned=False), op='*', right=IRConst(value=8, ir_type=<IRType.INT: 2>, is_unsigned=False), ir_type=<IRType.INT: 2>, is_unsigned=False).right\n\ntests/torture/test_ptr_diff.py:75: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_compile_and_link.py::TestE2EStructMemberAccessAndSizeof::test_struct_pointer_member_access\nFAILED tests/test_e2e_feature_combos.py::TestRecursiveStructPointers::test_linked_list_sum_three_nodes\nFAILED tests/test_e2e_feature_combos.py::TestRecursiveStructPointers::test_linked_list_count_nodes\nFAILED tests/test_e2e_feature_combos.py::TestRecursiveStructPointers::test_linked_list_find_max\nFAILED tests/test_e2e_feature_combos.py::TestSwitchStructPointerArray::test_switch_dispatches_struct_operations\nFAILED tests/test_e2e_feature_combos.py::TestNestedFunctionCallsWithStructPointers::test_nested_struct_transforms\nFAILED tests/test_e2e_feature_combos.py::TestNestedFunctionCallsWithStructPointers::test_nested_calls_accumulate_struct\nFAILED tests/test_e2e_feature_combos.py::TestNestedFunctionCallsWithStructPointers::test_compute_via_struct_pointer_chain\nFAILED tests/test_semantic.py::TestEnumIntCompat::test_enum_var_init_from_constant\nFAILED tests/test_semantic.py::TestEnumIntCompat::test_enum_var_to_int - comp...\nFAILED tests/test_semantic.py::TestEnumIntCompat::test_int_to_enum - compiler...\nFAILED tests/test_semantic.py::TestEnumIntCompat::test_enum_in_binary_op - co...\nFAILED tests/test_semantic.py::TestEnumIntCompat::test_enum_assignment - comp...\nFAILED tests/test_semantic.py::TestTypedefMemberResolution::test_typedef_struct_member_assign\nFAILED tests/test_semantic.py::TestTypedefMemberResolution::test_typedef_struct_member_write\nFAILED tests/torture/test_arith_cast.py::test_arith_cast_int_to_char - assert...\nFAILED tests/torture/test_arith_cast.py::test_arith_cast_int_to_short - asser...\nFAILED tests/torture/test_arith_cast.py::test_arith_cast_int_to_bool - assert...\nFAILED tests/torture/test_decl_nested_scope.py::test_decl_nested_scope_basic\nFAILED tests/torture/test_decl_nested_scope.py::test_decl_nested_scope_multiple_levels\nFAILED tests/torture/test_decl_nested_scope.py::test_decl_nested_scope_in_for\nFAILED tests/torture/test_misc_enum.py::TestMiscEnum::test_enum_var_init_from_constant\nFAILED tests/torture/test_misc_enum.py::TestMiscEnum::test_enum_var_assigned_to_int\nFAILED tests/torture/test_misc_enum.py::TestMiscEnum::test_int_assigned_to_enum\nFAILED tests/torture/test_misc_enum.py::TestMiscEnum::test_enum_in_arithmetic\nFAILED tests/torture/test_misc_enum.py::TestMiscEnum::test_enum_in_comparison\nFAILED tests/torture/test_misc_enum.py::TestMiscEnum::test_enum_assignment - ...\nFAILED tests/torture/test_misc_enum.py::TestMiscEnum::test_typedef_enum - com...\nFAILED tests/torture/test_misc_enum.py::TestMiscEnum::test_enum_switch - comp...\nFAILED tests/torture/test_misc_string_literal.py::test_misc_string_literal_char_ptr_subscript\nFAILED tests/torture/test_misc_string_literal.py::test_misc_string_literal_int_ptr_subscript\nFAILED tests/torture/test_misc_typedef.py::TestMiscTypedef::test_typedef_struct_member_read\nFAILED tests/torture/test_misc_typedef.py::TestMiscTypedef::test_typedef_struct_member_write\nFAILED tests/torture/test_misc_typedef.py::TestMiscTypedef::test_typedef_struct_member_init\nFAILED tests/torture/test_ptr_array_equiv.py::test_ptr_array_equiv_int_ptr_subscript\nFAILED tests/torture/test_ptr_array_equiv.py::test_ptr_array_equiv_char_ptr_subscript\nFAILED tests/torture/test_ptr_diff.py::test_ptr_diff_short_ptr_subscript - As...\n37 failed, 2805 passed, 7 skipped, 15 xfailed in 24.21s\n",
+  "unit_reviews": [],
+  "trajectory_ratings": [],
+  "decomposition_grades": [],
+  "merge_quality": {
+    "total_merge_attempts": 39,
+    "successful_merges": 30,
+    "merge_failures": 9,
+    "retries": 9,
+    "reverts": 0,
+    "merge_quality_score": 0.7692307692307693
+  },
+  "timeline": [
+    {
+      "timestamp": "2026-03-04T09:54:45.404549+00:00",
+      "event_type": "dispatched",
+      "work_unit_id": "b320bcdaa1bd",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T09:54:45.405174+00:00",
+      "event_type": "dispatched",
+      "work_unit_id": "69898983c435",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T09:54:45.405636+00:00",
+      "event_type": "dispatched",
+      "work_unit_id": "ef9c2d7fafaf",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T10:01:44.671941+00:00",
+      "event_type": "dispatched",
+      "work_unit_id": "c43fd2883a82",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T10:06:36.362499+00:00",
+      "event_type": "merged",
+      "work_unit_id": "b320bcdaa1bd",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T10:07:01.476045+00:00",
+      "event_type": "merged",
+      "work_unit_id": "69898983c435",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T10:07:26.264809+00:00",
+      "event_type": "merged",
+      "work_unit_id": "ef9c2d7fafaf",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T10:07:52.195837+00:00",
+      "event_type": "merge_failed",
+      "work_unit_id": "c43fd2883a82",
+      "details": "{\"failure_output\": \"Rebase conflict: Rebasing (1/1)\\rAuto-merging src/compiler/ir_gen.py\\nCONFLICT (content): Merge conflict in src/compiler/ir_gen.py\\nAuto-merging src/compiler/semantic.py\\nAuto-merging tests/test_ir_gen.py\\nerror: could not apply c9062b5... feat: add inline keyword support and fix struct array member subscript\\nhint: Resolve all conflicts manually, mark them as resolved with\\nhint: \\\"git add/rm <conflicted_files>\\\", then run \\\"git rebase --continue\\\".\\nhint: You can instead skip this commit: run \\\"git rebase --skip\\\".\\nhint: To\", \"failure_stage\": \"merge_conflict\"}"
+    },
+    {
+      "timestamp": "2026-03-04T10:07:52.196761+00:00",
+      "event_type": "retry_queued",
+      "work_unit_id": "c43fd2883a82",
+      "details": "{\"delay\": 30, \"failure_reason\": \"Rebase conflict: Rebasing (1/1)\\rAuto-merging src/compiler/ir_gen.py\\nCONFLICT (content): Merge conflict in src/compiler/ir_gen.py\\nAuto-merging src/compiler/semantic.py\\nAuto-merging tests/test_ir_gen.py\\nerror: could not apply c9062b5... feat: add inline keyword support and fix struct array member subscript\\nhint: Resolve all conflicts manually, mark them as resolved with\\nhint: \\\"git add/rm <conflicted_files>\\\", then run \\\"git rebase --continue\\\".\\nhint: You can instead skip this commit: run \\\"git rebase --skip\\\".\\nhint: To\", \"retry_unit_id\": \"a90566ce83f5\", \"diagnosis\": \"[Merge conflict] The branch has unresolved merge conflicts. Do NOT manually edit conflict markers. Instead: (1) run `git rebase --abort` to reset, (2) re-read the target files fresh, (3) apply your changes cleanly on top of the current state.\"}"
+    },
+    {
+      "timestamp": "2026-03-04T10:20:43.259463+00:00",
+      "event_type": "dispatched",
+      "work_unit_id": "ea107eaec1ca",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T10:31:48.084510+00:00",
+      "event_type": "dispatched",
+      "work_unit_id": "1f7132dbd5de",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T10:39:41.892022+00:00",
+      "event_type": "merged",
+      "work_unit_id": "ea107eaec1ca",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T10:40:12.152078+00:00",
+      "event_type": "merged",
+      "work_unit_id": "1f7132dbd5de",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T10:46:12.120907+00:00",
+      "event_type": "dispatched",
+      "work_unit_id": "f3afde70336e",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T11:01:51.300800+00:00",
+      "event_type": "dispatched",
+      "work_unit_id": "5f2b1565b784",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T11:08:53.065821+00:00",
+      "event_type": "merged",
+      "work_unit_id": "5f2b1565b784",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T11:12:58.629111+00:00",
+      "event_type": "dispatched",
+      "work_unit_id": "c9121bedf89f",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T11:12:58.629581+00:00",
+      "event_type": "dispatched",
+      "work_unit_id": "a01ec2104357",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T11:19:12.028745+00:00",
+      "event_type": "merged",
+      "work_unit_id": "a01ec2104357",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T11:25:50.278634+00:00",
+      "event_type": "dispatched",
+      "work_unit_id": "c972afc6dbdc",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T11:25:50.279079+00:00",
+      "event_type": "dispatched",
+      "work_unit_id": "252ba8867d26",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T11:40:56.863393+00:00",
+      "event_type": "dispatched",
+      "work_unit_id": "1da5daff2116",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T11:45:09.913304+00:00",
+      "event_type": "merged",
+      "work_unit_id": "c972afc6dbdc",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T11:46:01.414663+00:00",
+      "event_type": "merge_failed",
+      "work_unit_id": "252ba8867d26",
+      "details": "{\"failure_output\": \"Rebase conflict: Rebasing (1/1)\\rAuto-merging src/compiler/ir_gen.py\\nCONFLICT (content): Merge conflict in src/compiler/ir_gen.py\\nAuto-merging tests/test_ir_gen.py\\nCONFLICT (content): Merge conflict in tests/test_ir_gen.py\\nerror: could not apply ad308de... fix: local variable model uses address-based load/store\\nhint: Resolve all conflicts manually, mark them as resolved with\\nhint: \\\"git add/rm <conflicted_files>\\\", then run \\\"git rebase --continue\\\".\\nhint: You can instead skip this commit: run \\\"git rebase --skip\\\".\\nhi\", \"failure_stage\": \"merge_conflict\"}"
+    },
+    {
+      "timestamp": "2026-03-04T11:46:01.415443+00:00",
+      "event_type": "retry_queued",
+      "work_unit_id": "252ba8867d26",
+      "details": "{\"delay\": 30, \"failure_reason\": \"Rebase conflict: Rebasing (1/1)\\rAuto-merging src/compiler/ir_gen.py\\nCONFLICT (content): Merge conflict in src/compiler/ir_gen.py\\nAuto-merging tests/test_ir_gen.py\\nCONFLICT (content): Merge conflict in tests/test_ir_gen.py\\nerror: could not apply ad308de... fix: local variable model uses address-based load/store\\nhint: Resolve all conflicts manually, mark them as resolved with\\nhint: \\\"git add/rm <conflicted_files>\\\", then run \\\"git rebase --continue\\\".\\nhint: You can instead skip this commit: run \\\"git rebase --skip\\\".\\nhi\", \"retry_unit_id\": \"2fa8a83fe221\", \"diagnosis\": \"[Merge conflict] The branch has unresolved merge conflicts. Do NOT manually edit conflict markers. Instead: (1) run `git rebase --abort` to reset, (2) re-read the target files fresh, (3) apply your changes cleanly on top of the current state.\"}"
+    },
+    {
+      "timestamp": "2026-03-04T11:46:01.583595+00:00",
+      "event_type": "merge_failed",
+      "work_unit_id": "1da5daff2116",
+      "details": "{\"failure_output\": \"Rebase conflict: Rebasing (1/1)\\rAuto-merging src/compiler/ir_gen.py\\nCONFLICT (content): Merge conflict in src/compiler/ir_gen.py\\nerror: could not apply 360519e... fix: nested block scoping saves/restores variable bindings in compound statements\\nhint: Resolve all conflicts manually, mark them as resolved with\\nhint: \\\"git add/rm <conflicted_files>\\\", then run \\\"git rebase --continue\\\".\\nhint: You can instead skip this commit: run \\\"git rebase --skip\\\".\\nhint: To abort and get back to the state before \\\"git rebase\\\", run \\\"gi\", \"failure_stage\": \"merge_conflict\"}"
+    },
+    {
+      "timestamp": "2026-03-04T11:46:01.584231+00:00",
+      "event_type": "retry_queued",
+      "work_unit_id": "1da5daff2116",
+      "details": "{\"delay\": 30, \"failure_reason\": \"Rebase conflict: Rebasing (1/1)\\rAuto-merging src/compiler/ir_gen.py\\nCONFLICT (content): Merge conflict in src/compiler/ir_gen.py\\nerror: could not apply 360519e... fix: nested block scoping saves/restores variable bindings in compound statements\\nhint: Resolve all conflicts manually, mark them as resolved with\\nhint: \\\"git add/rm <conflicted_files>\\\", then run \\\"git rebase --continue\\\".\\nhint: You can instead skip this commit: run \\\"git rebase --skip\\\".\\nhint: To abort and get back to the state before \\\"git rebase\\\", run \\\"gi\", \"retry_unit_id\": \"abae85dc2404\", \"diagnosis\": \"[Merge conflict] The branch has unresolved merge conflicts. Do NOT manually edit conflict markers. Instead: (1) run `git rebase --abort` to reset, (2) re-read the target files fresh, (3) apply your changes cleanly on top of the current state.\"}"
+    },
+    {
+      "timestamp": "2026-03-04T11:48:47.310476+00:00",
+      "event_type": "merged",
+      "work_unit_id": "abae85dc2404",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T11:51:18.824165+00:00",
+      "event_type": "dispatched",
+      "work_unit_id": "c02d98893f2e",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T11:51:18.824743+00:00",
+      "event_type": "dispatched",
+      "work_unit_id": "b2f9f7229882",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T11:54:45.294361+00:00",
+      "event_type": "dispatched",
+      "work_unit_id": "b1ea38f12483",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T11:58:12.374374+00:00",
+      "event_type": "merged",
+      "work_unit_id": "c02d98893f2e",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T11:59:12.088669+00:00",
+      "event_type": "merged",
+      "work_unit_id": "b2f9f7229882",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T12:00:04.355437+00:00",
+      "event_type": "merged",
+      "work_unit_id": "b1ea38f12483",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T12:05:22.107513+00:00",
+      "event_type": "dispatched",
+      "work_unit_id": "8ea38b39660f",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T12:22:39.903209+00:00",
+      "event_type": "dispatched",
+      "work_unit_id": "09c4e4845456",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T12:25:36.868705+00:00",
+      "event_type": "merged",
+      "work_unit_id": "8ea38b39660f",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T12:26:27.671904+00:00",
+      "event_type": "merged",
+      "work_unit_id": "09c4e4845456",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T12:32:29.318925+00:00",
+      "event_type": "dispatched",
+      "work_unit_id": "5259051ac633",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T12:32:29.319325+00:00",
+      "event_type": "dispatched",
+      "work_unit_id": "eb5eeae8d874",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T12:47:42.449175+00:00",
+      "event_type": "merged",
+      "work_unit_id": "5259051ac633",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T12:48:33.474980+00:00",
+      "event_type": "merged",
+      "work_unit_id": "eb5eeae8d874",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T12:55:06.085920+00:00",
+      "event_type": "dispatched",
+      "work_unit_id": "c1d09fa19632",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T13:25:18.357049+00:00",
+      "event_type": "dispatched",
+      "work_unit_id": "f1c77be69bfb",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T13:30:35.823700+00:00",
+      "event_type": "merged",
+      "work_unit_id": "c1d09fa19632",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T13:31:22.964007+00:00",
+      "event_type": "merge_failed",
+      "work_unit_id": "f1c77be69bfb",
+      "details": "{\"failure_output\": \"Rebase conflict: Rebasing (1/1)\\rAuto-merging src/compiler/ir_gen.py\\nCONFLICT (content): Merge conflict in src/compiler/ir_gen.py\\nerror: could not apply 4259764... fix: pointer subscript stride uses pointee size instead of pointer size\\nhint: Resolve all conflicts manually, mark them as resolved with\\nhint: \\\"git add/rm <conflicted_files>\\\", then run \\\"git rebase --continue\\\".\\nhint: You can instead skip this commit: run \\\"git rebase --skip\\\".\\nhint: To abort and get back to the state before \\\"git rebase\\\", run \\\"git rebase -\", \"failure_stage\": \"merge_conflict\"}"
+    },
+    {
+      "timestamp": "2026-03-04T13:31:22.965037+00:00",
+      "event_type": "retry_queued",
+      "work_unit_id": "f1c77be69bfb",
+      "details": "{\"delay\": 30, \"failure_reason\": \"Rebase conflict: Rebasing (1/1)\\rAuto-merging src/compiler/ir_gen.py\\nCONFLICT (content): Merge conflict in src/compiler/ir_gen.py\\nerror: could not apply 4259764... fix: pointer subscript stride uses pointee size instead of pointer size\\nhint: Resolve all conflicts manually, mark them as resolved with\\nhint: \\\"git add/rm <conflicted_files>\\\", then run \\\"git rebase --continue\\\".\\nhint: You can instead skip this commit: run \\\"git rebase --skip\\\".\\nhint: To abort and get back to the state before \\\"git rebase\\\", run \\\"git rebase -\", \"retry_unit_id\": \"8e76dc62e1d9\", \"diagnosis\": \"[Merge conflict] The branch has unresolved merge conflicts. Do NOT manually edit conflict markers. Instead: (1) run `git rebase --abort` to reset, (2) re-read the target files fresh, (3) apply your changes cleanly on top of the current state.\"}"
+    },
+    {
+      "timestamp": "2026-03-04T13:40:55.601492+00:00",
+      "event_type": "dispatched",
+      "work_unit_id": "7eea1ce08c6b",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T13:48:30.309830+00:00",
+      "event_type": "dispatched",
+      "work_unit_id": "dad531f67732",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T14:00:40.769845+00:00",
+      "event_type": "merged",
+      "work_unit_id": "7eea1ce08c6b",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T14:01:29.772575+00:00",
+      "event_type": "merge_failed",
+      "work_unit_id": "dad531f67732",
+      "details": "{\"failure_output\": \"Rebase conflict: Rebasing (1/1)\\rAuto-merging src/compiler/ir_gen.py\\nCONFLICT (content): Merge conflict in src/compiler/ir_gen.py\\nerror: could not apply b55ac82... fix: add IRAddrOf instruction and fix dereference types\\nhint: Resolve all conflicts manually, mark them as resolved with\\nhint: \\\"git add/rm <conflicted_files>\\\", then run \\\"git rebase --continue\\\".\\nhint: You can instead skip this commit: run \\\"git rebase --skip\\\".\\nhint: To abort and get back to the state before \\\"git rebase\\\", run \\\"git rebase --abort\\\".\\nhint: D\", \"failure_stage\": \"merge_conflict\"}"
+    },
+    {
+      "timestamp": "2026-03-04T14:01:29.773440+00:00",
+      "event_type": "retry_queued",
+      "work_unit_id": "dad531f67732",
+      "details": "{\"delay\": 30, \"failure_reason\": \"Rebase conflict: Rebasing (1/1)\\rAuto-merging src/compiler/ir_gen.py\\nCONFLICT (content): Merge conflict in src/compiler/ir_gen.py\\nerror: could not apply b55ac82... fix: add IRAddrOf instruction and fix dereference types\\nhint: Resolve all conflicts manually, mark them as resolved with\\nhint: \\\"git add/rm <conflicted_files>\\\", then run \\\"git rebase --continue\\\".\\nhint: You can instead skip this commit: run \\\"git rebase --skip\\\".\\nhint: To abort and get back to the state before \\\"git rebase\\\", run \\\"git rebase --abort\\\".\\nhint: D\", \"retry_unit_id\": \"71b4217b5189\", \"diagnosis\": \"[Merge conflict] The branch has unresolved merge conflicts. Do NOT manually edit conflict markers. Instead: (1) run `git rebase --abort` to reset, (2) re-read the target files fresh, (3) apply your changes cleanly on top of the current state.\"}"
+    },
+    {
+      "timestamp": "2026-03-04T14:09:04.722941+00:00",
+      "event_type": "dispatched",
+      "work_unit_id": "c59af119d7da",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T14:13:31.842301+00:00",
+      "event_type": "dispatched",
+      "work_unit_id": "f7888e507ab4",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T14:23:47.823358+00:00",
+      "event_type": "merged",
+      "work_unit_id": "c59af119d7da",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T14:24:34.958307+00:00",
+      "event_type": "merged",
+      "work_unit_id": "f7888e507ab4",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T14:32:29.775626+00:00",
+      "event_type": "dispatched",
+      "work_unit_id": "691ac7600c0f",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T14:39:17.803343+00:00",
+      "event_type": "dispatched",
+      "work_unit_id": "129ee40e2033",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T14:41:54.499053+00:00",
+      "event_type": "merged",
+      "work_unit_id": "691ac7600c0f",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T14:50:56.326334+00:00",
+      "event_type": "dispatched",
+      "work_unit_id": "86eb9d930841",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T14:50:56.327262+00:00",
+      "event_type": "dispatched",
+      "work_unit_id": "7c8eea1fadea",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T15:11:20.039786+00:00",
+      "event_type": "merged",
+      "work_unit_id": "86eb9d930841",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T15:18:58.610064+00:00",
+      "event_type": "dispatched",
+      "work_unit_id": "1d4209976f94",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T15:27:42.363855+00:00",
+      "event_type": "dispatched",
+      "work_unit_id": "7625c2f816b4",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T15:30:39.115205+00:00",
+      "event_type": "merged",
+      "work_unit_id": "1d4209976f94",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T15:40:23.319284+00:00",
+      "event_type": "dispatched",
+      "work_unit_id": "1206cc0e5a06",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T15:54:29.772792+00:00",
+      "event_type": "dispatched",
+      "work_unit_id": "e81a3e6fcaa8",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T16:14:30.620880+00:00",
+      "event_type": "dispatched",
+      "work_unit_id": "a890373b7a9f",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T16:17:42.574035+00:00",
+      "event_type": "dispatched",
+      "work_unit_id": "e163b090780c",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T16:33:46.803532+00:00",
+      "event_type": "merged",
+      "work_unit_id": "a890373b7a9f",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T16:34:37.252924+00:00",
+      "event_type": "merge_failed",
+      "work_unit_id": "e163b090780c",
+      "details": "{\"failure_output\": \"Rebase conflict: Rebasing (1/1)\\rAuto-merging src/compiler/codegen.py\\nCONFLICT (content): Merge conflict in src/compiler/codegen.py\\nAuto-merging src/compiler/ir.py\\nAuto-merging src/compiler/optimizer.py\\nerror: could not apply a430761... fix: address-taken variable model, scope shadowing, and integer cast IR\\nhint: Resolve all conflicts manually, mark them as resolved with\\nhint: \\\"git add/rm <conflicted_files>\\\", then run \\\"git rebase --continue\\\".\\nhint: You can instead skip this commit: run \\\"git rebase --skip\\\".\\nhint: \", \"failure_stage\": \"merge_conflict\"}"
+    },
+    {
+      "timestamp": "2026-03-04T16:34:37.253467+00:00",
+      "event_type": "retry_queued",
+      "work_unit_id": "e163b090780c",
+      "details": "{\"delay\": 30, \"failure_reason\": \"Rebase conflict: Rebasing (1/1)\\rAuto-merging src/compiler/codegen.py\\nCONFLICT (content): Merge conflict in src/compiler/codegen.py\\nAuto-merging src/compiler/ir.py\\nAuto-merging src/compiler/optimizer.py\\nerror: could not apply a430761... fix: address-taken variable model, scope shadowing, and integer cast IR\\nhint: Resolve all conflicts manually, mark them as resolved with\\nhint: \\\"git add/rm <conflicted_files>\\\", then run \\\"git rebase --continue\\\".\\nhint: You can instead skip this commit: run \\\"git rebase --skip\\\".\\nhint: \", \"retry_unit_id\": \"67843134c60c\", \"diagnosis\": \"[Merge conflict] The branch has unresolved merge conflicts. Do NOT manually edit conflict markers. Instead: (1) run `git rebase --abort` to reset, (2) re-read the target files fresh, (3) apply your changes cleanly on top of the current state.\"}"
+    },
+    {
+      "timestamp": "2026-03-04T16:42:07.187667+00:00",
+      "event_type": "dispatched",
+      "work_unit_id": "1c01388f585c",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T16:49:51.002365+00:00",
+      "event_type": "dispatched",
+      "work_unit_id": "5ccd55959676",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T16:52:37.786072+00:00",
+      "event_type": "merged",
+      "work_unit_id": "1c01388f585c",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T16:53:26.168824+00:00",
+      "event_type": "merge_failed",
+      "work_unit_id": "5ccd55959676",
+      "details": "{\"failure_output\": \"Rebase conflict: Rebasing (1/1)\\rAuto-merging src/compiler/ir_gen.py\\nCONFLICT (content): Merge conflict in src/compiler/ir_gen.py\\nerror: could not apply 854ffce... fix: integer cast truncation and nested scope shadowing\\nhint: Resolve all conflicts manually, mark them as resolved with\\nhint: \\\"git add/rm <conflicted_files>\\\", then run \\\"git rebase --continue\\\".\\nhint: You can instead skip this commit: run \\\"git rebase --skip\\\".\\nhint: To abort and get back to the state before \\\"git rebase\\\", run \\\"git rebase --abort\\\".\\nhint: D\", \"failure_stage\": \"merge_conflict\"}"
+    },
+    {
+      "timestamp": "2026-03-04T16:53:26.169403+00:00",
+      "event_type": "retry_queued",
+      "work_unit_id": "5ccd55959676",
+      "details": "{\"delay\": 30, \"failure_reason\": \"Rebase conflict: Rebasing (1/1)\\rAuto-merging src/compiler/ir_gen.py\\nCONFLICT (content): Merge conflict in src/compiler/ir_gen.py\\nerror: could not apply 854ffce... fix: integer cast truncation and nested scope shadowing\\nhint: Resolve all conflicts manually, mark them as resolved with\\nhint: \\\"git add/rm <conflicted_files>\\\", then run \\\"git rebase --continue\\\".\\nhint: You can instead skip this commit: run \\\"git rebase --skip\\\".\\nhint: To abort and get back to the state before \\\"git rebase\\\", run \\\"git rebase --abort\\\".\\nhint: D\", \"retry_unit_id\": \"a1d769b05f8c\", \"diagnosis\": \"[Merge conflict] The branch has unresolved merge conflicts. Do NOT manually edit conflict markers. Instead: (1) run `git rebase --abort` to reset, (2) re-read the target files fresh, (3) apply your changes cleanly on top of the current state.\"}"
+    },
+    {
+      "timestamp": "2026-03-04T16:59:34.188552+00:00",
+      "event_type": "dispatched",
+      "work_unit_id": "a4762ac9fb4d",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T17:13:36.210896+00:00",
+      "event_type": "dispatched",
+      "work_unit_id": "785e4d2d6fe4",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T17:15:32.698698+00:00",
+      "event_type": "merged",
+      "work_unit_id": "a4762ac9fb4d",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T17:16:20.905362+00:00",
+      "event_type": "merge_failed",
+      "work_unit_id": "785e4d2d6fe4",
+      "details": "{\"failure_output\": \"Rebase conflict: Rebasing (1/1)\\rAuto-merging src/compiler/ir_gen.py\\nCONFLICT (content): Merge conflict in src/compiler/ir_gen.py\\nerror: could not apply 44c9f7e... fix: integer cast truncation and nested scope variable shadowing\\nhint: Resolve all conflicts manually, mark them as resolved with\\nhint: \\\"git add/rm <conflicted_files>\\\", then run \\\"git rebase --continue\\\".\\nhint: You can instead skip this commit: run \\\"git rebase --skip\\\".\\nhint: To abort and get back to the state before \\\"git rebase\\\", run \\\"git rebase --abort\\\"\", \"failure_stage\": \"merge_conflict\"}"
+    },
+    {
+      "timestamp": "2026-03-04T17:16:20.905861+00:00",
+      "event_type": "retry_queued",
+      "work_unit_id": "785e4d2d6fe4",
+      "details": "{\"delay\": 30, \"failure_reason\": \"Rebase conflict: Rebasing (1/1)\\rAuto-merging src/compiler/ir_gen.py\\nCONFLICT (content): Merge conflict in src/compiler/ir_gen.py\\nerror: could not apply 44c9f7e... fix: integer cast truncation and nested scope variable shadowing\\nhint: Resolve all conflicts manually, mark them as resolved with\\nhint: \\\"git add/rm <conflicted_files>\\\", then run \\\"git rebase --continue\\\".\\nhint: You can instead skip this commit: run \\\"git rebase --skip\\\".\\nhint: To abort and get back to the state before \\\"git rebase\\\", run \\\"git rebase --abort\\\"\", \"retry_unit_id\": \"d35d5965ac84\", \"diagnosis\": \"[Merge conflict] The branch has unresolved merge conflicts. Do NOT manually edit conflict markers. Instead: (1) run `git rebase --abort` to reset, (2) re-read the target files fresh, (3) apply your changes cleanly on top of the current state.\"}"
+    },
+    {
+      "timestamp": "2026-03-04T17:22:19.728259+00:00",
+      "event_type": "dispatched",
+      "work_unit_id": "a86cc64dfcfb",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T17:34:04.126252+00:00",
+      "event_type": "dispatched",
+      "work_unit_id": "e007936eaf93",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T17:36:45.847422+00:00",
+      "event_type": "merged",
+      "work_unit_id": "a86cc64dfcfb",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T17:37:34.792916+00:00",
+      "event_type": "merged",
+      "work_unit_id": "e007936eaf93",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T17:43:30.188554+00:00",
+      "event_type": "dispatched",
+      "work_unit_id": "f81ebd7975b0",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T17:58:18.806234+00:00",
+      "event_type": "dispatched",
+      "work_unit_id": "94ab09abf3ea",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T18:03:36.792074+00:00",
+      "event_type": "merged",
+      "work_unit_id": "f81ebd7975b0",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T18:10:19.628938+00:00",
+      "event_type": "dispatched",
+      "work_unit_id": "16df70d7a405",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T18:20:19.649781+00:00",
+      "event_type": "dispatched",
+      "work_unit_id": "9214683f559f",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T18:30:09.524097+00:00",
+      "event_type": "merged",
+      "work_unit_id": "16df70d7a405",
+      "details": ""
+    },
+    {
+      "timestamp": "2026-03-04T18:31:03.424361+00:00",
+      "event_type": "merge_failed",
+      "work_unit_id": "9214683f559f",
+      "details": "{\"failure_output\": \"Rebase conflict: Rebasing (1/1)\\rAuto-merging src/compiler/ir_gen.py\\nCONFLICT (content): Merge conflict in src/compiler/ir_gen.py\\nerror: could not apply a240326... fix: nested scope shadowing, int-to-char cast truncation, char* subscript stride\\nhint: Resolve all conflicts manually, mark them as resolved with\\nhint: \\\"git add/rm <conflicted_files>\\\", then run \\\"git rebase --continue\\\".\\nhint: You can instead skip this commit: run \\\"git rebase --skip\\\".\\nhint: To abort and get back to the state before \\\"git rebase\\\", run \\\"git\", \"failure_stage\": \"merge_conflict\"}"
+    },
+    {
+      "timestamp": "2026-03-04T18:31:03.424922+00:00",
+      "event_type": "retry_queued",
+      "work_unit_id": "9214683f559f",
+      "details": "{\"delay\": 30, \"failure_reason\": \"Rebase conflict: Rebasing (1/1)\\rAuto-merging src/compiler/ir_gen.py\\nCONFLICT (content): Merge conflict in src/compiler/ir_gen.py\\nerror: could not apply a240326... fix: nested scope shadowing, int-to-char cast truncation, char* subscript stride\\nhint: Resolve all conflicts manually, mark them as resolved with\\nhint: \\\"git add/rm <conflicted_files>\\\", then run \\\"git rebase --continue\\\".\\nhint: You can instead skip this commit: run \\\"git rebase --skip\\\".\\nhint: To abort and get back to the state before \\\"git rebase\\\", run \\\"git\", \"retry_unit_id\": \"9ba55208cc5d\", \"diagnosis\": \"[Merge conflict] The branch has unresolved merge conflicts. Do NOT manually edit conflict markers. Instead: (1) run `git rebase --abort` to reset, (2) re-read the target files fresh, (3) apply your changes cleanly on top of the current state.\"}"
+    }
+  ]
+}

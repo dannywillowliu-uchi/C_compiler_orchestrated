@@ -1,0 +1,536 @@
+{
+  "timestamp": "2026-03-04T22:04:17.545619+00:00",
+  "summary": {
+    "total": 85,
+    "passed": 64,
+    "failed": 10,
+    "skipped": 11
+  },
+  "tests": {
+    "arith_basic_ops": {
+      "status": "PASS",
+      "category": "arithmetic",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "arith_bitwise": {
+      "status": "PASS",
+      "category": "arithmetic",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "arith_cast": {
+      "status": "FAIL",
+      "category": "arithmetic",
+      "error_msg": "wrong_output (exit code 1)",
+      "exit_code": 1
+    },
+    "arith_char_promotion": {
+      "status": "PASS",
+      "category": "arithmetic",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "arith_comparison": {
+      "status": "PASS",
+      "category": "arithmetic",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "arith_compound_assign": {
+      "status": "PASS",
+      "category": "arithmetic",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "arith_increment": {
+      "status": "PASS",
+      "category": "arithmetic",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "arith_logical": {
+      "status": "PASS",
+      "category": "arithmetic",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "arith_modulo": {
+      "status": "PASS",
+      "category": "arithmetic",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "arith_negation": {
+      "status": "PASS",
+      "category": "arithmetic",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "arith_overflow": {
+      "status": "PASS",
+      "category": "arithmetic",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "arith_precedence": {
+      "status": "PASS",
+      "category": "arithmetic",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "arith_shifts": {
+      "status": "PASS",
+      "category": "arithmetic",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "arith_sizeof": {
+      "status": "PASS",
+      "category": "arithmetic",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "arith_unsigned": {
+      "status": "PASS",
+      "category": "arithmetic",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "call_args_after_call": {
+      "status": "PASS",
+      "category": "calling_convention",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "call_chain": {
+      "status": "PASS",
+      "category": "calling_convention",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "call_deep_nesting": {
+      "status": "PASS",
+      "category": "calling_convention",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "call_many_args": {
+      "status": "PASS",
+      "category": "calling_convention",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "call_mixed_operations": {
+      "status": "PASS",
+      "category": "calling_convention",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "call_mutual_recursive": {
+      "status": "PASS",
+      "category": "calling_convention",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "call_nested_calls": {
+      "status": "PASS",
+      "category": "calling_convention",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "call_preserve_locals": {
+      "status": "PASS",
+      "category": "calling_convention",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "call_recursive_fib": {
+      "status": "PASS",
+      "category": "calling_convention",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "call_recursive_sum": {
+      "status": "PASS",
+      "category": "calling_convention",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "call_return_in_expr": {
+      "status": "PASS",
+      "category": "calling_convention",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "call_self_recursive": {
+      "status": "PASS",
+      "category": "calling_convention",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "call_seven_args": {
+      "status": "PASS",
+      "category": "calling_convention",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "call_side_effects": {
+      "status": "SKIP",
+      "category": "calling_convention",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_call_side_effects_0mpallj1.s:1:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "call_simple_args": {
+      "status": "PASS",
+      "category": "calling_convention",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "decl_array": {
+      "status": "PASS",
+      "category": "declarations",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "decl_for_init": {
+      "status": "PASS",
+      "category": "declarations",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "decl_global_local": {
+      "status": "PASS",
+      "category": "declarations",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "decl_init_expr": {
+      "status": "PASS",
+      "category": "declarations",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "decl_mixed_types": {
+      "status": "PASS",
+      "category": "declarations",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "decl_multi_assign": {
+      "status": "PASS",
+      "category": "declarations",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "decl_multi_init": {
+      "status": "PASS",
+      "category": "declarations",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "decl_multi_int": {
+      "status": "PASS",
+      "category": "declarations",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "decl_multi_ptr": {
+      "status": "PASS",
+      "category": "declarations",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "decl_nested_scope": {
+      "status": "FAIL",
+      "category": "declarations",
+      "error_msg": "wrong_output (exit code 1)",
+      "exit_code": 1
+    },
+    "flow_break_continue": {
+      "status": "PASS",
+      "category": "control_flow",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "flow_do_while": {
+      "status": "PASS",
+      "category": "control_flow",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "flow_for_complex": {
+      "status": "PASS",
+      "category": "control_flow",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "flow_goto": {
+      "status": "PASS",
+      "category": "control_flow",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "flow_if_else": {
+      "status": "PASS",
+      "category": "control_flow",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "flow_nested_loops": {
+      "status": "PASS",
+      "category": "control_flow",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "flow_short_circuit": {
+      "status": "SKIP",
+      "category": "control_flow",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_flow_short_circuit_8dp12b1r.s:1:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "flow_switch_basic": {
+      "status": "PASS",
+      "category": "control_flow",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "flow_switch_fallthrough": {
+      "status": "PASS",
+      "category": "control_flow",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "flow_ternary": {
+      "status": "PASS",
+      "category": "control_flow",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "misc_comma": {
+      "status": "PASS",
+      "category": "misc",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "misc_conditional_expr": {
+      "status": "PASS",
+      "category": "misc",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "misc_empty_main": {
+      "status": "PASS",
+      "category": "misc",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "misc_enum": {
+      "status": "SKIP",
+      "category": "misc",
+      "error_msg": "compile_source failed: 16:13: incompatible types in initialization of 'c': 'enum Color' and 'int'",
+      "exit_code": null
+    },
+    "misc_global": {
+      "status": "SKIP",
+      "category": "misc",
+      "error_msg": "compile_and_link failed: Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_misc_global_pli03jhy.s:5:14: error: unexpected token in '.section' directive\n.section .bss\n             ^",
+      "exit_code": null
+    },
+    "misc_large_local": {
+      "status": "PASS",
+      "category": "misc",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "misc_static_local": {
+      "status": "PASS",
+      "category": "misc",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "misc_string_literal": {
+      "status": "FAIL",
+      "category": "misc",
+      "error_msg": "wrong_output (exit code 1)",
+      "exit_code": 1
+    },
+    "misc_typedef": {
+      "status": "SKIP",
+      "category": "misc",
+      "error_msg": "compile_source failed: 24:2: incompatible types in assignment: 'i32' and 'int'",
+      "exit_code": null
+    },
+    "misc_void_func": {
+      "status": "PASS",
+      "category": "misc",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "ptr_arithmetic": {
+      "status": "PASS",
+      "category": "pointers_arrays",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "ptr_array_decay": {
+      "status": "FAIL",
+      "category": "pointers_arrays",
+      "error_msg": "wrong_output (exit code 1)",
+      "exit_code": 1
+    },
+    "ptr_array_equiv": {
+      "status": "FAIL",
+      "category": "pointers_arrays",
+      "error_msg": "wrong_output (exit code 1)",
+      "exit_code": 1
+    },
+    "ptr_basic": {
+      "status": "PASS",
+      "category": "pointers_arrays",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "ptr_diff": {
+      "status": "PASS",
+      "category": "pointers_arrays",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "ptr_double": {
+      "status": "FAIL",
+      "category": "pointers_arrays",
+      "error_msg": "crash (signal 11)",
+      "exit_code": -11
+    },
+    "ptr_function": {
+      "status": "FAIL",
+      "category": "pointers_arrays",
+      "error_msg": "crash (signal 10)",
+      "exit_code": -10
+    },
+    "ptr_null_check": {
+      "status": "PASS",
+      "category": "pointers_arrays",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "ptr_to_struct": {
+      "status": "FAIL",
+      "category": "pointers_arrays",
+      "error_msg": "wrong_output (exit code 1)",
+      "exit_code": 1
+    },
+    "ptr_void": {
+      "status": "PASS",
+      "category": "pointers_arrays",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "struct_array_field": {
+      "status": "SKIP",
+      "category": "struct_operations",
+      "error_msg": "compile_source failed: 11:2: subscript requires array or pointer type",
+      "exit_code": null
+    },
+    "struct_assign": {
+      "status": "PASS",
+      "category": "struct_operations",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "struct_basic": {
+      "status": "PASS",
+      "category": "struct_operations",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "struct_in_array": {
+      "status": "FAIL",
+      "category": "struct_operations",
+      "error_msg": "crash (signal 11)",
+      "exit_code": -11
+    },
+    "struct_init": {
+      "status": "PASS",
+      "category": "struct_operations",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "struct_large": {
+      "status": "PASS",
+      "category": "struct_operations",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "struct_nested": {
+      "status": "PASS",
+      "category": "struct_operations",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "struct_pass_value": {
+      "status": "PASS",
+      "category": "struct_operations",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "struct_ptr": {
+      "status": "FAIL",
+      "category": "struct_operations",
+      "error_msg": "crash (signal 11)",
+      "exit_code": -11
+    },
+    "struct_return": {
+      "status": "PASS",
+      "category": "struct_operations",
+      "error_msg": null,
+      "exit_code": 0
+    },
+    "va_empty": {
+      "status": "SKIP",
+      "category": "variadic",
+      "error_msg": "compile_source failed: Expected ';' after expression at 5:20",
+      "exit_code": null
+    },
+    "va_mixed": {
+      "status": "SKIP",
+      "category": "variadic",
+      "error_msg": "compile_source failed: Expected ';' after expression at 5:20",
+      "exit_code": null
+    },
+    "va_multiple_passes": {
+      "status": "SKIP",
+      "category": "variadic",
+      "error_msg": "compile_source failed: Expected ';' after expression at 5:20",
+      "exit_code": null
+    },
+    "va_pass_through": {
+      "status": "SKIP",
+      "category": "variadic",
+      "error_msg": "compile_source failed: Expected type specifier, got IDENTIFIER ('__builtin_va_list') at 4:10",
+      "exit_code": null
+    },
+    "va_simple": {
+      "status": "SKIP",
+      "category": "variadic",
+      "error_msg": "compile_source failed: Expected ';' after expression at 6:20",
+      "exit_code": null
+    }
+  },
+  "deltas": {
+    "newly_passing": [
+      "decl_multi_ptr",
+      "misc_void_func",
+      "ptr_arithmetic",
+      "ptr_basic",
+      "ptr_diff",
+      "ptr_void"
+    ],
+    "newly_failing": [
+      "ptr_to_struct",
+      "struct_ptr"
+    ],
+    "newly_compiling": []
+  }
+}

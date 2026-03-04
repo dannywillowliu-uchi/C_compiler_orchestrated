@@ -1,0 +1,27 @@
+/* Adapted from gcc.dg/torture/arith_bitwise.c -- tests arithmetic */
+
+int main(void) {
+	/* AND */
+	if ((0xFF & 0x0F) != 0x0F) return 1;
+	if ((0xAA & 0x55) != 0x00) return 1;
+	if ((0xFF & 0xFF) != 0xFF) return 1;
+
+	/* OR */
+	if ((0xF0 | 0x0F) != 0xFF) return 1;
+	if ((0xAA | 0x55) != 0xFF) return 1;
+	if ((0x00 | 0x00) != 0x00) return 1;
+
+	/* XOR */
+	if ((0xFF ^ 0xFF) != 0x00) return 1;
+	if ((0xFF ^ 0x00) != 0xFF) return 1;
+	if ((0xAA ^ 0x55) != 0xFF) return 1;
+
+	/* NOT */
+	int x = 0;
+	if (~x != -1) return 1;
+
+	x = 0xFF;
+	if ((~x & 0xFF) != 0) return 1;
+
+	return 0;
+}
