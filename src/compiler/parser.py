@@ -669,13 +669,26 @@ class Parser:
 		return params
 
 	def _parse_param_decl(self) -> ParamDecl:
-		"""Parse a single parameter declaration: type name or type (*name)(params)."""
+		"""Parse a single parameter declaration: type name, type name[], or type (*name)(params)."""
 		type_spec = self._parse_type_spec()
 		# Check for function pointer parameter: type (*name)(params)
 		if self._is_func_ptr_start():
 			fp_type, name_tok = self._parse_func_ptr_type(type_spec)
 			return ParamDecl(type_spec=fp_type, name=name_tok.value, loc=self._loc(name_tok))
 		name_tok = self._expect(TokenType.IDENTIFIER, "Expected parameter name")
+		# Array parameter syntax: type name[] or type name[size] -> convert to pointer
+		if self._match(TokenType.LBRACKET):
+			if not self._check(TokenType.RBRACKET):
+				self._parse_expression()  # consume and discard array size
+			self._expect(TokenType.RBRACKET, "Expected ']' after array parameter")
+			type_spec = TypeSpec(
+				base_type=type_spec.base_type,
+				pointer_count=type_spec.pointer_count + 1,
+				qualifiers=type_spec.qualifiers,
+				signedness=type_spec.signedness,
+				width_modifier=type_spec.width_modifier,
+				loc=type_spec.loc,
+			)
 		return ParamDecl(type_spec=type_spec, name=name_tok.value, loc=self._loc(name_tok))
 
 	# -- Statements ----------------------------------------------------------

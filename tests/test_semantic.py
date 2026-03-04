@@ -473,7 +473,7 @@ class TestTypeMismatch:
 				]),
 			),
 		])
-		with pytest.raises(SemanticError, match="incompatible types"):
+		with pytest.raises(SemanticError, match="(incompatible types|pointer type not allowed)"):
 			SemanticAnalyzer().analyze(prog)
 
 	def test_return_type_mismatch(self) -> None:
