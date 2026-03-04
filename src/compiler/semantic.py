@@ -25,10 +25,12 @@ from compiler.ast_nodes import (
 	ForStmt,
 	FunctionCall,
 	FunctionDecl,
+	GotoStmt,
 	Identifier,
 	IfStmt,
 	InitializerList,
 	IntLiteral,
+	LabelStmt,
 	MemberAccess,
 	ParamDecl,
 	PostfixExpr,
@@ -200,6 +202,8 @@ class SemanticAnalyzer(ASTVisitor):
 		self._union_types: dict[str, UnionDecl] = {}
 		self._typedef_types: dict[str, TypeSpec] = {}
 		self._in_sizeof_or_addressof: bool = False
+		self._label_defs: dict[str, ASTNode] = {}
+		self._goto_refs: list[tuple[str, ASTNode]] = []
 
 	def analyze(self, node: ASTNode) -> list[SemanticError]:
 		self.visit(node)
@@ -290,14 +294,23 @@ class SemanticAnalyzer(ASTVisitor):
 		if node.body is None:
 			return node.return_type
 		prev_func = self._current_function
+		prev_label_defs = self._label_defs
+		prev_goto_refs = self._goto_refs
 		self._current_function = node
+		self._label_defs = {}
+		self._goto_refs = []
 		self.symbols.push_scope()
 		for param in node.params:
 			self.visit(param)
 		for stmt in node.body.statements:
 			self.visit(stmt)
+		for goto_label, goto_node in self._goto_refs:
+			if goto_label not in self._label_defs:
+				self._error(f"use of undeclared label '{goto_label}'", goto_node)
 		self.symbols.pop_scope()
 		self._current_function = prev_func
+		self._label_defs = prev_label_defs
+		self._goto_refs = prev_goto_refs
 		return node.return_type
 
 	def visit_param_decl(self, node: ParamDecl) -> TypeSpec:
@@ -506,6 +519,16 @@ class SemanticAnalyzer(ASTVisitor):
 	def visit_continue_stmt(self, node: ContinueStmt) -> None:
 		if self._loop_depth == 0:
 			self._error("continue statement not within a loop", node)
+
+	def visit_goto_stmt(self, node: GotoStmt) -> None:
+		self._goto_refs.append((node.label, node))
+
+	def visit_label_stmt(self, node: LabelStmt) -> None:
+		if node.label in self._label_defs:
+			self._error(f"redefinition of label '{node.label}'", node)
+		else:
+			self._label_defs[node.label] = node
+		self.visit(node.statement)
 
 	def visit_compound_assignment(self, node: CompoundAssignment) -> TypeSpec | None:
 		target_type = self.visit(node.target)

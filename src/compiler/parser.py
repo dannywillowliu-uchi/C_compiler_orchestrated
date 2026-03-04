@@ -27,10 +27,12 @@ from compiler.ast_nodes import (
 	ForStmt,
 	FunctionCall,
 	FunctionDecl,
+	GotoStmt,
 	Identifier,
 	IfStmt,
 	InitializerList,
 	IntLiteral,
+	LabelStmt,
 	MemberAccess,
 	ParamDecl,
 	PostfixExpr,
@@ -714,6 +716,15 @@ class Parser:
 			return self._parse_break_stmt()
 		if self._check(TokenType.CONTINUE):
 			return self._parse_continue_stmt()
+		if self._check(TokenType.GOTO):
+			return self._parse_goto_stmt()
+		# Labeled statement: identifier followed by colon (not a typedef name)
+		if (
+			self._check(TokenType.IDENTIFIER)
+			and self._current().value not in self._typedef_names
+			and self._peek(1).type == TokenType.COLON
+		):
+			return self._parse_label_stmt()
 		# typedef in local scope
 		if self._check(TokenType.TYPEDEF):
 			return self._parse_typedef_decl()
@@ -843,6 +854,20 @@ class Parser:
 		tok = self._advance()  # consume 'continue'
 		self._expect(TokenType.SEMICOLON, "Expected ';' after 'continue'")
 		return ContinueStmt(loc=self._loc(tok))
+
+	def _parse_goto_stmt(self) -> GotoStmt:
+		"""Parse 'goto label;'."""
+		tok = self._advance()  # consume 'goto'
+		label_tok = self._expect(TokenType.IDENTIFIER, "Expected label name after 'goto'")
+		self._expect(TokenType.SEMICOLON, "Expected ';' after goto statement")
+		return GotoStmt(label=label_tok.value, loc=self._loc(tok))
+
+	def _parse_label_stmt(self) -> LabelStmt:
+		"""Parse 'label: statement'."""
+		label_tok = self._advance()  # consume label identifier
+		self._advance()  # consume ':'
+		stmt = self._parse_statement()
+		return LabelStmt(label=label_tok.value, statement=stmt, loc=self._loc(label_tok))
 
 	def _parse_switch_stmt(self) -> SwitchStmt:
 		"""Parse 'switch (expr) { case ...: stmts... default: stmts... }'."""

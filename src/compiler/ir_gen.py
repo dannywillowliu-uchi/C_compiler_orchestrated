@@ -22,7 +22,9 @@ from compiler.ast_nodes import (
 	ForStmt,
 	FunctionCall,
 	FunctionDecl,
+	GotoStmt,
 	InitializerList,
+	LabelStmt,
 	TypedefDecl,
 	Identifier,
 	IfStmt,
@@ -159,6 +161,7 @@ class IRGenerator(ASTVisitor):
 		self._enum_constants: dict[str, int] = {}
 		self._func_ptr_locals: set[str] = set()
 		self._known_functions: set[str] = set()
+		self._user_labels: dict[str, str] = {}  # C label name -> IR label name
 
 	# ------------------------------------------------------------------
 	# Helpers
@@ -253,6 +256,7 @@ class IRGenerator(ASTVisitor):
 		old_temp_unsigned = self._temp_unsigned
 		old_in_function = self._in_function
 		old_func_ptr_locals = self._func_ptr_locals
+		old_user_labels = self._user_labels
 		self._instructions = []
 		self._locals = {}
 		self._local_types = {}
@@ -261,6 +265,7 @@ class IRGenerator(ASTVisitor):
 		self._temp_unsigned = {}
 		self._in_function = True
 		self._func_ptr_locals = set()
+		self._user_labels = {}
 
 		params: list[IRTemp] = []
 		param_types: list[IRType] = []
@@ -298,6 +303,7 @@ class IRGenerator(ASTVisitor):
 		self._temp_unsigned = old_temp_unsigned
 		self._in_function = old_in_function
 		self._func_ptr_locals = old_func_ptr_locals
+		self._user_labels = old_user_labels
 
 	def visit_var_decl(self, node: VarDecl) -> None:
 		if not self._in_function:
@@ -798,6 +804,20 @@ class IRGenerator(ASTVisitor):
 	def visit_continue_stmt(self, node: ContinueStmt) -> None:
 		continue_label, _ = self._loop_stack[-1]
 		self._emit(IRJump(target=continue_label))
+
+	def _get_user_label(self, name: str) -> str:
+		if name not in self._user_labels:
+			self._user_labels[name] = self._new_label("usr_")
+		return self._user_labels[name]
+
+	def visit_goto_stmt(self, node: GotoStmt) -> None:
+		ir_label = self._get_user_label(node.label)
+		self._emit(IRJump(target=ir_label))
+
+	def visit_label_stmt(self, node: LabelStmt) -> None:
+		ir_label = self._get_user_label(node.label)
+		self._emit(IRLabelInstr(name=ir_label))
+		self.visit(node.statement)
 
 	def visit_compound_assignment(self, node: CompoundAssignment) -> None:
 		arith_op = node.op[:-1] if node.op.endswith("=") else node.op
