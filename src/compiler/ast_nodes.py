@@ -144,6 +144,9 @@ class ASTVisitor:
 	def visit_typedef_decl(self, node: TypedefDecl) -> Any:
 		return None
 
+	def visit_union_decl(self, node: UnionDecl) -> Any:
+		return None
+
 
 # --- Type node ---
 
@@ -483,6 +486,17 @@ class StructDecl(ASTNode):
 
 
 @dataclass
+class UnionDecl(ASTNode):
+	"""Union type definition: union name { members }."""
+
+	name: str = ""
+	members: list[StructMember] = field(default_factory=list)
+
+	def accept(self, visitor: ASTVisitor) -> Any:
+		return visitor.visit_union_decl(self)
+
+
+@dataclass
 class EnumConstant(ASTNode):
 	"""A single enumerator: NAME [= value]."""
 
@@ -512,6 +526,7 @@ class TypedefDecl(ASTNode):
 	name: str = ""
 	struct_decl: StructDecl | None = None
 	enum_decl: EnumDecl | None = None
+	union_decl: UnionDecl | None = None
 
 	def accept(self, visitor: ASTVisitor) -> Any:
 		return visitor.visit_typedef_decl(self)
