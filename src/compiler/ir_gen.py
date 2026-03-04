@@ -51,6 +51,7 @@ from compiler.ast_nodes import (
 	WhileStmt,
 )
 from compiler.ir import (
+	IRAddrOf,
 	IRAlloc,
 	IRBinOp,
 	IRCall,
@@ -823,14 +824,34 @@ class IRGenerator(ASTVisitor):
 				self._set_temp_type(dest, IRType.POINTER)
 				self._emit(IRCopy(dest=dest, source=IRGlobalRef(mangled), ir_type=IRType.POINTER))
 				return dest
-			# Address-of: return the stack address of the variable
+			# Address-of local variable
 			if isinstance(node.operand, Identifier):
 				src = self._locals.get(node.operand.name)
 				if src is not None:
+					is_addr_taken_scalar = (
+						node.operand.name in self._address_taken
+						and self._is_local_aggregate(node.operand.name) is None
+						and node.operand.name not in self._local_array
+					)
+					is_aggregate = self._is_local_aggregate(node.operand.name) is not None
+					is_array = node.operand.name in self._local_array
+					if is_addr_taken_scalar or is_aggregate or is_array:
+						# src already holds the alloc address; copy it out
+						dest = self._new_temp()
+						self._set_temp_type(dest, IRType.POINTER)
+						self._emit(IRCopy(dest=dest, source=src, ir_type=IRType.POINTER))
+						ts = self._local_types.get(node.operand.name)
+						if ts is not None:
+							self._temp_pointee_size[dest.name] = self._resolve_member_size(ts)
+						return dest
+					# Non-address-taken scalar: use IRAddrOf to get its stack address
+					dest = self._new_temp()
+					self._set_temp_type(dest, IRType.POINTER)
+					self._emit(IRAddrOf(dest=dest, source=src))
 					ts = self._local_types.get(node.operand.name)
 					if ts is not None:
-						self._temp_pointee_size[src.name] = self._resolve_member_size(ts)
-					return src
+						self._temp_pointee_size[dest.name] = self._resolve_member_size(ts)
+					return dest
 			# &(*p) cancels the dereference, just return the pointer
 			if isinstance(node.operand, UnaryOp) and node.operand.op == "*":
 				ptr = self.visit(node.operand.operand)
