@@ -86,6 +86,14 @@ _SIZE_MAP: dict[str, int] = {
 	"double": 8,
 }
 
+_ALIGN_MAP: dict[str, int] = {
+	"int": 4,
+	"char": 1,
+	"void": 1,
+	"float": 4,
+	"double": 8,
+}
+
 _FLOAT_TYPES = {IRType.FLOAT, IRType.DOUBLE}
 
 
@@ -108,6 +116,22 @@ def _resolve_size(ts: TypeSpec) -> int:
 	if ts.width_modifier in ("long", "long long"):
 		return 8
 	return _SIZE_MAP.get(ts.base_type, 4)
+
+
+def _resolve_alignment(ts: TypeSpec) -> int:
+	"""Return the natural alignment of a primitive type."""
+	if ts.pointer_count > 0:
+		return 8
+	if ts.width_modifier == "short":
+		return 2
+	if ts.width_modifier in ("long", "long long"):
+		return 8
+	return _ALIGN_MAP.get(ts.base_type, 4)
+
+
+def _align_to(offset: int, alignment: int) -> int:
+	"""Round *offset* up to the next multiple of *alignment*."""
+	return (offset + alignment - 1) & ~(alignment - 1)
 
 
 class IRGenerator(ASTVisitor):
@@ -870,31 +894,66 @@ class IRGenerator(ASTVisitor):
 
 	def _resolve_type_size(self, ts: TypeSpec) -> int:
 		"""Resolve the size of a type, handling struct/union types."""
+		return self._resolve_member_size(ts)
+
+	def _compute_struct_size(self, name: str) -> int:
+		"""Compute the total size of a struct including alignment padding."""
+		members = self._structs.get(name, [])
+		offset = 0
+		max_align = 1
+		for m in members:
+			align = self._resolve_type_alignment(m.type_spec)
+			max_align = max(max_align, align)
+			offset = _align_to(offset, align)
+			offset += self._resolve_member_size(m.type_spec)
+		# Pad total size to the struct's overall alignment
+		return _align_to(offset, max_align)
+
+	def _compute_union_size(self, name: str) -> int:
+		"""Compute the size of a union (largest member, padded to max alignment)."""
+		members = self._unions.get(name, [])
+		if not members:
+			return 0
+		max_size = 0
+		max_align = 1
+		for m in members:
+			max_size = max(max_size, self._resolve_member_size(m.type_spec))
+			max_align = max(max_align, self._resolve_type_alignment(m.type_spec))
+		return _align_to(max_size, max_align)
+
+	def _resolve_member_size(self, ts: TypeSpec) -> int:
+		"""Resolve the size of a member type, handling nested structs/unions."""
 		if ts.pointer_count > 0:
 			return 8
 		key = ts.base_type
 		if key.startswith("struct "):
-			key = key[len("struct "):]
-			if key in self._structs:
-				return self._compute_struct_size(key)
+			sname = key[len("struct "):]
+			if sname in self._structs:
+				return self._compute_struct_size(sname)
 		elif key.startswith("union "):
-			key = key[len("union "):]
-			if key in self._unions:
-				return self._compute_union_size(key)
+			uname = key[len("union "):]
+			if uname in self._unions:
+				return self._compute_union_size(uname)
 		return _resolve_size(ts)
 
-	def _compute_struct_size(self, name: str) -> int:
-		members = self._structs.get(name, [])
-		total = 0
-		for m in members:
-			total += _resolve_size(m.type_spec)
-		return total
-
-	def _compute_union_size(self, name: str) -> int:
-		members = self._unions.get(name, [])
-		if not members:
-			return 0
-		return max(_resolve_size(m.type_spec) for m in members)
+	def _resolve_type_alignment(self, ts: TypeSpec) -> int:
+		"""Resolve the alignment of a type, handling nested structs/unions."""
+		if ts.pointer_count > 0:
+			return 8
+		key = ts.base_type
+		if key.startswith("struct "):
+			sname = key[len("struct "):]
+			members = self._structs.get(sname, [])
+			if members:
+				return max(self._resolve_type_alignment(m.type_spec) for m in members)
+			return 4
+		if key.startswith("union "):
+			uname = key[len("union "):]
+			members = self._unions.get(uname, [])
+			if members:
+				return max(self._resolve_type_alignment(m.type_spec) for m in members)
+			return 4
+		return _resolve_alignment(ts)
 
 	# ------------------------------------------------------------------
 	# Postfix increment/decrement
@@ -994,12 +1053,14 @@ class IRGenerator(ASTVisitor):
 			for i, elem in enumerate(init_list.elements):
 				if i >= len(members):
 					break
+				align = self._resolve_type_alignment(members[i].type_spec)
+				field_offset = _align_to(field_offset, align)
 				if isinstance(elem, InitializerList):
 					# Nested initializer for array/struct member
 					member_addr = self._new_temp()
 					self._emit(IRBinOp(dest=member_addr, left=dest, op="+", right=IRConst(field_offset)))
 					member_type = members[i].type_spec
-					member_size = _resolve_size(member_type)
+					member_size = self._resolve_member_size(member_type)
 					for j, sub_elem in enumerate(elem.elements):
 						sub_val = self.visit(sub_elem)
 						sub_offset = self._new_temp()
@@ -1012,13 +1073,15 @@ class IRGenerator(ASTVisitor):
 					addr = self._new_temp()
 					self._emit(IRBinOp(dest=addr, left=dest, op="+", right=IRConst(field_offset)))
 					self._emit(IRStore(address=addr, value=val))
-				field_offset += _resolve_size(members[i].type_spec)
+				field_offset += self._resolve_member_size(members[i].type_spec)
 			# Zero-fill remaining members
 			for i in range(len(init_list.elements), len(members)):
+				align = self._resolve_type_alignment(members[i].type_spec)
+				field_offset = _align_to(field_offset, align)
 				addr = self._new_temp()
 				self._emit(IRBinOp(dest=addr, left=dest, op="+", right=IRConst(field_offset)))
 				self._emit(IRStore(address=addr, value=IRConst(0)))
-				field_offset += _resolve_size(members[i].type_spec)
+				field_offset += self._resolve_member_size(members[i].type_spec)
 
 	def _collect_init_values(self, init_list: InitializerList) -> list[int]:
 		"""Collect constant integer values from an initializer list (for globals)."""
@@ -1090,7 +1153,9 @@ class IRGenerator(ASTVisitor):
 		members = self._structs.get(struct_name, [])
 		offset = 0
 		for m in members:
+			align = self._resolve_type_alignment(m.type_spec)
+			offset = _align_to(offset, align)
 			if m.name == field_name:
 				return offset
-			offset += _resolve_size(m.type_spec)
+			offset += self._resolve_member_size(m.type_spec)
 		return offset
