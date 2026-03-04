@@ -150,6 +150,9 @@ class ASTVisitor:
 	def visit_initializer_list(self, node: InitializerList) -> Any:
 		return None
 
+	def visit_designated_init(self, node: DesignatedInit) -> Any:
+		return None
+
 	def visit_comma_expr(self, node: CommaExpr) -> Any:
 		return None
 
@@ -369,6 +372,18 @@ class InitializerList(ASTNode):
 
 	def accept(self, visitor: ASTVisitor) -> Any:
 		return visitor.visit_initializer_list(self)
+
+
+@dataclass
+class DesignatedInit(ASTNode):
+	"""Designated initializer: .field = expr or [index] = expr."""
+
+	field_name: str | None = None
+	index: ASTNode | None = None
+	value: ASTNode = field(default_factory=ASTNode)
+
+	def accept(self, visitor: ASTVisitor) -> Any:
+		return visitor.visit_designated_init(self)
 
 
 @dataclass

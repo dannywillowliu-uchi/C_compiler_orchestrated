@@ -16,6 +16,7 @@ from compiler.ast_nodes import (
 	CompoundAssignment,
 	CompoundStmt,
 	ContinueStmt,
+	DesignatedInit,
 	DoWhileStmt,
 	EnumDecl,
 	ExprStmt,
@@ -1481,52 +1482,154 @@ class IRGenerator(ASTVisitor):
 					if isinstance(se, IntLiteral):
 						total_elements = se.value
 			total_elements = max(total_elements, len(init_list.elements))
-			for i in range(total_elements):
-				if i < len(init_list.elements):
-					val = self.visit(init_list.elements[i])
-				else:
-					val = IRConst(0)
-				offset = self._new_temp()
-				self._emit(IRBinOp(dest=offset, left=IRConst(i), op="*", right=IRConst(element_size)))
-				addr = self._new_temp()
-				self._emit(IRBinOp(dest=addr, left=dest, op="+", right=offset))
-				self._emit(IRStore(address=addr, value=val))
+
+			has_designated = any(isinstance(e, DesignatedInit) for e in init_list.elements)
+			if has_designated:
+				# Zero-fill the whole array first, then apply designated values
+				for i in range(total_elements):
+					off = self._new_temp()
+					self._emit(IRBinOp(dest=off, left=IRConst(i), op="*", right=IRConst(element_size)))
+					a = self._new_temp()
+					self._emit(IRBinOp(dest=a, left=dest, op="+", right=off))
+					self._emit(IRStore(address=a, value=IRConst(0)))
+				positional_idx = 0
+				for elem in init_list.elements:
+					if isinstance(elem, DesignatedInit):
+						assert elem.index is not None
+						if isinstance(elem.index, IntLiteral):
+							idx = elem.index.value
+						else:
+							idx = positional_idx
+						val = self.visit(elem.value)
+						off = self._new_temp()
+						self._emit(IRBinOp(dest=off, left=IRConst(idx), op="*", right=IRConst(element_size)))
+						a = self._new_temp()
+						self._emit(IRBinOp(dest=a, left=dest, op="+", right=off))
+						self._emit(IRStore(address=a, value=val))
+						positional_idx = idx + 1
+					else:
+						val = self.visit(elem)
+						off = self._new_temp()
+						self._emit(IRBinOp(dest=off, left=IRConst(positional_idx), op="*", right=IRConst(element_size)))
+						a = self._new_temp()
+						self._emit(IRBinOp(dest=a, left=dest, op="+", right=off))
+						self._emit(IRStore(address=a, value=val))
+						positional_idx += 1
+			else:
+				for i in range(total_elements):
+					if i < len(init_list.elements):
+						val = self.visit(init_list.elements[i])
+					else:
+						val = IRConst(0)
+					offset = self._new_temp()
+					self._emit(IRBinOp(dest=offset, left=IRConst(i), op="*", right=IRConst(element_size)))
+					addr = self._new_temp()
+					self._emit(IRBinOp(dest=addr, left=dest, op="+", right=offset))
+					self._emit(IRStore(address=addr, value=val))
 		elif base_type.startswith("struct "):
 			struct_name = base_type[len("struct "):]
 			members = self._structs.get(struct_name, [])
-			field_offset = 0
-			for i, elem in enumerate(init_list.elements):
-				if i >= len(members):
-					break
-				align = self._resolve_type_alignment(members[i].type_spec)
-				field_offset = _align_to(field_offset, align)
-				if isinstance(elem, InitializerList):
-					# Nested initializer for array/struct member
-					member_addr = self._new_temp()
-					self._emit(IRBinOp(dest=member_addr, left=dest, op="+", right=IRConst(field_offset)))
-					member_type = members[i].type_spec
-					member_size = self._resolve_member_size(member_type)
-					for j, sub_elem in enumerate(elem.elements):
-						sub_val = self.visit(sub_elem)
-						sub_offset = self._new_temp()
-						self._emit(IRBinOp(dest=sub_offset, left=IRConst(j), op="*", right=IRConst(member_size)))
-						sub_addr = self._new_temp()
-						self._emit(IRBinOp(dest=sub_addr, left=member_addr, op="+", right=sub_offset))
-						self._emit(IRStore(address=sub_addr, value=sub_val))
-				else:
-					val = self.visit(elem)
+			has_designated = any(isinstance(e, DesignatedInit) for e in init_list.elements)
+
+			if has_designated:
+				# Zero-fill the whole struct first
+				self._zero_fill_struct(dest, members)
+				positional_idx = 0
+				for elem in init_list.elements:
+					if isinstance(elem, DesignatedInit):
+						assert elem.field_name is not None
+						field_offset = self._compute_field_offset(struct_name, elem.field_name)
+						val = self.visit(elem.value)
+						a = self._new_temp()
+						self._emit(IRBinOp(dest=a, left=dest, op="+", right=IRConst(field_offset)))
+						self._emit(IRStore(address=a, value=val))
+						# Update positional index to field after designated one
+						for mi, m in enumerate(members):
+							if m.name == elem.field_name:
+								positional_idx = mi + 1
+								break
+					else:
+						if positional_idx >= len(members):
+							break
+						m = members[positional_idx]
+						align = self._resolve_type_alignment(m.type_spec)
+						field_offset = self._compute_field_offset_by_index(struct_name, positional_idx)
+						if isinstance(elem, InitializerList):
+							member_addr = self._new_temp()
+							self._emit(IRBinOp(dest=member_addr, left=dest, op="+", right=IRConst(field_offset)))
+							member_size = self._resolve_member_size(m.type_spec)
+							for j, sub_elem in enumerate(elem.elements):
+								sub_val = self.visit(sub_elem)
+								sub_off = self._new_temp()
+								self._emit(IRBinOp(dest=sub_off, left=IRConst(j), op="*", right=IRConst(member_size)))
+								sub_addr = self._new_temp()
+								self._emit(IRBinOp(dest=sub_addr, left=member_addr, op="+", right=sub_off))
+								self._emit(IRStore(address=sub_addr, value=sub_val))
+						else:
+							val = self.visit(elem)
+							a = self._new_temp()
+							self._emit(IRBinOp(dest=a, left=dest, op="+", right=IRConst(field_offset)))
+							self._emit(IRStore(address=a, value=val))
+						positional_idx += 1
+			else:
+				field_offset = 0
+				for i, elem in enumerate(init_list.elements):
+					if i >= len(members):
+						break
+					align = self._resolve_type_alignment(members[i].type_spec)
+					field_offset = _align_to(field_offset, align)
+					if isinstance(elem, InitializerList):
+						member_addr = self._new_temp()
+						self._emit(IRBinOp(dest=member_addr, left=dest, op="+", right=IRConst(field_offset)))
+						member_type = members[i].type_spec
+						member_size = self._resolve_member_size(member_type)
+						for j, sub_elem in enumerate(elem.elements):
+							sub_val = self.visit(sub_elem)
+							sub_offset = self._new_temp()
+							self._emit(IRBinOp(dest=sub_offset, left=IRConst(j), op="*", right=IRConst(member_size)))
+							sub_addr = self._new_temp()
+							self._emit(IRBinOp(dest=sub_addr, left=member_addr, op="+", right=sub_offset))
+							self._emit(IRStore(address=sub_addr, value=sub_val))
+					else:
+						val = self.visit(elem)
+						addr = self._new_temp()
+						self._emit(IRBinOp(dest=addr, left=dest, op="+", right=IRConst(field_offset)))
+						self._emit(IRStore(address=addr, value=val))
+					field_offset += self._resolve_member_size(members[i].type_spec)
+				# Zero-fill remaining members
+				for i in range(len(init_list.elements), len(members)):
+					align = self._resolve_type_alignment(members[i].type_spec)
+					field_offset = _align_to(field_offset, align)
 					addr = self._new_temp()
 					self._emit(IRBinOp(dest=addr, left=dest, op="+", right=IRConst(field_offset)))
-					self._emit(IRStore(address=addr, value=val))
-				field_offset += self._resolve_member_size(members[i].type_spec)
-			# Zero-fill remaining members
-			for i in range(len(init_list.elements), len(members)):
-				align = self._resolve_type_alignment(members[i].type_spec)
-				field_offset = _align_to(field_offset, align)
-				addr = self._new_temp()
-				self._emit(IRBinOp(dest=addr, left=dest, op="+", right=IRConst(field_offset)))
-				self._emit(IRStore(address=addr, value=IRConst(0)))
-				field_offset += self._resolve_member_size(members[i].type_spec)
+					self._emit(IRStore(address=addr, value=IRConst(0)))
+					field_offset += self._resolve_member_size(members[i].type_spec)
+
+	def _zero_fill_struct(self, dest: IRTemp, members: list[StructMember]) -> None:
+		"""Zero-fill all members of a struct."""
+		field_offset = 0
+		for m in members:
+			align = self._resolve_type_alignment(m.type_spec)
+			field_offset = _align_to(field_offset, align)
+			addr = self._new_temp()
+			self._emit(IRBinOp(dest=addr, left=dest, op="+", right=IRConst(field_offset)))
+			self._emit(IRStore(address=addr, value=IRConst(0)))
+			field_offset += self._resolve_member_size(m.type_spec)
+
+	def _compute_field_offset_by_index(self, struct_name: str, field_index: int) -> int:
+		"""Compute the byte offset of a struct field by its index."""
+		members = self._structs.get(struct_name, [])
+		offset = 0
+		for i, m in enumerate(members):
+			align = self._resolve_type_alignment(m.type_spec)
+			offset = _align_to(offset, align)
+			if i == field_index:
+				return offset
+			offset += self._resolve_member_size(m.type_spec)
+		return offset
+
+	def visit_designated_init(self, node: DesignatedInit) -> IRValue:
+		return self.visit(node.value)
 
 	def _emit_char_array_from_string(self, dest: IRTemp, node: VarDecl) -> None:
 		"""Emit byte-wise stores for a char array initialized from a string literal."""
