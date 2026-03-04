@@ -759,6 +759,16 @@ class IRGenerator(ASTVisitor):
 					if ts is not None:
 						self._temp_pointee_size[src.name] = self._resolve_member_size(ts)
 					return src
+			# Address-of array subscript: compute address without loading
+			if isinstance(node.operand, ArraySubscript):
+				addr = self._compute_array_addr(node.operand)
+				self._set_temp_type(addr, IRType.POINTER)
+				return addr
+			# Address-of member access: compute address without loading
+			if isinstance(node.operand, MemberAccess):
+				addr = self._compute_member_addr(node.operand)
+				self._set_temp_type(addr, IRType.POINTER)
+				return addr
 			operand = self.visit(node.operand)
 			return operand
 		if node.op in ("++", "--"):
