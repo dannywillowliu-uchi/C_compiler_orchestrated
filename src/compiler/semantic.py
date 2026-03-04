@@ -725,6 +725,12 @@ class SemanticAnalyzer(ASTVisitor):
 		return target_type
 
 	def visit_function_call(self, node: FunctionCall) -> TypeSpec | None:
+		# Indirect call via expression callee (e.g. (*fp)(args), arr[i](args))
+		if node.callee is not None:
+			self.visit(node.callee)
+			for arg in node.arguments:
+				self.visit(arg)
+			return TypeSpec(base_type="int")
 		sym = self.symbols.lookup(node.name)
 		if sym is None:
 			self._error(f"call to undeclared function '{node.name}'", node)
