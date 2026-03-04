@@ -1035,7 +1035,7 @@ class TestGlobalRef:
 				IRGlobalVar("count", IRType.INT, initializer=5),
 				IRGlobalVar("result", IRType.INT),
 			],
-			string_data=[IRStringData(".LC0", "count = %d\\n")],
+			string_data=[IRStringData(".LC0", "count = %d\n")],
 		)
 		asm = CodeGenerator().generate(prog)
 		# .data section with initialized global

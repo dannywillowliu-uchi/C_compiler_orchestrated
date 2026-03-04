@@ -2,6 +2,79 @@
 
 from compiler.tokens import KEYWORDS, Token, TokenType
 
+_SIMPLE_ESCAPES = {
+	"n": "\n",
+	"t": "\t",
+	"\\": "\\",
+	"'": "'",
+	'"': '"',
+	"a": "\a",
+	"b": "\b",
+	"f": "\f",
+	"r": "\r",
+	"v": "\v",
+	"0": "\0",
+}
+
+_OCTAL_DIGITS = frozenset("01234567")
+_HEX_DIGITS = frozenset("0123456789abcdefABCDEF")
+
+
+def interpret_c_escapes(raw: str) -> str:
+	"""Interpret C escape sequences in a raw string (quotes already stripped).
+
+	Handles: \\n \\t \\0 \\\\ \\' \\" \\a \\b \\f \\r \\v \\xHH \\NNN (octal).
+	"""
+	result: list[str] = []
+	i = 0
+	length = len(raw)
+	while i < length:
+		if raw[i] != "\\" or i + 1 >= length:
+			result.append(raw[i])
+			i += 1
+			continue
+		nxt = raw[i + 1]
+		# Simple single-char escapes
+		if nxt in _SIMPLE_ESCAPES:
+			result.append(_SIMPLE_ESCAPES[nxt])
+			i += 2
+			# \0 could be start of octal sequence like \012
+			if nxt == "0":
+				octal = ""
+				while len(octal) < 2 and i < length and raw[i] in _OCTAL_DIGITS:
+					octal += raw[i]
+					i += 1
+				if octal:
+					result[-1] = chr(int("0" + octal, 8))
+			continue
+		# Octal escape: \1-7 followed by up to 2 more octal digits
+		if nxt in _OCTAL_DIGITS:
+			i += 2  # skip backslash and first digit
+			octal = nxt
+			while len(octal) < 3 and i < length and raw[i] in _OCTAL_DIGITS:
+				octal += raw[i]
+				i += 1
+			result.append(chr(int(octal, 8)))
+			continue
+		# Hex escape: \xHH (reads all hex digits, truncates to byte)
+		if nxt == "x":
+			i += 2
+			hex_str = ""
+			while i < length and raw[i] in _HEX_DIGITS:
+				hex_str += raw[i]
+				i += 1
+			if hex_str:
+				result.append(chr(int(hex_str, 16) & 0xFF))
+			else:
+				# \x with no digits - pass through
+				result.append("\\x")
+			continue
+		# Unknown escape - pass through
+		result.append("\\")
+		result.append(nxt)
+		i += 2
+	return "".join(result)
+
 
 class LexerError(Exception):
 	"""Error raised when the lexer encounters invalid input."""

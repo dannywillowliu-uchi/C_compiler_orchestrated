@@ -52,6 +52,32 @@ def _s_d(ir_type: IRType) -> str:
 
 _CALLEE_SAVED_ALLOC_REGS = ["%rbx", "%r12", "%r13", "%r14", "%r15"]
 
+_GAS_ESCAPE_MAP = {
+	"\n": "\\n",
+	"\t": "\\t",
+	"\0": "\\0",
+	"\\": "\\\\",
+	'"': '\\"',
+	"\a": "\\a",
+	"\b": "\\b",
+	"\f": "\\f",
+	"\r": "\\r",
+	"\v": "\\v",
+}
+
+
+def _escape_for_gas(s: str) -> str:
+	"""Escape a string for use in a GAS .asciz directive."""
+	result: list[str] = []
+	for ch in s:
+		if ch in _GAS_ESCAPE_MAP:
+			result.append(_GAS_ESCAPE_MAP[ch])
+		elif 0x20 <= ord(ch) <= 0x7E:
+			result.append(ch)
+		else:
+			result.append(f"\\{ord(ch):03o}")
+	return "".join(result)
+
 
 class CodeGenerator:
 	"""Generates x86-64 assembly (AT&T syntax) from an IRProgram."""
@@ -97,7 +123,7 @@ class CodeGenerator:
 			self._emit(".section .rodata")
 			for s in program.string_data:
 				self._emit(f"{s.label}:")
-				self._emit_instr(f'.asciz "{s.value}"')
+				self._emit_instr(f'.asciz "{_escape_for_gas(s.value)}"')
 
 		# Emit .bss section for uninitialized globals (skip extern-only declarations)
 		uninitialized = [

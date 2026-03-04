@@ -50,7 +50,7 @@ from compiler.ast_nodes import (
 	VarDecl,
 	WhileStmt,
 )
-from compiler.lexer import Lexer
+from compiler.lexer import Lexer, interpret_c_escapes
 from compiler.tokens import Token, TokenType
 
 
@@ -1183,14 +1183,12 @@ class Parser:
 
 		if tok.type == TokenType.CHAR_LITERAL:
 			self._advance()
-			# Strip surrounding quotes; handle escape sequences
-			inner = tok.value[1:-1]
+			inner = interpret_c_escapes(tok.value[1:-1])
 			return CharLiteral(value=inner, loc=self._loc(tok))
 
 		if tok.type == TokenType.STRING_LITERAL:
 			self._advance()
-			# Strip surrounding quotes
-			inner = tok.value[1:-1]
+			inner = interpret_c_escapes(tok.value[1:-1])
 			return StringLiteral(value=inner, loc=self._loc(tok))
 
 		if tok.type == TokenType.IDENTIFIER:
