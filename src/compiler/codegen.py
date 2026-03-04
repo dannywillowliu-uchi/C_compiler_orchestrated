@@ -77,13 +77,16 @@ class CodeGenerator:
 		self._float_const_counter = 0
 
 		# Emit .data section for initialized globals
-		initialized = [g for g in program.globals if g.initializer is not None]
+		initialized = [g for g in program.globals if g.initializer is not None or g.initializer_values]
 		if initialized:
 			self._emit(".section .data")
 			for g in initialized:
 				self._emit(f".globl {g.name}")
 				self._emit(f"{g.name}:")
-				if g.ir_type == IRType.CHAR:
+				if g.initializer_values:
+					for val in g.initializer_values:
+						self._emit_instr(f".quad {val}")
+				elif g.ir_type == IRType.CHAR:
 					self._emit_instr(f".byte {g.initializer}")
 				else:
 					self._emit_instr(f".quad {g.initializer}")
@@ -96,7 +99,7 @@ class CodeGenerator:
 				self._emit_instr(f'.asciz "{s.value}"')
 
 		# Emit .bss section for uninitialized globals
-		uninitialized = [g for g in program.globals if g.initializer is None]
+		uninitialized = [g for g in program.globals if g.initializer is None and not g.initializer_values]
 		if uninitialized:
 			self._emit(".section .bss")
 			for g in uninitialized:

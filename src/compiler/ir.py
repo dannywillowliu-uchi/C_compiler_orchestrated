@@ -243,8 +243,13 @@ class IRGlobalVar:
 	name: str
 	ir_type: IRType
 	initializer: Optional[int] = None  # None => uninitialized (.bss)
+	initializer_values: list[int] = field(default_factory=list)
+	total_size: int = 0  # Total allocation size for arrays/structs
 
 	def __str__(self) -> str:
+		if self.initializer_values:
+			vals = ", ".join(str(v) for v in self.initializer_values)
+			return f"global {self.ir_type.name} {self.name} = {{{vals}}}"
 		init = f" = {self.initializer}" if self.initializer is not None else ""
 		return f"global {self.ir_type.name} {self.name}{init}"
 

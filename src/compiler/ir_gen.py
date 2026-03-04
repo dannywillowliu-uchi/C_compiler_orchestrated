@@ -21,6 +21,7 @@ from compiler.ast_nodes import (
 	ForStmt,
 	FunctionCall,
 	FunctionDecl,
+	InitializerList,
 	TypedefDecl,
 	Identifier,
 	IfStmt,
@@ -242,10 +243,31 @@ class IRGenerator(ASTVisitor):
 		if not self._in_function:
 			# Global variable declaration
 			ir_type = _resolve_ir_type(node.type_spec)
-			init_val: int | None = None
-			if node.initializer is not None and isinstance(node.initializer, IntLiteral):
-				init_val = node.initializer.value
-			self._globals.append(IRGlobalVar(name=node.name, ir_type=ir_type, initializer=init_val))
+			if isinstance(node.initializer, InitializerList):
+				init_values = self._collect_init_values(node.initializer)
+				total_size = 0
+				if node.array_sizes:
+					element_size = _resolve_size(node.type_spec)
+					for se in node.array_sizes:
+						if isinstance(se, IntLiteral):
+							total_size = se.value * element_size
+				elif node.type_spec.base_type.startswith("struct "):
+					struct_name = node.type_spec.base_type[len("struct "):]
+					total_size = self._compute_struct_size(struct_name)
+				# Pad with zeros if needed
+				element_size = _resolve_size(node.type_spec) if node.array_sizes else 4
+				total_slots = total_size // element_size if element_size > 0 else len(init_values)
+				while len(init_values) < total_slots:
+					init_values.append(0)
+				self._globals.append(IRGlobalVar(
+					name=node.name, ir_type=ir_type,
+					initializer_values=init_values, total_size=total_size,
+				))
+			else:
+				init_val: int | None = None
+				if node.initializer is not None and isinstance(node.initializer, IntLiteral):
+					init_val = node.initializer.value
+				self._globals.append(IRGlobalVar(name=node.name, ir_type=ir_type, initializer=init_val))
 			self._global_names.add(node.name)
 			return
 		dest = self._new_temp()
@@ -266,19 +288,22 @@ class IRGenerator(ASTVisitor):
 		else:
 			self._emit(IRAlloc(dest=dest, size=self._resolve_type_size(node.type_spec)))
 		if node.initializer is not None:
-			val = self.visit(node.initializer)
-			val_type = self._value_ir_type(val)
-			if self._is_float_type(var_ir_type) and not self._is_float_type(val_type):
-				converted = self._new_temp()
-				self._set_temp_type(converted, var_ir_type)
-				self._emit(IRConvert(dest=converted, source=val, from_type=val_type, to_type=var_ir_type))
-				val = converted
-			elif not self._is_float_type(var_ir_type) and self._is_float_type(val_type):
-				converted = self._new_temp()
-				self._set_temp_type(converted, var_ir_type)
-				self._emit(IRConvert(dest=converted, source=val, from_type=val_type, to_type=var_ir_type))
-				val = converted
-			self._emit(IRCopy(dest=dest, source=val, ir_type=var_ir_type))
+			if isinstance(node.initializer, InitializerList):
+				self._emit_initializer_list(dest, node)
+			else:
+				val = self.visit(node.initializer)
+				val_type = self._value_ir_type(val)
+				if self._is_float_type(var_ir_type) and not self._is_float_type(val_type):
+					converted = self._new_temp()
+					self._set_temp_type(converted, var_ir_type)
+					self._emit(IRConvert(dest=converted, source=val, from_type=val_type, to_type=var_ir_type))
+					val = converted
+				elif not self._is_float_type(var_ir_type) and self._is_float_type(val_type):
+					converted = self._new_temp()
+					self._set_temp_type(converted, var_ir_type)
+					self._emit(IRConvert(dest=converted, source=val, from_type=val_type, to_type=var_ir_type))
+					val = converted
+				self._emit(IRCopy(dest=dest, source=val, ir_type=var_ir_type))
 
 	def visit_param_decl(self, node: ParamDecl) -> IRTemp:
 		temp = self._new_temp()
@@ -856,6 +881,81 @@ class IRGenerator(ASTVisitor):
 
 	def visit_union_decl(self, node: UnionDecl) -> None:
 		self._unions[node.name] = list(node.members)
+
+	def visit_initializer_list(self, node: InitializerList) -> IRConst:
+		# Should not be visited directly; handled by _emit_initializer_list
+		return IRConst(0)
+
+	def _emit_initializer_list(self, dest: IRTemp, node: VarDecl) -> None:
+		"""Emit IR stores for each element in an initializer list."""
+		init_list = node.initializer
+		assert isinstance(init_list, InitializerList)
+		is_array = node.array_sizes is not None and len(node.array_sizes) > 0
+		base_type = node.type_spec.base_type
+
+		if is_array:
+			element_size = _resolve_size(node.type_spec)
+			# Determine total array size
+			total_elements = 0
+			if node.array_sizes:
+				for se in node.array_sizes:
+					if isinstance(se, IntLiteral):
+						total_elements = se.value
+			total_elements = max(total_elements, len(init_list.elements))
+			for i in range(total_elements):
+				if i < len(init_list.elements):
+					val = self.visit(init_list.elements[i])
+				else:
+					val = IRConst(0)
+				offset = self._new_temp()
+				self._emit(IRBinOp(dest=offset, left=IRConst(i), op="*", right=IRConst(element_size)))
+				addr = self._new_temp()
+				self._emit(IRBinOp(dest=addr, left=dest, op="+", right=offset))
+				self._emit(IRStore(address=addr, value=val))
+		elif base_type.startswith("struct "):
+			struct_name = base_type[len("struct "):]
+			members = self._structs.get(struct_name, [])
+			field_offset = 0
+			for i, elem in enumerate(init_list.elements):
+				if i >= len(members):
+					break
+				if isinstance(elem, InitializerList):
+					# Nested initializer for array/struct member
+					member_addr = self._new_temp()
+					self._emit(IRBinOp(dest=member_addr, left=dest, op="+", right=IRConst(field_offset)))
+					member_type = members[i].type_spec
+					member_size = _resolve_size(member_type)
+					for j, sub_elem in enumerate(elem.elements):
+						sub_val = self.visit(sub_elem)
+						sub_offset = self._new_temp()
+						self._emit(IRBinOp(dest=sub_offset, left=IRConst(j), op="*", right=IRConst(member_size)))
+						sub_addr = self._new_temp()
+						self._emit(IRBinOp(dest=sub_addr, left=member_addr, op="+", right=sub_offset))
+						self._emit(IRStore(address=sub_addr, value=sub_val))
+				else:
+					val = self.visit(elem)
+					addr = self._new_temp()
+					self._emit(IRBinOp(dest=addr, left=dest, op="+", right=IRConst(field_offset)))
+					self._emit(IRStore(address=addr, value=val))
+				field_offset += _resolve_size(members[i].type_spec)
+			# Zero-fill remaining members
+			for i in range(len(init_list.elements), len(members)):
+				addr = self._new_temp()
+				self._emit(IRBinOp(dest=addr, left=dest, op="+", right=IRConst(field_offset)))
+				self._emit(IRStore(address=addr, value=IRConst(0)))
+				field_offset += _resolve_size(members[i].type_spec)
+
+	def _collect_init_values(self, init_list: InitializerList) -> list[int]:
+		"""Collect constant integer values from an initializer list (for globals)."""
+		values: list[int] = []
+		for elem in init_list.elements:
+			if isinstance(elem, IntLiteral):
+				values.append(elem.value)
+			elif isinstance(elem, InitializerList):
+				values.extend(self._collect_init_values(elem))
+			else:
+				values.append(0)
+		return values
 
 	def _compute_member_addr(self, node: MemberAccess) -> IRTemp:
 		"""Compute the memory address of a struct/union member."""

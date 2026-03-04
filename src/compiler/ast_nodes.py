@@ -147,6 +147,9 @@ class ASTVisitor:
 	def visit_union_decl(self, node: UnionDecl) -> Any:
 		return None
 
+	def visit_initializer_list(self, node: InitializerList) -> Any:
+		return None
+
 
 # --- Type node ---
 
@@ -343,6 +346,16 @@ class CastExpr(ASTNode):
 
 	def accept(self, visitor: ASTVisitor) -> Any:
 		return visitor.visit_cast_expr(self)
+
+
+@dataclass
+class InitializerList(ASTNode):
+	"""Brace-enclosed initializer list: {expr1, expr2, ...}."""
+
+	elements: list[ASTNode] = field(default_factory=list)
+
+	def accept(self, visitor: ASTVisitor) -> Any:
+		return visitor.visit_initializer_list(self)
 
 
 # --- Statement nodes ---
