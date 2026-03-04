@@ -73,6 +73,7 @@ from compiler.ir import (
 	IRType,
 	IRUnaryOp,
 	IRValue,
+	ir_type_byte_width,
 )
 
 _TYPE_MAP: dict[str, IRType] = {
@@ -177,7 +178,6 @@ class IRGenerator(ASTVisitor):
 		self._user_labels: dict[str, str] = {}  # C label name -> IR label name
 		self._static_local_map: dict[str, str] = {}  # local name -> mangled global name
 		self._temp_pointee_size: dict[str, int] = {}  # pointer temp -> element size
-		self._address_taken_vars: set[str] = set()  # vars whose address is taken via &
 
 	# ------------------------------------------------------------------
 	# Helpers
@@ -252,42 +252,6 @@ class IRGenerator(ASTVisitor):
 			return self._pointee_size_from_type(ts)
 		return 1
 
-	def _is_addr_taken_scalar(self, name: str) -> bool:
-		"""Check if a variable is address-taken AND needs the load/store model.
-
-		Structs, unions, and arrays already use the address-in-temp model,
-		so they don't need the address-taken treatment.
-		"""
-		if name not in self._address_taken_vars:
-			return False
-		if name in self._local_array:
-			return False
-		ts = self._local_types.get(name)
-		if ts is not None and ts.pointer_count == 0:
-			bt = ts.base_type
-			if bt.startswith("struct ") or bt.startswith("union "):
-				return False
-		return True
-
-	def _scan_address_taken(self, node: ASTNode) -> set[str]:
-		"""Pre-scan an AST subtree to find all local variables whose address is taken."""
-		result: set[str] = set()
-		self._walk_for_addr_of(node, result)
-		return result
-
-	def _walk_for_addr_of(self, node: object, out: set[str]) -> None:
-		"""Recursively walk AST nodes to find &identifier patterns."""
-		if isinstance(node, UnaryOp) and node.op == "&" and isinstance(node.operand, Identifier):
-			out.add(node.operand.name)
-		if isinstance(node, ASTNode):
-			for attr in vars(node).values():
-				if isinstance(attr, ASTNode):
-					self._walk_for_addr_of(attr, out)
-				elif isinstance(attr, list):
-					for item in attr:
-						if isinstance(item, ASTNode):
-							self._walk_for_addr_of(item, out)
-
 	# ------------------------------------------------------------------
 	# Public entry point
 	# ------------------------------------------------------------------
@@ -341,7 +305,6 @@ class IRGenerator(ASTVisitor):
 		old_function_name = self._current_function_name
 		old_static_local_map = self._static_local_map
 		old_pointee_size = self._temp_pointee_size
-		old_address_taken = self._address_taken_vars
 		self._instructions = []
 		self._locals = {}
 		self._local_types = {}
@@ -354,7 +317,6 @@ class IRGenerator(ASTVisitor):
 		self._func_ptr_locals = set()
 		self._user_labels = {}
 		self._static_local_map = {}
-		self._address_taken_vars = self._scan_address_taken(node.body)
 
 		params: list[IRTemp] = []
 		param_types: list[IRType] = []
@@ -373,7 +335,6 @@ class IRGenerator(ASTVisitor):
 			if p_ir_type == IRType.POINTER and param.type_spec.pointer_count > 0:
 				self._temp_pointee_size[p_temp.name] = self._pointee_size_from_type(param.type_spec)
 
-		self._is_function_body = True
 		self.visit(node.body)
 
 		self._functions.append(
@@ -399,7 +360,6 @@ class IRGenerator(ASTVisitor):
 		self._user_labels = old_user_labels
 		self._static_local_map = old_static_local_map
 		self._temp_pointee_size = old_pointee_size
-		self._address_taken_vars = old_address_taken
 
 	def _emit_global_var(self, name: str, node: VarDecl, storage_class: str | None = None) -> None:
 		"""Emit a global variable declaration with proper initializer handling."""
@@ -556,10 +516,7 @@ class IRGenerator(ASTVisitor):
 						val = converted
 					if var_ir_type == IRType.BOOL:
 						val = self._emit_bool_normalize(val)
-					if self._is_addr_taken_scalar(node.name):
-						self._emit(IRStore(address=dest, value=val, ir_type=var_ir_type))
-					else:
-						self._emit(IRCopy(dest=dest, source=val, ir_type=var_ir_type))
+					self._emit(IRCopy(dest=dest, source=val, ir_type=var_ir_type))
 
 	def visit_param_decl(self, node: ParamDecl) -> IRTemp:
 		temp = self._new_temp()
@@ -608,16 +565,17 @@ class IRGenerator(ASTVisitor):
 		if src is not None:
 			dest = self._new_temp()
 			src_type = self._resolve_local_ir_type(node.name)
-			self._set_temp_type(dest, src_type)
 			ts = self._local_types.get(node.name)
+			# Array variables decay to pointers in expression context
+			if ts is not None and node.name in self._local_array:
+				src_type = IRType.POINTER
+				self._temp_pointee_size[dest.name] = self._resolve_member_size(ts)
+			self._set_temp_type(dest, src_type)
 			if ts is not None and ts.signedness == "unsigned":
 				self._temp_unsigned[dest.name] = True
 			if src_type == IRType.POINTER and ts is not None and ts.pointer_count > 0:
 				self._temp_pointee_size[dest.name] = self._pointee_size_from_type(ts)
-			if self._is_addr_taken_scalar(node.name):
-				self._emit(IRLoad(dest=dest, address=src, ir_type=src_type))
-			else:
-				self._emit(IRCopy(dest=dest, source=src, ir_type=src_type))
+			self._emit(IRCopy(dest=dest, source=src, ir_type=src_type))
 			return dest
 		if node.name in self._global_names:
 			dest = self._new_temp()
@@ -776,6 +734,11 @@ class IRGenerator(ASTVisitor):
 			self._emit(IRLoad(dest=dest, address=ptr))
 			return dest
 		if node.op == "&":
+			# Address-of array subscript: compute address without loading
+			if isinstance(node.operand, ArraySubscript):
+				addr = self._compute_array_addr(node.operand)
+				self._set_temp_type(addr, IRType.POINTER)
+				return addr
 			# Address-of a function -> get function address
 			if isinstance(node.operand, Identifier) and node.operand.name in self._known_functions:
 				dest = self._new_temp()
@@ -820,18 +783,12 @@ class IRGenerator(ASTVisitor):
 				if target is not None:
 					ir_type = self._resolve_local_ir_type(node.operand.name)
 					current = self._new_temp()
-					if self._is_addr_taken_scalar(node.operand.name):
-						self._emit(IRLoad(dest=current, address=target))
-					else:
-						self._emit(IRCopy(dest=current, source=target))
+					self._emit(IRCopy(dest=current, source=target))
 					result = self._new_temp()
 					delta_op = "+" if node.op == "++" else "-"
 					delta_val = IRConst(self._local_pointee_size(node.operand.name)) if ir_type == IRType.POINTER else IRConst(1)
 					self._emit(IRBinOp(dest=result, left=current, op=delta_op, right=delta_val))
-					if self._is_addr_taken_scalar(node.operand.name):
-						self._emit(IRStore(address=target, value=result))
-					else:
-						self._emit(IRCopy(dest=target, source=result))
+					self._emit(IRCopy(dest=target, source=result))
 					return result
 			if isinstance(node.operand, MemberAccess):
 				addr = self._compute_member_addr(node.operand)
@@ -932,10 +889,7 @@ class IRGenerator(ASTVisitor):
 					val = conv
 				if target_type == IRType.BOOL:
 					val = self._emit_bool_normalize(val)
-				if self._is_addr_taken_scalar(node.target.name):
-					self._emit(IRStore(address=target_temp, value=val, ir_type=target_type))
-				else:
-					self._emit(IRCopy(dest=target_temp, source=val, ir_type=target_type))
+				self._emit(IRCopy(dest=target_temp, source=val, ir_type=target_type))
 				return target_temp
 			if node.target.name in self._global_names:
 				global_ts = self._global_types.get(node.target.name)
@@ -1035,11 +989,9 @@ class IRGenerator(ASTVisitor):
 		dims: list[int] = []
 		if isinstance(current, Identifier):
 			ts = self._local_types.get(current.name)
-			if ts is None:
-				ts = self._global_types.get(current.name)
 			if ts is not None:
-				if ts.pointer_count > 0 and current.name not in self._local_array and current.name not in self._global_array:
-					# Pointer subscript: stride is the pointed-to element size
+				if ts.pointer_count > 0:
+					# Pointer type: stride is the pointee size, not sizeof(pointer)
 					element_size = self._pointee_size_from_type(ts)
 				else:
 					element_size = self._resolve_member_size(ts)
@@ -1062,7 +1014,26 @@ class IRGenerator(ASTVisitor):
 	def visit_array_subscript(self, node: ArraySubscript) -> IRTemp:
 		addr = self._compute_array_addr(node)
 		dest = self._new_temp()
-		self._emit(IRLoad(dest=dest, address=addr))
+		# Infer element type from base identifier
+		elem_ir_type = IRType.INT
+		base = node.array
+		while isinstance(base, ArraySubscript):
+			base = base.array
+		if isinstance(base, Identifier):
+			ts = self._local_types.get(base.name)
+			if ts is not None:
+				if ts.pointer_count > 1:
+					elem_ir_type = IRType.POINTER
+				elif ts.pointer_count == 1:
+					elem_ir_type = _resolve_ir_type(TypeSpec(
+						base_type=ts.base_type,
+						width_modifier=ts.width_modifier,
+						signedness=ts.signedness,
+					))
+				else:
+					elem_ir_type = _resolve_ir_type(ts)
+		self._set_temp_type(dest, elem_ir_type)
+		self._emit(IRLoad(dest=dest, address=addr, ir_type=elem_ir_type))
 		return dest
 
 	# ------------------------------------------------------------------
@@ -1078,24 +1049,33 @@ class IRGenerator(ASTVisitor):
 		self._emit(IRReturn(value=val, ir_type=val_type))
 
 	def visit_compound_stmt(self, node: CompoundStmt) -> None:
-		is_function_body = getattr(self, "_is_function_body", False)
-		if is_function_body:
-			self._is_function_body = False
-			for stmt in node.statements:
-				self.visit(stmt)
-			return
-		saved_locals = dict(self._locals)
-		saved_types = dict(self._local_types)
-		saved_arrays = dict(self._local_array)
-		saved_static = dict(self._static_local_map)
-		saved_fptr = set(self._func_ptr_locals)
+		# Save outer scope mappings that may be shadowed by inner declarations
+		saved_locals: dict[str, IRTemp] = {}
+		saved_types: dict[str, TypeSpec] = {}
+		saved_arrays: dict[str, list[int]] = {}
+		shadow_names: set[str] = set()
 		for stmt in node.statements:
+			if isinstance(stmt, VarDecl) and stmt.name in self._locals:
+				name = stmt.name
+				if name not in shadow_names:
+					shadow_names.add(name)
+					saved_locals[name] = self._locals[name]
+					if name in self._local_types:
+						saved_types[name] = self._local_types[name]
+					if name in self._local_array:
+						saved_arrays[name] = self._local_array[name]
 			self.visit(stmt)
-		self._locals = saved_locals
-		self._local_types = saved_types
-		self._local_array = saved_arrays
-		self._static_local_map = saved_static
-		self._func_ptr_locals = saved_fptr
+		# Restore outer scope mappings
+		for name in shadow_names:
+			self._locals[name] = saved_locals[name]
+			if name in saved_types:
+				self._local_types[name] = saved_types[name]
+			else:
+				self._local_types.pop(name, None)
+			if name in saved_arrays:
+				self._local_array[name] = saved_arrays[name]
+			else:
+				self._local_array.pop(name, None)
 
 	def visit_if_stmt(self, node: IfStmt) -> None:
 		cond = self.visit(node.condition)
@@ -1243,34 +1223,15 @@ class IRGenerator(ASTVisitor):
 			target_temp = self._locals.get(node.target.name)
 			if target_temp is None:
 				target_temp = IRTemp(node.target.name)
-			ir_type = self._resolve_local_ir_type(node.target.name)
-			if self._is_addr_taken_scalar(node.target.name):
-				# Read current value via IRLoad
-				current = self._new_temp()
-				self._set_temp_type(current, ir_type)
-				self._emit(IRLoad(dest=current, address=target_temp, ir_type=ir_type))
-				rhs = self.visit(node.value)
-				result = self._new_temp()
-				self._set_temp_type(result, ir_type)
-				# Pointer arithmetic scaling for +=/-=
-				if ir_type == IRType.POINTER and arith_op in ("+", "-"):
-					elem_size = self._local_pointee_size(node.target.name)
-					if elem_size > 1:
-						scaled = self._new_temp()
-						self._emit(IRBinOp(dest=scaled, left=rhs, op="*", right=IRConst(elem_size)))
-						rhs = scaled
-				self._emit(IRBinOp(dest=result, left=current, op=arith_op, right=rhs, ir_type=ir_type))
-				self._emit(IRStore(address=target_temp, value=result, ir_type=ir_type))
-			else:
-				# Read current value
-				current = self._new_temp()
-				self._emit(IRCopy(dest=current, source=target_temp))
-				# Compute new value
-				rhs = self.visit(node.value)
-				result = self._new_temp()
-				self._emit(IRBinOp(dest=result, left=current, op=arith_op, right=rhs))
-				# Write back
-				self._emit(IRCopy(dest=target_temp, source=result))
+			# Read current value
+			current = self._new_temp()
+			self._emit(IRCopy(dest=current, source=target_temp))
+			# Compute new value
+			rhs = self.visit(node.value)
+			result = self._new_temp()
+			self._emit(IRBinOp(dest=result, left=current, op=arith_op, right=rhs))
+			# Write back
+			self._emit(IRCopy(dest=target_temp, source=result))
 
 	def visit_type_spec(self, node: TypeSpec) -> None:
 		pass
@@ -1552,20 +1513,12 @@ class IRGenerator(ASTVisitor):
 			if target is not None:
 				ir_type = self._resolve_local_ir_type(node.operand.name)
 				old_val = self._new_temp()
-				self._set_temp_type(old_val, ir_type)
+				self._emit(IRCopy(dest=old_val, source=target))
+				new_val = self._new_temp()
 				delta_op = "+" if node.op == "++" else "-"
 				delta_val = IRConst(self._local_pointee_size(node.operand.name)) if ir_type == IRType.POINTER else IRConst(1)
-				if self._is_addr_taken_scalar(node.operand.name):
-					self._emit(IRLoad(dest=old_val, address=target, ir_type=ir_type))
-					new_val = self._new_temp()
-					self._set_temp_type(new_val, ir_type)
-					self._emit(IRBinOp(dest=new_val, left=old_val, op=delta_op, right=delta_val, ir_type=ir_type))
-					self._emit(IRStore(address=target, value=new_val, ir_type=ir_type))
-				else:
-					self._emit(IRCopy(dest=old_val, source=target))
-					new_val = self._new_temp()
-					self._emit(IRBinOp(dest=new_val, left=old_val, op=delta_op, right=delta_val))
-					self._emit(IRCopy(dest=target, source=new_val))
+				self._emit(IRBinOp(dest=new_val, left=old_val, op=delta_op, right=delta_val))
+				self._emit(IRCopy(dest=target, source=new_val))
 				return old_val
 		if isinstance(node.operand, ArraySubscript):
 			addr = self._compute_array_addr(node.operand)
@@ -2058,7 +2011,10 @@ class IRGenerator(ASTVisitor):
 
 	def _compute_member_addr(self, node: MemberAccess) -> IRTemp:
 		"""Compute the memory address of a struct/union member."""
-		base = self.visit(node.object)
+		if isinstance(node.object, ArraySubscript):
+			base = self._compute_array_addr(node.object)
+		else:
+			base = self.visit(node.object)
 		type_name = self._resolve_aggregate_name(node.object)
 		is_union = type_name in self._unions
 
@@ -2085,7 +2041,7 @@ class IRGenerator(ASTVisitor):
 		return dest
 
 	def visit_cast_expr(self, node: CastExpr) -> IRTemp:
-		"""Handle casts, including int<->float conversions."""
+		"""Handle casts, including int<->float and narrowing integer conversions."""
 		val = self.visit(node.operand)
 		val_type = self._value_ir_type(val)
 		target_ir_type = _resolve_ir_type(node.target_type)
@@ -2095,13 +2051,8 @@ class IRGenerator(ASTVisitor):
 			self._emit(IRConvert(dest=dest, source=val, from_type=val_type, to_type=target_ir_type))
 		elif self._is_float_type(target_ir_type) and self._is_float_type(val_type) and target_ir_type != val_type:
 			self._emit(IRConvert(dest=dest, source=val, from_type=val_type, to_type=target_ir_type))
-		elif (
-			not self._is_float_type(target_ir_type)
-			and not self._is_float_type(val_type)
-			and target_ir_type != val_type
-			and target_ir_type != IRType.POINTER
-			and val_type != IRType.POINTER
-		):
+		elif target_ir_type != val_type and ir_type_byte_width(target_ir_type) < ir_type_byte_width(val_type):
+			# Narrowing integer cast (e.g. int -> char, int -> short, int -> _Bool)
 			self._emit(IRConvert(dest=dest, source=val, from_type=val_type, to_type=target_ir_type))
 		else:
 			self._emit(IRCopy(dest=dest, source=val, ir_type=target_ir_type))
@@ -2127,6 +2078,20 @@ class IRGenerator(ASTVisitor):
 				elif name.startswith("union "):
 					name = name[len("union "):]
 				return name
+		if isinstance(node, ArraySubscript):
+			# Unwrap to base identifier to get the element type
+			base = node.array
+			while isinstance(base, ArraySubscript):
+				base = base.array
+			if isinstance(base, Identifier):
+				ts = self._local_types.get(base.name)
+				if ts is not None:
+					name = ts.base_type
+					if name.startswith("struct "):
+						name = name[len("struct "):]
+					elif name.startswith("union "):
+						name = name[len("union "):]
+					return name
 		if isinstance(node, MemberAccess):
 			parent_name = self._resolve_aggregate_name(node.object)
 			if not parent_name:
