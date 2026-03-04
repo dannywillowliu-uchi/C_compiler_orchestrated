@@ -944,9 +944,15 @@ class SemanticAnalyzer(ASTVisitor):
 			next_value += 1
 
 	def visit_struct_decl(self, node: StructDecl) -> None:
-		if node.name in self._struct_types:
-			self._error(f"redefinition of struct '{node.name}'", node)
-			return
+		existing = self._struct_types.get(node.name)
+		if existing is not None:
+			if len(node.members) == 0:
+				# Repeated forward declaration is fine
+				return
+			if len(existing.members) > 0:
+				# Full definition already exists
+				self._error(f"redefinition of struct '{node.name}'", node)
+				return
 		seen: set[str] = set()
 		for member in node.members:
 			if member.name in seen:
@@ -956,9 +962,13 @@ class SemanticAnalyzer(ASTVisitor):
 		self._struct_types[node.name] = node
 
 	def visit_union_decl(self, node: UnionDecl) -> None:
-		if node.name in self._union_types:
-			self._error(f"redefinition of union '{node.name}'", node)
-			return
+		existing = self._union_types.get(node.name)
+		if existing is not None:
+			if len(node.members) == 0:
+				return
+			if len(existing.members) > 0:
+				self._error(f"redefinition of union '{node.name}'", node)
+				return
 		seen: set[str] = set()
 		for member in node.members:
 			if member.name in seen:
