@@ -1745,7 +1745,7 @@ class TestMemberAccessSemantic:
 				]),
 			),
 		])
-		with pytest.raises(SemanticError, match="no member named 'z' in struct 'point'"):
+		with pytest.raises(SemanticError, match="struct point has no member z"):
 			SemanticAnalyzer().analyze(prog)
 
 	def test_arrow_on_non_pointer(self) -> None:

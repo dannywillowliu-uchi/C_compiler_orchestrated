@@ -178,7 +178,7 @@ class TestUnionSemantics:
 		""")
 
 	def test_union_invalid_member(self):
-		with pytest.raises(SemanticError, match="no member named 'z'"):
+		with pytest.raises(SemanticError, match="union Data has no member z"):
 			analyze("""
 				union Data { int i; char c; };
 				int main() {

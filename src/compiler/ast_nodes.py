@@ -529,6 +529,7 @@ class StructMember(ASTNode):
 
 	type_spec: TypeSpec = field(default_factory=TypeSpec)
 	name: str = ""
+	array_dims: list[ASTNode] = field(default_factory=list)
 
 	def accept(self, visitor: ASTVisitor) -> Any:
 		return visitor.visit_struct_member(self)

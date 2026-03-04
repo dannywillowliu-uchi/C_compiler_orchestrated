@@ -961,7 +961,7 @@ class SemanticAnalyzer(ASTVisitor):
 				if member.name == node.member:
 					return member.type_spec
 			self._error(
-				f"no member named '{node.member}' in union '{base_name}'",
+				f"union {base_name} has no member {node.member}",
 				node,
 			)
 			return None
@@ -973,7 +973,7 @@ class SemanticAnalyzer(ASTVisitor):
 			if member.name == node.member:
 				return member.type_spec
 		self._error(
-			f"no member named '{node.member}' in struct '{base_name}'",
+			f"struct {base_name} has no member {node.member}",
 			node,
 		)
 		return None
