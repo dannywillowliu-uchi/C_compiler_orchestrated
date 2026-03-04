@@ -276,6 +276,9 @@ class IROptimizer:
 				return copies[val.name]
 			return val
 
+		if isinstance(instr, IRAddrOf):
+			# IRAddrOf source must remain the original temp (stack slot reference)
+			return instr
 		if isinstance(instr, IRBinOp):
 			nl, nr = resolve(instr.left), resolve(instr.right)
 			if nl is not instr.left or nr is not instr.right:
@@ -330,7 +333,7 @@ class IROptimizer:
 					used.add(val.name)
 		return [
 			instr for instr in body
-			if not (isinstance(instr, (IRBinOp, IRUnaryOp, IRCopy, IRConvert)) and instr.dest.name not in used)
+			if not (isinstance(instr, (IRAddrOf, IRBinOp, IRUnaryOp, IRCopy, IRConvert)) and instr.dest.name not in used)
 		]
 
 	# -- Strength Reduction --
