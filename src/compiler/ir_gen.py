@@ -357,8 +357,9 @@ class IRGenerator(ASTVisitor):
 			string_val = node.initializer.value
 			total_size = 0
 			for se in node.array_sizes:
-				if isinstance(se, IntLiteral):
-					total_size = se.value
+				val = self._eval_const_expr(se)
+				if val is not None:
+					total_size = val
 			string_bytes = [ord(ch) for ch in string_val] + [0]
 			init_values = list(string_bytes[:total_size])
 			while len(init_values) < total_size:
@@ -374,8 +375,9 @@ class IRGenerator(ASTVisitor):
 			if node.array_sizes:
 				element_size = _resolve_size(node.type_spec)
 				for se in node.array_sizes:
-					if isinstance(se, IntLiteral):
-						total_size = se.value * element_size
+					val = self._eval_const_expr(se)
+					if val is not None:
+						total_size = val * element_size
 			elif node.type_spec.base_type.startswith("struct "):
 				struct_name = node.type_spec.base_type[len("struct "):]
 				total_size = self._compute_struct_size(struct_name)
@@ -393,23 +395,19 @@ class IRGenerator(ASTVisitor):
 			float_init: float | None = None
 			string_label: str | None = None
 			if node.initializer is not None:
-				if isinstance(node.initializer, IntLiteral):
-					init_val = node.initializer.value
-				elif isinstance(node.initializer, FloatLiteral):
+				if isinstance(node.initializer, FloatLiteral):
 					float_init = node.initializer.value
-				elif isinstance(node.initializer, CharLiteral):
-					init_val = ord(node.initializer.value)
 				elif isinstance(node.initializer, StringLiteral):
 					label = f".str{self._string_counter}"
 					self._string_counter += 1
 					self._string_data.append(IRStringData(label=label, value=node.initializer.value))
 					string_label = label
-				elif isinstance(node.initializer, UnaryOp) and node.initializer.op == "-":
-					operand = node.initializer.operand
-					if isinstance(operand, IntLiteral):
-						init_val = -operand.value
-					elif isinstance(operand, FloatLiteral):
-						float_init = -operand.value
+				elif isinstance(node.initializer, UnaryOp) and node.initializer.op == "-" and isinstance(node.initializer.operand, FloatLiteral):
+					float_init = -node.initializer.operand.value
+				else:
+					const_val = self._eval_const_expr(node.initializer)
+					if const_val is not None:
+						init_val = const_val
 			self._globals.append(IRGlobalVar(
 				name=name, ir_type=ir_type, initializer=init_val,
 				storage_class=sc, float_initializer=float_init,
@@ -424,8 +422,9 @@ class IRGenerator(ASTVisitor):
 			if node.array_sizes:
 				size_vals = []
 				for se in node.array_sizes:
-					if isinstance(se, IntLiteral):
-						size_vals.append(se.value)
+					val = self._eval_const_expr(se)
+					if val is not None:
+						size_vals.append(val)
 				if size_vals:
 					self._global_array[node.name] = size_vals
 			if node.type_spec.is_function_pointer:
@@ -455,9 +454,10 @@ class IRGenerator(ASTVisitor):
 			total_elements = 1
 			size_vals: list[int] = []
 			for size_expr in node.array_sizes:
-				if isinstance(size_expr, IntLiteral):
-					total_elements *= size_expr.value
-					size_vals.append(size_expr.value)
+				val = self._eval_const_expr(size_expr)
+				if val is not None:
+					total_elements *= val
+					size_vals.append(val)
 			self._local_array[node.name] = size_vals
 			self._emit(IRAlloc(dest=dest, size=element_size * total_elements))
 		else:
@@ -1443,8 +1443,10 @@ class IRGenerator(ASTVisitor):
 	def visit_enum_decl(self, node: EnumDecl) -> None:
 		next_value = 0
 		for const in node.constants:
-			if const.value is not None and isinstance(const.value, IntLiteral):
-				next_value = const.value.value
+			if const.value is not None:
+				evaluated = self._eval_const_expr(const.value)
+				if evaluated is not None:
+					next_value = evaluated
 			self._enum_constants[const.name] = next_value
 			next_value += 1
 
@@ -1479,8 +1481,9 @@ class IRGenerator(ASTVisitor):
 			total_elements = 0
 			if node.array_sizes:
 				for se in node.array_sizes:
-					if isinstance(se, IntLiteral):
-						total_elements = se.value
+					val = self._eval_const_expr(se)
+					if val is not None:
+						total_elements = val
 			total_elements = max(total_elements, len(init_list.elements))
 
 			has_designated = any(isinstance(e, DesignatedInit) for e in init_list.elements)
@@ -1639,8 +1642,9 @@ class IRGenerator(ASTVisitor):
 		total_size = 0
 		if node.array_sizes:
 			for se in node.array_sizes:
-				if isinstance(se, IntLiteral):
-					total_size = se.value
+				val = self._eval_const_expr(se)
+				if val is not None:
+					total_size = val
 		# String bytes + null terminator
 		string_bytes = [ord(ch) for ch in string_val] + [0]
 		for i in range(total_size):
@@ -1649,28 +1653,119 @@ class IRGenerator(ASTVisitor):
 			self._emit(IRBinOp(dest=addr, left=dest, op="+", right=IRConst(i)))
 			self._emit(IRStore(address=addr, value=val, ir_type=IRType.CHAR))
 
+	def _eval_const_expr(self, node: ASTNode) -> int | None:
+		"""Evaluate a compile-time constant expression, returning an int or None."""
+		if isinstance(node, IntLiteral):
+			return node.value
+		if isinstance(node, CharLiteral):
+			return ord(node.value)
+		if isinstance(node, Identifier):
+			if node.name in self._enum_constants:
+				return self._enum_constants[node.name]
+			return None
+		if isinstance(node, UnaryOp):
+			operand = self._eval_const_expr(node.operand)
+			if operand is None:
+				return None
+			if node.op == "-":
+				return -operand
+			if node.op == "+":
+				return operand
+			if node.op == "~":
+				return ~operand
+			if node.op == "!":
+				return 0 if operand else 1
+			return None
+		if isinstance(node, BinaryOp):
+			left = self._eval_const_expr(node.left)
+			right = self._eval_const_expr(node.right)
+			if left is None or right is None:
+				return None
+			if node.op == "+":
+				return left + right
+			if node.op == "-":
+				return left - right
+			if node.op == "*":
+				return left * right
+			if node.op == "/" and right != 0:
+				return int(left / right)
+			if node.op == "%" and right != 0:
+				return left % right
+			if node.op == "<<":
+				return left << right
+			if node.op == ">>":
+				return left >> right
+			if node.op == "&":
+				return left & right
+			if node.op == "|":
+				return left | right
+			if node.op == "^":
+				return left ^ right
+			if node.op == "&&":
+				return 1 if (left and right) else 0
+			if node.op == "||":
+				return 1 if (left or right) else 0
+			if node.op == "==":
+				return 1 if left == right else 0
+			if node.op == "!=":
+				return 1 if left != right else 0
+			if node.op == "<":
+				return 1 if left < right else 0
+			if node.op == ">":
+				return 1 if left > right else 0
+			if node.op == "<=":
+				return 1 if left <= right else 0
+			if node.op == ">=":
+				return 1 if left >= right else 0
+			return None
+		if isinstance(node, SizeofExpr):
+			if node.type_operand is not None:
+				ts = node.type_operand
+				key = ts.base_type
+				if key.startswith("struct "):
+					key = key[len("struct "):]
+				elif key.startswith("union "):
+					key = key[len("union "):]
+				if ts.pointer_count == 0:
+					if key in self._structs:
+						return self._compute_struct_size(key)
+					if key in self._unions:
+						return self._compute_union_size(key)
+				return _resolve_size(ts)
+			if node.operand is not None:
+				if isinstance(node.operand, Identifier):
+					name = node.operand.name
+					ts = self._local_types.get(name) or self._global_types.get(name)
+					if ts is not None:
+						dims = self._local_array.get(name) or self._global_array.get(name)
+						if dims:
+							total = self._resolve_member_size(ts)
+							for d in dims:
+								total *= d
+							return total
+						return self._resolve_member_size(ts)
+				ts = self._infer_expr_type(node.operand)
+				if ts is not None:
+					return self._resolve_member_size(ts)
+			return 4
+		if isinstance(node, CastExpr):
+			return self._eval_const_expr(node.operand)
+		if isinstance(node, TernaryExpr):
+			cond = self._eval_const_expr(node.condition)
+			if cond is None:
+				return None
+			return self._eval_const_expr(node.true_expr if cond else node.false_expr)
+		return None
+
 	def _collect_init_values(self, init_list: InitializerList) -> list[int]:
 		"""Collect constant integer values from an initializer list (for globals)."""
 		values: list[int] = []
 		for elem in init_list.elements:
-			if isinstance(elem, IntLiteral):
-				values.append(elem.value)
-			elif isinstance(elem, CharLiteral):
-				values.append(ord(elem.value))
-			elif isinstance(elem, UnaryOp) and elem.op == "-":
-				operand = elem.operand
-				if isinstance(operand, IntLiteral):
-					values.append(-operand.value)
-				elif isinstance(operand, CharLiteral):
-					values.append(-ord(operand.value))
-				else:
-					values.append(0)
-			elif isinstance(elem, Identifier) and elem.name in self._enum_constants:
-				values.append(self._enum_constants[elem.name])
-			elif isinstance(elem, InitializerList):
+			if isinstance(elem, InitializerList):
 				values.extend(self._collect_init_values(elem))
 			else:
-				values.append(0)
+				result = self._eval_const_expr(elem)
+				values.append(result if result is not None else 0)
 		return values
 
 	def _resolve_member_type_spec(self, node: MemberAccess) -> TypeSpec | None:
