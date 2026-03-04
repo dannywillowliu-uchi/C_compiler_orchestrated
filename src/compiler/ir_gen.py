@@ -997,14 +997,16 @@ class IRGenerator(ASTVisitor):
 		element_size = 4  # default int
 		dims: list[int] = []
 		if isinstance(current, Identifier):
-			ts = self._local_types.get(current.name)
+			ts = self._local_types.get(current.name) or self._global_types.get(current.name)
 			if ts is not None:
-				if ts.pointer_count > 0:
-					# Pointer type: stride is the pointee size, not sizeof(pointer)
+				# Check if this is a pointer variable (not a stack/global array)
+				arr_dims = self._local_array.get(current.name) or self._global_array.get(current.name)
+				if ts.pointer_count > 0 and not arr_dims:
+					# Pointer variable: use pointee size for stride
 					element_size = self._pointee_size_from_type(ts)
 				else:
 					element_size = self._resolve_member_size(ts)
-			dims = self._local_array.get(current.name, [])
+			dims = self._local_array.get(current.name) or self._global_array.get(current.name, [])
 
 		addr = base
 		for d, idx_node in enumerate(index_nodes):
