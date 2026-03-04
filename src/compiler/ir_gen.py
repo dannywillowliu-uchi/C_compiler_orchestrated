@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from compiler.ast_nodes import (
+	ASTNode,
 	ArraySubscript,
 	ASTVisitor,
 	Assignment,
@@ -683,20 +684,42 @@ class IRGenerator(ASTVisitor):
 		return dest
 
 	def _compute_array_addr(self, node: ArraySubscript) -> IRTemp:
-		"""Compute the address of an array element: base + index * element_size."""
-		base = self.visit(node.array)
-		index = self.visit(node.index)
-		# Determine element size from base type
+		"""Compute the address of an array element, handling multi-dimensional arrays.
+
+		For int a[3][4], a[i][j] computes: base + i*16 + j*4
+		(stride for dimension d = element_size * product(dims[d+1:]))
+		"""
+		# Unwrap nested subscripts: a[i][j] -> indices=[i, j], base_node=Identifier("a")
+		index_nodes: list[ASTNode] = []
+		current: ASTNode = node
+		while isinstance(current, ArraySubscript):
+			index_nodes.append(current.index)
+			current = current.array
+		index_nodes.reverse()
+
+		base = self.visit(current)
+
+		# Determine element size and array dimensions from the base identifier
 		element_size = 4  # default int
-		if isinstance(node.array, Identifier):
-			ts = self._local_types.get(node.array.name)
+		dims: list[int] = []
+		if isinstance(current, Identifier):
+			ts = self._local_types.get(current.name)
 			if ts is not None:
-				element_size = _resolve_size(ts)
-		size_val = IRConst(element_size)
-		offset = self._new_temp()
-		self._emit(IRBinOp(dest=offset, left=index, op="*", right=size_val))
-		addr = self._new_temp()
-		self._emit(IRBinOp(dest=addr, left=base, op="+", right=offset))
+				element_size = self._resolve_member_size(ts)
+			dims = self._local_array.get(current.name, [])
+
+		addr = base
+		for d, idx_node in enumerate(index_nodes):
+			idx = self.visit(idx_node)
+			# stride = element_size * product(dims[d+1:])
+			stride = element_size
+			for remaining_dim in dims[d + 1:]:
+				stride *= remaining_dim
+			offset = self._new_temp()
+			self._emit(IRBinOp(dest=offset, left=idx, op="*", right=IRConst(stride)))
+			new_addr = self._new_temp()
+			self._emit(IRBinOp(dest=new_addr, left=addr, op="+", right=offset))
+			addr = new_addr
 		return addr
 
 	def visit_array_subscript(self, node: ArraySubscript) -> IRTemp:
@@ -929,6 +952,64 @@ class IRGenerator(ASTVisitor):
 	# Sizeof expression
 	# ------------------------------------------------------------------
 
+	def _infer_expr_type(self, node: ASTNode) -> TypeSpec | None:
+		"""Infer the C type of an expression AST node without emitting IR."""
+		if isinstance(node, Identifier):
+			return self._local_types.get(node.name)
+		if isinstance(node, CharLiteral):
+			return TypeSpec(base_type="char")
+		if isinstance(node, IntLiteral):
+			return TypeSpec(base_type="int")
+		if isinstance(node, FloatLiteral):
+			if node.suffix == "f":
+				return TypeSpec(base_type="float")
+			return TypeSpec(base_type="double")
+		if isinstance(node, StringLiteral):
+			return TypeSpec(base_type="char", pointer_count=1)
+		if isinstance(node, CastExpr):
+			return node.target_type
+		if isinstance(node, UnaryOp):
+			if node.op == "*":
+				inner = self._infer_expr_type(node.operand)
+				if inner and inner.pointer_count > 0:
+					return TypeSpec(
+						base_type=inner.base_type,
+						pointer_count=inner.pointer_count - 1,
+						width_modifier=inner.width_modifier,
+						signedness=inner.signedness,
+					)
+			elif node.op == "&":
+				inner = self._infer_expr_type(node.operand)
+				if inner:
+					return TypeSpec(
+						base_type=inner.base_type,
+						pointer_count=inner.pointer_count + 1,
+						width_modifier=inner.width_modifier,
+						signedness=inner.signedness,
+					)
+			return self._infer_expr_type(node.operand)
+		if isinstance(node, ArraySubscript):
+			current: ASTNode = node
+			while isinstance(current, ArraySubscript):
+				current = current.array
+			return self._infer_expr_type(current)
+		if isinstance(node, MemberAccess):
+			obj_type = self._infer_expr_type(node.object)
+			if obj_type:
+				key = obj_type.base_type
+				if key.startswith("struct "):
+					key = key[len("struct "):]
+				members = self._structs.get(key)
+				if members:
+					for m in members:
+						if m.name == node.member:
+							return m.type_spec
+		if isinstance(node, SizeofExpr):
+			return TypeSpec(base_type="int")
+		if isinstance(node, PostfixExpr):
+			return self._infer_expr_type(node.operand)
+		return None
+
 	def visit_sizeof_expr(self, node: SizeofExpr) -> IRConst:
 		if node.type_operand is not None:
 			ts = node.type_operand
@@ -943,8 +1024,24 @@ class IRGenerator(ASTVisitor):
 				if key in self._unions:
 					return IRConst(self._compute_union_size(key))
 			return IRConst(_resolve_size(ts))
-		# sizeof(expr) -- compute based on expression type heuristic
-		# For simplicity, default to 4 (int-sized)
+		# sizeof(expr) -- infer the expression's type
+		if node.operand is not None:
+			# sizeof(array_variable) returns total array size
+			if isinstance(node.operand, Identifier):
+				name = node.operand.name
+				ts = self._local_types.get(name)
+				if ts is not None:
+					dims = self._local_array.get(name)
+					if dims:
+						elem_size = self._resolve_member_size(ts)
+						total = elem_size
+						for d in dims:
+							total *= d
+						return IRConst(total)
+					return IRConst(self._resolve_member_size(ts))
+			ts = self._infer_expr_type(node.operand)
+			if ts is not None:
+				return IRConst(self._resolve_member_size(ts))
 		return IRConst(4)
 
 	def _resolve_type_size(self, ts: TypeSpec) -> int:
