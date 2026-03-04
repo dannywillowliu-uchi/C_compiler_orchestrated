@@ -26,6 +26,7 @@ from compiler.ast_nodes import (
 	FunctionDecl,
 	Identifier,
 	IfStmt,
+	InitializerList,
 	IntLiteral,
 	MemberAccess,
 	ParamDecl,
@@ -296,22 +297,34 @@ class SemanticAnalyzer(ASTVisitor):
 		node.type_spec = self._resolve_type(node.type_spec)
 		self._check_duplicate_qualifiers(node.type_spec, node)
 		if node.initializer is not None:
-			init_type = self.visit(node.initializer)
-			if init_type is not None and not _types_compatible(node.type_spec, init_type):
-				self._error(
-					f"incompatible types in initialization of '{node.name}': "
-					f"'{node.type_spec.base_type}' and '{init_type.base_type}'",
-					node,
-				)
+			if isinstance(node.initializer, InitializerList):
+				self._check_initializer_list(node)
+			else:
+				init_type = self.visit(node.initializer)
+				if init_type is not None and not _types_compatible(node.type_spec, init_type):
+					self._error(
+						f"incompatible types in initialization of '{node.name}': "
+						f"'{node.type_spec.base_type}' and '{init_type.base_type}'",
+						node,
+					)
 		is_array = node.array_sizes is not None and len(node.array_sizes) > 0
 		array_size_vals: list[int] = []
 		if is_array:
 			for size_expr in node.array_sizes:  # type: ignore[union-attr]
-				size_type = self.visit(size_expr)
-				if size_type is not None and not _is_numeric(size_type):
-					self._error("array size must be an integer expression", node)
-				if isinstance(size_expr, IntLiteral):
-					array_size_vals.append(size_expr.value)
+				if isinstance(size_expr, IntLiteral) and size_expr.value == 0:
+					# Infer size from initializer list
+					if isinstance(node.initializer, InitializerList):
+						inferred = len(node.initializer.elements)
+						size_expr.value = inferred
+						array_size_vals.append(inferred)
+					else:
+						self._error("array size must be specified or inferred from initializer", node)
+				else:
+					size_type = self.visit(size_expr)
+					if size_type is not None and not _is_numeric(size_type):
+						self._error("array size must be an integer expression", node)
+					if isinstance(size_expr, IntLiteral):
+						array_size_vals.append(size_expr.value)
 		sym = Symbol(
 			name=node.name,
 			type_spec=node.type_spec,
@@ -326,6 +339,57 @@ class SemanticAnalyzer(ASTVisitor):
 			return node.type_spec
 		self.symbols.define(sym)
 		return node.type_spec
+
+	def _check_initializer_list(self, node: VarDecl) -> None:
+		"""Type-check an initializer list against the variable's type."""
+		init_list = node.initializer
+		assert isinstance(init_list, InitializerList)
+		is_array = node.array_sizes is not None and len(node.array_sizes) > 0
+		base_type = node.type_spec.base_type
+
+		if is_array:
+			# Check element count vs declared array size
+			for size_expr in node.array_sizes:  # type: ignore[union-attr]
+				if isinstance(size_expr, IntLiteral) and size_expr.value > 0:
+					if len(init_list.elements) > size_expr.value:
+						self._error("excess elements in array initializer", node)
+			# Type-check each element
+			for elem in init_list.elements:
+				if isinstance(elem, InitializerList):
+					self.visit_initializer_list(elem)
+				else:
+					elem_t = self.visit(elem)
+					if elem_t is not None and not _types_compatible(node.type_spec, elem_t):
+						self._error("incompatible type in array initializer element", elem)
+		elif base_type.startswith("struct "):
+			struct_name = base_type[len("struct "):]
+			if struct_name in self._struct_types:
+				struct_decl = self._struct_types[struct_name]
+				if len(init_list.elements) > len(struct_decl.members):
+					self._error("excess elements in struct initializer", node)
+				for i, elem in enumerate(init_list.elements):
+					if isinstance(elem, InitializerList):
+						self.visit_initializer_list(elem)
+					else:
+						elem_t = self.visit(elem)
+						if i < len(struct_decl.members) and elem_t is not None:
+							member_type = struct_decl.members[i].type_spec
+							if not _types_compatible(member_type, elem_t):
+								self._error(
+									f"incompatible type for member '{struct_decl.members[i].name}'",
+									elem,
+								)
+			else:
+				for elem in init_list.elements:
+					self.visit(elem)
+		else:
+			for elem in init_list.elements:
+				self.visit(elem)
+
+	def visit_initializer_list(self, node: InitializerList) -> TypeSpec | None:
+		for elem in node.elements:
+			self.visit(elem)
+		return None
 
 	def visit_compound_stmt(self, node: CompoundStmt) -> None:
 		self.symbols.push_scope()

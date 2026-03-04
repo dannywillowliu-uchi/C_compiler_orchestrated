@@ -28,6 +28,7 @@ from compiler.ast_nodes import (
 	FunctionDecl,
 	Identifier,
 	IfStmt,
+	InitializerList,
 	IntLiteral,
 	MemberAccess,
 	ParamDecl,
@@ -241,12 +242,17 @@ class Parser:
 		if self._check(TokenType.LBRACKET):
 			array_sizes = []
 			while self._match(TokenType.LBRACKET):
-				size_expr = self._parse_expression()
+				if self._check(TokenType.RBRACKET):
+					array_sizes.append(IntLiteral(value=0, loc=self._loc(self._current())))
+				else:
+					array_sizes.append(self._parse_expression())
 				self._expect(TokenType.RBRACKET, "Expected ']' after array size")
-				array_sizes.append(size_expr)
 		initializer = None
 		if self._match(TokenType.ASSIGN):
-			initializer = self._parse_expression()
+			if self._check(TokenType.LBRACE):
+				initializer = self._parse_initializer_list()
+			else:
+				initializer = self._parse_expression()
 		self._expect(TokenType.SEMICOLON, "Expected ';' after variable declaration")
 		return VarDecl(
 			type_spec=type_spec,
@@ -789,12 +795,17 @@ class Parser:
 		if self._check(TokenType.LBRACKET):
 			array_sizes = []
 			while self._match(TokenType.LBRACKET):
-				size_expr = self._parse_expression()
+				if self._check(TokenType.RBRACKET):
+					array_sizes.append(IntLiteral(value=0, loc=self._loc(self._current())))
+				else:
+					array_sizes.append(self._parse_expression())
 				self._expect(TokenType.RBRACKET, "Expected ']' after array size")
-				array_sizes.append(size_expr)
 		initializer = None
 		if self._match(TokenType.ASSIGN):
-			initializer = self._parse_expression()
+			if self._check(TokenType.LBRACE):
+				initializer = self._parse_initializer_list()
+			else:
+				initializer = self._parse_expression()
 		self._expect(TokenType.SEMICOLON, "Expected ';' after variable declaration")
 		return VarDecl(
 			type_spec=type_spec,
@@ -811,6 +822,22 @@ class Parser:
 		expr = self._parse_expression()
 		self._expect(TokenType.SEMICOLON, "Expected ';' after expression")
 		return ExprStmt(expression=expr, loc=self._loc(tok))
+
+	# -- Initializer list ----------------------------------------------------
+
+	def _parse_initializer_list(self) -> InitializerList:
+		"""Parse '{' expr, expr, ... '}' with support for nested braces and trailing comma."""
+		tok = self._expect(TokenType.LBRACE, "Expected '{'")
+		elements: list[ASTNode] = []
+		while not self._check(TokenType.RBRACE) and not self._at_end():
+			if self._check(TokenType.LBRACE):
+				elements.append(self._parse_initializer_list())
+			else:
+				elements.append(self._parse_expression())
+			if not self._match(TokenType.COMMA):
+				break
+		self._expect(TokenType.RBRACE, "Expected '}' after initializer list")
+		return InitializerList(elements=elements, loc=self._loc(tok))
 
 	# -- Expressions (precedence climbing) -----------------------------------
 
