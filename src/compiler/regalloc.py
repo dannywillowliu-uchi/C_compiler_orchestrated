@@ -50,15 +50,6 @@ class _UnionFind:
 		return self.find(a) == self.find(b)
 
 
-def _collect_addr_taken_temps(func: IRFunction) -> set[str]:
-	"""Identify temps whose address is taken via IRAddrOf (must stay on stack)."""
-	addr_taken: set[str] = set()
-	for instr in func.body:
-		if isinstance(instr, IRAddrOf):
-			addr_taken.add(instr.source.name)
-	return addr_taken
-
-
 def _collect_float_temps(func: IRFunction) -> set[str]:
 	"""Identify temps that are used in floating-point contexts."""
 	floats: set[str] = set()
@@ -153,13 +144,13 @@ def _count_temp_uses(func: IRFunction) -> dict[str, int]:
 		elif isinstance(instr, IRReturn):
 			if instr.value is not None and isinstance(instr.value, IRTemp):
 				counts[instr.value.name] = counts.get(instr.value.name, 0) + 1
+		elif isinstance(instr, IRAddrOf):
+			counts[instr.dest.name] = counts.get(instr.dest.name, 0) + 1
+			counts[instr.source.name] = counts.get(instr.source.name, 0) + 1
 		elif isinstance(instr, IRConvert):
 			counts[instr.dest.name] = counts.get(instr.dest.name, 0) + 1
 			if isinstance(instr.source, IRTemp):
 				counts[instr.source.name] = counts.get(instr.source.name, 0) + 1
-		elif isinstance(instr, IRAddrOf):
-			counts[instr.dest.name] = counts.get(instr.dest.name, 0) + 1
-			counts[instr.source.name] = counts.get(instr.source.name, 0) + 1
 	return counts
 
 
@@ -182,12 +173,15 @@ class RegisterAllocator:
 			return {}
 
 		float_temps = _collect_float_temps(self._func)
-		addr_taken = _collect_addr_taken_temps(self._func)
+		# Temps whose address is taken must stay on the stack
+		addr_taken = {
+			instr.source.name for instr in self._func.body if isinstance(instr, IRAddrOf)
+		}
 		call_crossing = _find_call_crossing_temps(cfg, analyzer)
 		move_edges = _collect_move_edges(self._func)
 		use_counts = _count_temp_uses(self._func)
 
-		# Build integer-only interference subgraph (exclude floats and address-taken temps)
+		# Build integer-only interference subgraph (exclude float and addr-taken)
 		int_temps = {t for t in interference if t not in float_temps and t not in addr_taken}
 		int_graph: dict[str, set[str]] = {}
 		for t in int_temps:

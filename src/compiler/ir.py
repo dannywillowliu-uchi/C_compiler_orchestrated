@@ -165,7 +165,7 @@ class IRCopy(IRInstruction):
 
 @dataclass
 class IRAddrOf(IRInstruction):
-	"""dest = stack_address_of(source). Takes the address of a stack-allocated temp."""
+	"""dest = &source (take address of source's stack slot)"""
 	dest: IRTemp
 	source: IRTemp
 
