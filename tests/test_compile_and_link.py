@@ -403,3 +403,367 @@ class TestCLIErrorHandling:
 		assert "-S" in result.stdout
 		assert "-c" in result.stdout
 		assert "-l" in result.stdout
+
+
+# --- End-to-end compile-assemble-link-run tests ---
+
+
+def _compile_and_run(source: str, tmp_path: Path) -> int:
+	"""Compile C source through full pipeline, link, run, and return exit code."""
+	asm = compile_source(source)
+	exe = tmp_path / "test_exe"
+	compile_and_link(asm, str(exe))
+	result = subprocess.run([str(exe)], capture_output=True, timeout=10)
+	return result.returncode
+
+
+class TestE2EFibonacci:
+	"""Fibonacci loop computing fib(10)=55."""
+
+	@can_link
+	def test_fibonacci_loop_returns_55(self, tmp_path: Path) -> None:
+		source = """
+		int main() {
+			int a = 0;
+			int b = 1;
+			int temp;
+			int i;
+			for (i = 0; i < 10; i++) {
+				temp = b;
+				b = a + b;
+				a = temp;
+			}
+			return a;
+		}
+		"""
+		assert _compile_and_run(source, tmp_path) == 55
+
+	@can_link
+	def test_fibonacci_function_returns_55(self, tmp_path: Path) -> None:
+		source = """
+		int fibonacci(int n) {
+			int a = 0;
+			int b = 1;
+			int temp;
+			int i;
+			for (i = 0; i < n; i++) {
+				temp = b;
+				b = a + b;
+				a = temp;
+			}
+			return a;
+		}
+		int main() {
+			return fibonacci(10);
+		}
+		"""
+		assert _compile_and_run(source, tmp_path) == 55
+
+
+class TestE2EArraySumPointerArithmetic:
+	"""Array sum with pointer arithmetic."""
+
+	@can_link
+	def test_array_sum_indexing(self, tmp_path: Path) -> None:
+		source = """
+		int main() {
+			int arr[5];
+			int sum;
+			int i;
+			arr[0] = 10;
+			arr[1] = 20;
+			arr[2] = 30;
+			arr[3] = 40;
+			arr[4] = 50;
+			sum = 0;
+			for (i = 0; i < 5; i++) {
+				sum = sum + arr[i];
+			}
+			return sum;
+		}
+		"""
+		assert _compile_and_run(source, tmp_path) == 150
+
+	@can_link
+	def test_array_sum_via_function(self, tmp_path: Path) -> None:
+		source = """
+		int sum_array(int *arr, int n) {
+			int total = 0;
+			int i;
+			for (i = 0; i < n; i++) {
+				total = total + *(arr + i);
+			}
+			return total;
+		}
+		int main() {
+			int arr[4];
+			arr[0] = 5;
+			arr[1] = 15;
+			arr[2] = 25;
+			arr[3] = 35;
+			return sum_array(arr, 4);
+		}
+		"""
+		assert _compile_and_run(source, tmp_path) == 80
+
+
+class TestE2ENestedFunctionCalls:
+	"""Nested function calls f(g(x))."""
+
+	@can_link
+	def test_nested_call_double_then_add(self, tmp_path: Path) -> None:
+		source = """
+		int double_val(int x) {
+			return x * 2;
+		}
+		int add_ten(int x) {
+			return x + 10;
+		}
+		int main() {
+			return add_ten(double_val(7));
+		}
+		"""
+		assert _compile_and_run(source, tmp_path) == 24
+
+	@can_link
+	def test_triple_nesting(self, tmp_path: Path) -> None:
+		source = """
+		int add_one(int x) { return x + 1; }
+		int mul_two(int x) { return x * 2; }
+		int sub_three(int x) { return x - 3; }
+		int main() {
+			return sub_three(mul_two(add_one(10)));
+		}
+		"""
+		# add_one(10)=11, mul_two(11)=22, sub_three(22)=19
+		assert _compile_and_run(source, tmp_path) == 19
+
+	@can_link
+	def test_nested_with_multiple_args(self, tmp_path: Path) -> None:
+		source = """
+		int add(int a, int b) { return a + b; }
+		int mul(int a, int b) { return a * b; }
+		int main() {
+			return add(mul(3, 4), mul(5, 6));
+		}
+		"""
+		# mul(3,4)=12, mul(5,6)=30, add(12,30)=42
+		assert _compile_and_run(source, tmp_path) == 42
+
+
+class TestE2EStructMemberAccessAndSizeof:
+	"""Struct member access and sizeof."""
+
+	@can_link
+	def test_struct_member_access(self, tmp_path: Path) -> None:
+		source = """
+		struct Point {
+			int x;
+			int y;
+		};
+		int main() {
+			struct Point p;
+			p.x = 30;
+			p.y = 12;
+			return p.x + p.y;
+		}
+		"""
+		assert _compile_and_run(source, tmp_path) == 42
+
+	@can_link
+	def test_struct_pointer_member_access(self, tmp_path: Path) -> None:
+		source = """
+		struct Pair {
+			int first;
+			int second;
+		};
+		int sum_pair(struct Pair *p) {
+			return p->first + p->second;
+		}
+		int main() {
+			struct Pair pair;
+			pair.first = 25;
+			pair.second = 75;
+			return sum_pair(&pair);
+		}
+		"""
+		assert _compile_and_run(source, tmp_path) == 100
+
+	@can_link
+	def test_sizeof_int(self, tmp_path: Path) -> None:
+		source = """
+		int main() {
+			return sizeof(int);
+		}
+		"""
+		assert _compile_and_run(source, tmp_path) == 4
+
+	@can_link
+	def test_sizeof_struct(self, tmp_path: Path) -> None:
+		source = """
+		struct Vec2 {
+			int x;
+			int y;
+		};
+		int main() {
+			return sizeof(struct Vec2);
+		}
+		"""
+		assert _compile_and_run(source, tmp_path) == 8
+
+
+class TestE2ESwitchCaseComputed:
+	"""Switch/case with computed values."""
+
+	@can_link
+	def test_switch_returns_computed_value(self, tmp_path: Path) -> None:
+		source = """
+		int compute(int op, int a, int b) {
+			int result;
+			switch (op) {
+				case 0:
+					result = a + b;
+					break;
+				case 1:
+					result = a - b;
+					break;
+				case 2:
+					result = a * b;
+					break;
+				default:
+					result = 0;
+					break;
+			}
+			return result;
+		}
+		int main() {
+			return compute(2, 7, 8);
+		}
+		"""
+		assert _compile_and_run(source, tmp_path) == 56
+
+	@can_link
+	def test_switch_accumulates_via_loop(self, tmp_path: Path) -> None:
+		source = """
+		int main() {
+			int state = 0;
+			int acc = 0;
+			while (state != 3) {
+				switch (state) {
+					case 0:
+						acc = acc + 10;
+						state = 1;
+						break;
+					case 1:
+						acc = acc + 20;
+						state = 2;
+						break;
+					case 2:
+						acc = acc + 30;
+						state = 3;
+						break;
+					default:
+						state = 3;
+						break;
+				}
+			}
+			return acc;
+		}
+		"""
+		assert _compile_and_run(source, tmp_path) == 60
+
+	@can_link
+	def test_switch_default_branch(self, tmp_path: Path) -> None:
+		source = """
+		int classify(int x) {
+			int r;
+			switch (x) {
+				case 1: r = 10; break;
+				case 2: r = 20; break;
+				case 3: r = 30; break;
+				default: r = 99; break;
+			}
+			return r;
+		}
+		int main() {
+			return classify(7);
+		}
+		"""
+		assert _compile_and_run(source, tmp_path) == 99
+
+
+class TestE2ELoopsBreakContinue:
+	"""While/for loops with break and continue."""
+
+	@can_link
+	def test_for_loop_with_break(self, tmp_path: Path) -> None:
+		source = """
+		int main() {
+			int sum = 0;
+			int i;
+			for (i = 1; i <= 100; i++) {
+				if (i > 10) {
+					break;
+				}
+				sum = sum + i;
+			}
+			return sum;
+		}
+		"""
+		# 1+2+...+10 = 55
+		assert _compile_and_run(source, tmp_path) == 55
+
+	@can_link
+	def test_for_loop_with_continue(self, tmp_path: Path) -> None:
+		source = """
+		int main() {
+			int sum = 0;
+			int i;
+			for (i = 1; i <= 10; i++) {
+				if (i % 2 == 0) {
+					continue;
+				}
+				sum = sum + i;
+			}
+			return sum;
+		}
+		"""
+		# 1+3+5+7+9 = 25
+		assert _compile_and_run(source, tmp_path) == 25
+
+	@can_link
+	def test_while_loop_with_break(self, tmp_path: Path) -> None:
+		source = """
+		int main() {
+			int n = 1;
+			while (1) {
+				if (n >= 64) {
+					break;
+				}
+				n = n * 2;
+			}
+			return n;
+		}
+		"""
+		assert _compile_and_run(source, tmp_path) == 64
+
+	@can_link
+	def test_nested_loops_with_break(self, tmp_path: Path) -> None:
+		source = """
+		int main() {
+			int count = 0;
+			int i;
+			int j;
+			for (i = 0; i < 5; i++) {
+				for (j = 0; j < 5; j++) {
+					if (j >= 3) {
+						break;
+					}
+					count = count + 1;
+				}
+			}
+			return count;
+		}
+		"""
+		# 5 outer iterations * 3 inner iterations (break at j>=3) = 15
+		assert _compile_and_run(source, tmp_path) == 15
