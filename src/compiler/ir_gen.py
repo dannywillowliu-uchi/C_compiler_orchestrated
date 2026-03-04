@@ -104,11 +104,10 @@ _FLOAT_TYPES = {IRType.FLOAT, IRType.DOUBLE}
 def _resolve_ir_type(ts: TypeSpec) -> IRType:
 	if ts.pointer_count > 0:
 		return IRType.POINTER
-	# Width modifiers: long/long long -> POINTER-sized int (INT for now, no INT64)
 	if ts.width_modifier in ("long", "long long"):
-		return IRType.INT
+		return IRType.LONG
 	if ts.width_modifier == "short":
-		return IRType.INT
+		return IRType.SHORT
 	return _TYPE_MAP.get(ts.base_type, IRType.INT)
 
 
@@ -165,6 +164,7 @@ class IRGenerator(ASTVisitor):
 		self._known_functions: set[str] = set()
 		self._user_labels: dict[str, str] = {}  # C label name -> IR label name
 		self._static_local_map: dict[str, str] = {}  # local name -> mangled global name
+		self._temp_pointee_size: dict[str, int] = {}  # pointer temp -> element size
 
 	# ------------------------------------------------------------------
 	# Helpers
@@ -209,6 +209,26 @@ class IRGenerator(ASTVisitor):
 		if ts is not None:
 			return _resolve_ir_type(ts)
 		return IRType.INT
+
+	def _pointee_size_from_type(self, ts: TypeSpec) -> int:
+		"""Get the element size that a pointer type points to."""
+		if ts.pointer_count > 1:
+			return 8  # pointer to pointer -> pointer size
+		deref = TypeSpec(base_type=ts.base_type, width_modifier=ts.width_modifier, signedness=ts.signedness)
+		return self._resolve_member_size(deref)
+
+	def _get_pointee_size(self, val: IRValue) -> int:
+		"""Get the pointed-to element size for a pointer value."""
+		if isinstance(val, IRTemp):
+			return self._temp_pointee_size.get(val.name, 1)
+		return 1
+
+	def _local_pointee_size(self, name: str) -> int:
+		"""Get the pointed-to element size for a local pointer variable."""
+		ts = self._local_types.get(name)
+		if ts is not None and ts.pointer_count > 0:
+			return self._pointee_size_from_type(ts)
+		return 1
 
 	# ------------------------------------------------------------------
 	# Public entry point
@@ -262,12 +282,14 @@ class IRGenerator(ASTVisitor):
 		old_user_labels = self._user_labels
 		old_function_name = self._current_function_name
 		old_static_local_map = self._static_local_map
+		old_pointee_size = self._temp_pointee_size
 		self._instructions = []
 		self._locals = {}
 		self._local_types = {}
 		self._local_array = {}
 		self._temp_types = {}
 		self._temp_unsigned = {}
+		self._temp_pointee_size = {}
 		self._in_function = True
 		self._current_function_name = node.name
 		self._func_ptr_locals = set()
@@ -288,6 +310,8 @@ class IRGenerator(ASTVisitor):
 				p_ir_type = _resolve_ir_type(param.type_spec)
 			param_types.append(p_ir_type)
 			self._set_temp_type(p_temp, p_ir_type)
+			if p_ir_type == IRType.POINTER and param.type_spec.pointer_count > 0:
+				self._temp_pointee_size[p_temp.name] = self._pointee_size_from_type(param.type_spec)
 
 		self.visit(node.body)
 
@@ -313,6 +337,7 @@ class IRGenerator(ASTVisitor):
 		self._func_ptr_locals = old_func_ptr_locals
 		self._user_labels = old_user_labels
 		self._static_local_map = old_static_local_map
+		self._temp_pointee_size = old_pointee_size
 
 	def _emit_global_var(self, name: str, node: VarDecl, storage_class: str | None = None) -> None:
 		"""Emit a global variable declaration with proper initializer handling."""
@@ -500,6 +525,8 @@ class IRGenerator(ASTVisitor):
 			ts = self._local_types.get(node.name)
 			if ts is not None and ts.signedness == "unsigned":
 				self._temp_unsigned[dest.name] = True
+			if src_type == IRType.POINTER and ts is not None and ts.pointer_count > 0:
+				self._temp_pointee_size[dest.name] = self._pointee_size_from_type(ts)
 			self._emit(IRCopy(dest=dest, source=src, ir_type=src_type))
 			return dest
 		if node.name in self._global_names:
@@ -553,6 +580,45 @@ class IRGenerator(ASTVisitor):
 				self._set_temp_type(dest, result_type)
 			self._emit(IRBinOp(dest=dest, left=left, op=node.op, right=right, ir_type=result_type))
 			return dest
+		# Pointer arithmetic scaling
+		left_is_ptr = left_type == IRType.POINTER
+		right_is_ptr = right_type == IRType.POINTER
+		if (left_is_ptr or right_is_ptr) and node.op in ("+", "-"):
+			if left_is_ptr and right_is_ptr and node.op == "-":
+				# pointer - pointer -> element count
+				raw_diff = self._new_temp()
+				self._emit(IRBinOp(dest=raw_diff, left=left, op="-", right=right, ir_type=IRType.POINTER))
+				elem_size = self._get_pointee_size(left)
+				if elem_size > 1:
+					dest = self._new_temp()
+					self._emit(IRBinOp(dest=dest, left=raw_diff, op="/", right=IRConst(elem_size)))
+					return dest
+				return raw_diff
+			elif left_is_ptr:
+				# pointer +/- integer: scale the integer operand
+				elem_size = self._get_pointee_size(left)
+				if elem_size > 1:
+					scaled = self._new_temp()
+					self._emit(IRBinOp(dest=scaled, left=right, op="*", right=IRConst(elem_size)))
+					right = scaled
+				dest = self._new_temp()
+				self._set_temp_type(dest, IRType.POINTER)
+				self._temp_pointee_size[dest.name] = self._get_pointee_size(left)
+				self._emit(IRBinOp(dest=dest, left=left, op=node.op, right=right, ir_type=IRType.POINTER))
+				return dest
+			else:
+				# integer + pointer
+				elem_size = self._get_pointee_size(right)
+				if elem_size > 1:
+					scaled = self._new_temp()
+					self._emit(IRBinOp(dest=scaled, left=left, op="*", right=IRConst(elem_size)))
+					left = scaled
+				dest = self._new_temp()
+				self._set_temp_type(dest, IRType.POINTER)
+				self._temp_pointee_size[dest.name] = self._get_pointee_size(right)
+				self._emit(IRBinOp(dest=dest, left=left, op="+", right=right, ir_type=IRType.POINTER))
+				return dest
+
 		is_unsigned = self._is_unsigned_value(left) or self._is_unsigned_value(right)
 		dest = self._new_temp()
 		if is_unsigned:
@@ -637,6 +703,9 @@ class IRGenerator(ASTVisitor):
 			if isinstance(node.operand, Identifier):
 				src = self._locals.get(node.operand.name)
 				if src is not None:
+					ts = self._local_types.get(node.operand.name)
+					if ts is not None:
+						self._temp_pointee_size[src.name] = self._resolve_member_size(ts)
 					return src
 			operand = self.visit(node.operand)
 			return operand
@@ -651,18 +720,21 @@ class IRGenerator(ASTVisitor):
 				result = self._new_temp()
 				self._set_temp_type(result, ir_type)
 				delta_op = "+" if node.op == "++" else "-"
-				self._emit(IRBinOp(dest=result, left=current, op=delta_op, right=IRConst(1), ir_type=ir_type))
+				delta_val = IRConst(self._local_pointee_size(node.operand.name)) if ir_type == IRType.POINTER else IRConst(1)
+				self._emit(IRBinOp(dest=result, left=current, op=delta_op, right=delta_val, ir_type=ir_type))
 				self._emit(IRStore(address=IRGlobalRef(mangled), value=result, ir_type=ir_type))
 				return result
 			# Prefix ++/--: load, add/sub 1, store back
 			if isinstance(node.operand, Identifier):
 				target = self._locals.get(node.operand.name)
 				if target is not None:
+					ir_type = self._resolve_local_ir_type(node.operand.name)
 					current = self._new_temp()
 					self._emit(IRCopy(dest=current, source=target))
 					result = self._new_temp()
 					delta_op = "+" if node.op == "++" else "-"
-					self._emit(IRBinOp(dest=result, left=current, op=delta_op, right=IRConst(1)))
+					delta_val = IRConst(self._local_pointee_size(node.operand.name)) if ir_type == IRType.POINTER else IRConst(1)
+					self._emit(IRBinOp(dest=result, left=current, op=delta_op, right=delta_val))
 					self._emit(IRCopy(dest=target, source=result))
 					return result
 			if isinstance(node.operand, MemberAccess):
@@ -1290,17 +1362,20 @@ class IRGenerator(ASTVisitor):
 			new_val = self._new_temp()
 			self._set_temp_type(new_val, ir_type)
 			delta_op = "+" if node.op == "++" else "-"
-			self._emit(IRBinOp(dest=new_val, left=old_val, op=delta_op, right=IRConst(1), ir_type=ir_type))
+			delta_val = IRConst(self._local_pointee_size(node.operand.name)) if ir_type == IRType.POINTER else IRConst(1)
+			self._emit(IRBinOp(dest=new_val, left=old_val, op=delta_op, right=delta_val, ir_type=ir_type))
 			self._emit(IRStore(address=IRGlobalRef(mangled), value=new_val, ir_type=ir_type))
 			return old_val
 		if isinstance(node.operand, Identifier):
 			target = self._locals.get(node.operand.name)
 			if target is not None:
+				ir_type = self._resolve_local_ir_type(node.operand.name)
 				old_val = self._new_temp()
 				self._emit(IRCopy(dest=old_val, source=target))
 				new_val = self._new_temp()
 				delta_op = "+" if node.op == "++" else "-"
-				self._emit(IRBinOp(dest=new_val, left=old_val, op=delta_op, right=IRConst(1)))
+				delta_val = IRConst(self._local_pointee_size(node.operand.name)) if ir_type == IRType.POINTER else IRConst(1)
+				self._emit(IRBinOp(dest=new_val, left=old_val, op=delta_op, right=delta_val))
 				self._emit(IRCopy(dest=target, source=new_val))
 				return old_val
 		if isinstance(node.operand, ArraySubscript):
