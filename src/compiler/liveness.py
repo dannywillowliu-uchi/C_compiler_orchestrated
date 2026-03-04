@@ -1,4 +1,4 @@
-"""Liveness analysis pass on a Control Flow Graph."""
+"""Dataflow-based liveness analysis on the CFG."""
 
 from __future__ import annotations
 
@@ -17,149 +17,209 @@ from src.compiler.ir import (
 	IRStore,
 	IRTemp,
 	IRUnaryOp,
-	IRValue,
 )
 
 
-def _temps_in(value: IRValue) -> set[str]:
-	"""Extract temporary variable names from an IR value."""
-	if isinstance(value, IRTemp):
-		return {value.name}
-	return set()
+def _used_temps(instr: IRInstruction) -> set[str]:
+	"""Return the set of temporary variable names used (read) by an instruction."""
+	used: set[str] = set()
 
-
-def instruction_def(instr: IRInstruction) -> set[str]:
-	"""Return the set of variable names defined (written) by an instruction."""
-	if isinstance(instr, (IRBinOp, IRUnaryOp, IRCopy, IRLoad, IRConvert, IRAlloc)):
-		return {instr.dest.name}
-	if isinstance(instr, IRCall) and instr.dest is not None:
-		return {instr.dest.name}
-	return set()
-
-
-def instruction_use(instr: IRInstruction) -> set[str]:
-	"""Return the set of variable names used (read) by an instruction."""
 	if isinstance(instr, IRBinOp):
-		return _temps_in(instr.left) | _temps_in(instr.right)
-	if isinstance(instr, IRUnaryOp):
-		return _temps_in(instr.operand)
-	if isinstance(instr, IRCopy):
-		return _temps_in(instr.source)
-	if isinstance(instr, IRLoad):
-		return _temps_in(instr.address)
-	if isinstance(instr, IRStore):
-		return _temps_in(instr.address) | _temps_in(instr.value)
-	if isinstance(instr, IRCondJump):
-		return _temps_in(instr.condition)
-	if isinstance(instr, IRCall):
-		result: set[str] = set()
+		if isinstance(instr.left, IRTemp):
+			used.add(instr.left.name)
+		if isinstance(instr.right, IRTemp):
+			used.add(instr.right.name)
+	elif isinstance(instr, IRUnaryOp):
+		if isinstance(instr.operand, IRTemp):
+			used.add(instr.operand.name)
+	elif isinstance(instr, IRCopy):
+		if isinstance(instr.source, IRTemp):
+			used.add(instr.source.name)
+	elif isinstance(instr, IRLoad):
+		if isinstance(instr.address, IRTemp):
+			used.add(instr.address.name)
+	elif isinstance(instr, IRStore):
+		if isinstance(instr.address, IRTemp):
+			used.add(instr.address.name)
+		if isinstance(instr.value, IRTemp):
+			used.add(instr.value.name)
+	elif isinstance(instr, IRCondJump):
+		if isinstance(instr.condition, IRTemp):
+			used.add(instr.condition.name)
+	elif isinstance(instr, IRReturn):
+		if instr.value is not None and isinstance(instr.value, IRTemp):
+			used.add(instr.value.name)
+	elif isinstance(instr, IRCall):
 		for arg in instr.args:
-			result |= _temps_in(arg)
-		return result
-	if isinstance(instr, IRReturn) and instr.value is not None:
-		return _temps_in(instr.value)
-	if isinstance(instr, IRParam):
-		return _temps_in(instr.value)
-	if isinstance(instr, IRConvert):
-		return _temps_in(instr.source)
-	return set()
+			if isinstance(arg, IRTemp):
+				used.add(arg.name)
+	elif isinstance(instr, IRParam):
+		if isinstance(instr.value, IRTemp):
+			used.add(instr.value.name)
+	elif isinstance(instr, IRConvert):
+		if isinstance(instr.source, IRTemp):
+			used.add(instr.source.name)
+
+	return used
 
 
-def _block_def_use(block: BasicBlock) -> tuple[set[str], set[str]]:
-	"""Compute the def and use sets for a basic block.
+def _defined_temp(instr: IRInstruction) -> str | None:
+	"""Return the temporary variable name defined (written) by an instruction, or None."""
+	if isinstance(instr, (IRBinOp, IRUnaryOp, IRCopy, IRLoad, IRConvert, IRAlloc)):
+		return instr.dest.name
+	if isinstance(instr, IRCall) and instr.dest is not None:
+		return instr.dest.name
+	return None
 
-	use(B) = variables read before being defined within B.
-	def(B) = variables defined within B.
+
+def _compute_gen_kill(block: BasicBlock) -> tuple[set[str], set[str]]:
+	"""Compute gen and kill sets for a basic block.
+
+	gen  = variables used before being defined in the block
+	kill = variables defined anywhere in the block
 	"""
-	def_set: set[str] = set()
-	use_set: set[str] = set()
+	gen: set[str] = set()
+	kill: set[str] = set()
+
 	for instr in block.instructions:
-		# Variables read by this instruction that haven't been defined yet in this block
-		# are "upward exposed" uses.
-		use_set |= instruction_use(instr) - def_set
-		def_set |= instruction_def(instr)
-	return def_set, use_set
+		used = _used_temps(instr)
+		# A use counts as gen only if the variable wasn't already killed in this block.
+		gen |= used - kill
+		defined = _defined_temp(instr)
+		if defined is not None:
+			kill.add(defined)
+
+	return gen, kill
 
 
-class LivenessAnalysis:
-	"""Computes live variable information for a CFG using iterative backward dataflow."""
+class LivenessAnalyzer:
+	"""Computes liveness information on a CFG using iterative dataflow analysis."""
 
 	def __init__(self, cfg: CFG) -> None:
 		self._cfg = cfg
-		self._def: dict[str, set[str]] = {}
-		self._use: dict[str, set[str]] = {}
 		self._live_in: dict[str, set[str]] = {}
 		self._live_out: dict[str, set[str]] = {}
+		self._gen: dict[str, set[str]] = {}
+		self._kill: dict[str, set[str]] = {}
+		self._computed = False
 
-		self._compute()
+	def _ensure_computed(self) -> None:
+		if not self._computed:
+			self._run()
+			self._computed = True
 
-	def _compute(self) -> None:
+	def _run(self) -> None:
+		"""Run iterative fixed-point liveness analysis."""
 		blocks = self._cfg.blocks()
 		if not blocks:
 			return
 
-		# Compute per-block def/use sets.
+		# Initialize gen/kill for every block.
 		for block in blocks:
-			d, u = _block_def_use(block)
-			self._def[block.label] = d
-			self._use[block.label] = u
+			gen, kill = _compute_gen_kill(block)
+			self._gen[block.label] = gen
+			self._kill[block.label] = kill
 			self._live_in[block.label] = set()
 			self._live_out[block.label] = set()
 
-		# Iterative backward dataflow until fixed point.
+		# Iterate until fixed point. Process in reverse order for faster convergence.
 		changed = True
 		while changed:
 			changed = False
 			for block in reversed(blocks):
 				lbl = block.label
-				# live_out(B) = union of live_in(successors)
+
+				# live_out[B] = union of live_in[S] for all successors S
 				new_out: set[str] = set()
 				for succ in block.successors:
 					new_out |= self._live_in[succ.label]
 
-				# live_in(B) = use(B) | (live_out(B) - def(B))
-				new_in = self._use[lbl] | (new_out - self._def[lbl])
+				# live_in[B] = gen[B] | (live_out[B] - kill[B])
+				new_in = self._gen[lbl] | (new_out - self._kill[lbl])
 
 				if new_in != self._live_in[lbl] or new_out != self._live_out[lbl]:
 					changed = True
 					self._live_in[lbl] = new_in
 					self._live_out[lbl] = new_out
 
-	def def_set(self, block: BasicBlock) -> set[str]:
-		"""Variables defined (written) in the block."""
-		return self._def.get(block.label, set())
+	def compute_liveness(self) -> dict[str, tuple[set[str], set[str]]]:
+		"""Compute liveness and return a dict mapping block label to (live_in, live_out)."""
+		self._ensure_computed()
+		result: dict[str, tuple[set[str], set[str]]] = {}
+		for block in self._cfg.blocks():
+			lbl = block.label
+			result[lbl] = (set(self._live_in[lbl]), set(self._live_out[lbl]))
+		return result
 
-	def use_set(self, block: BasicBlock) -> set[str]:
-		"""Variables used (read before defined) in the block."""
-		return self._use.get(block.label, set())
+	def get_live_at_point(self, block: BasicBlock, instruction_index: int) -> set[str]:
+		"""Return the set of live variables just before the given instruction index.
 
-	def live_in(self, block: BasicBlock) -> set[str]:
-		"""Variables live at block entry."""
-		return self._live_in.get(block.label, set())
-
-	def live_out(self, block: BasicBlock) -> set[str]:
-		"""Variables live at block exit."""
-		return self._live_out.get(block.label, set())
-
-	def live_at_point(self, block: BasicBlock, instruction_index: int) -> set[str]:
-		"""Return the set of variables live just *before* the given instruction.
-
-		Computes backward from live_out of the block to the requested point.
+		Index 0 means live-in of the block. An index equal to len(instructions)
+		means the live-out of the block.
 		"""
+		self._ensure_computed()
 		instrs = block.instructions
-		if not instrs:
-			return self.live_in(block).copy()
-		if instruction_index < 0 or instruction_index >= len(instrs):
-			raise IndexError(
-				f"instruction_index {instruction_index} out of range for block "
-				f"'{block.label}' with {len(instrs)} instructions"
-			)
 
-		# Start from live_out and walk backward to the instruction.
-		live = self.live_out(block).copy()
+		if instruction_index < 0 or instruction_index > len(instrs):
+			raise IndexError(f"instruction_index {instruction_index} out of range for block '{block.label}'")
+
+		# Start from live_out and walk backwards to the requested point.
+		live = set(self._live_out[block.label])
+
 		for i in range(len(instrs) - 1, instruction_index - 1, -1):
+			if i < instruction_index:
+				break
 			instr = instrs[i]
-			# Remove definitions, then add uses.
-			live -= instruction_def(instr)
-			live |= instruction_use(instr)
+			# Remove defined variable (it's not live before this point unless also used).
+			defined = _defined_temp(instr)
+			if defined is not None:
+				live.discard(defined)
+			# Add used variables (they must be live before this instruction).
+			live |= _used_temps(instr)
+
 		return live
+
+	def interference_graph(self) -> dict[str, set[str]]:
+		"""Build an interference graph: maps each variable to its set of interfering variables.
+
+		Two variables interfere if they are simultaneously live at some program point.
+		"""
+		self._ensure_computed()
+		graph: dict[str, set[str]] = {}
+
+		def _add_edge(a: str, b: str) -> None:
+			if a == b:
+				return
+			graph.setdefault(a, set()).add(b)
+			graph.setdefault(b, set()).add(a)
+
+		for block in self._cfg.blocks():
+			instrs = block.instructions
+			live = set(self._live_out[block.label])
+
+			# Ensure all variables seen are in the graph.
+			for var in live:
+				graph.setdefault(var, set())
+
+			# Walk instructions backwards, updating live set and adding edges.
+			for instr in reversed(instrs):
+				defined = _defined_temp(instr)
+				if defined is not None:
+					graph.setdefault(defined, set())
+					# The defined variable interferes with everything currently live
+					# (except itself). For copy instructions, the source and dest
+					# don't interfere (standard move coalescing optimization).
+					for var in live:
+						if isinstance(instr, IRCopy) and isinstance(instr.source, IRTemp) and var == instr.source.name:
+							continue
+						_add_edge(defined, var)
+					# Remove defined from live set.
+					live.discard(defined)
+
+				# Add used variables to live set.
+				used = _used_temps(instr)
+				live |= used
+				for var in used:
+					graph.setdefault(var, set())
+
+		return graph
