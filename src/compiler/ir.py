@@ -164,6 +164,16 @@ class IRCopy(IRInstruction):
 
 
 @dataclass
+class IRAddrOf(IRInstruction):
+	"""dest = stack_address_of(source). Takes the address of a stack-allocated temp."""
+	dest: IRTemp
+	source: IRTemp
+
+	def __str__(self) -> str:
+		return f"{self.dest} = &{self.source}"
+
+
+@dataclass
 class IRLoad(IRInstruction):
 	"""dest = *address"""
 	dest: IRTemp
@@ -277,16 +287,6 @@ class IRAlloc(IRInstruction):
 
 	def __str__(self) -> str:
 		return f"{self.dest} = alloc {self.size}"
-
-
-@dataclass
-class IRAddrOf(IRInstruction):
-	"""Address-of: dest = &source (stack address of source's frame slot)."""
-	dest: IRTemp
-	source: IRTemp
-
-	def __str__(self) -> str:
-		return f"{self.dest} = &{self.source}"
 
 
 # ---------------------------------------------------------------------------

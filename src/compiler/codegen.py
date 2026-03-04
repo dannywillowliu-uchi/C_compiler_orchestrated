@@ -358,14 +358,14 @@ class CodeGenerator:
 			self._collect_value_temp(instr.value, temps)
 		elif isinstance(instr, IRAlloc):
 			temps.add(instr.dest.name)
-		elif isinstance(instr, IRAddrOf):
-			temps.add(instr.dest.name)
-			temps.add(instr.source.name)
 		elif isinstance(instr, IRCondJump):
 			self._collect_value_temp(instr.condition, temps)
 		elif isinstance(instr, IRConvert):
 			temps.add(instr.dest.name)
 			self._collect_value_temp(instr.source, temps)
+		elif isinstance(instr, IRAddrOf):
+			temps.add(instr.dest.name)
+			temps.add(instr.source.name)
 
 	@staticmethod
 	def _collect_value_temp(value: IRValue, temps: set[str]) -> None:
@@ -501,10 +501,10 @@ class CodeGenerator:
 				self._gen_return(instr)
 		elif isinstance(instr, IRAlloc):
 			self._gen_alloc(instr)
-		elif isinstance(instr, IRAddrOf):
-			self._gen_addr_of(instr)
 		elif isinstance(instr, IRConvert):
 			self._gen_convert(instr)
+		elif isinstance(instr, IRAddrOf):
+			self._gen_addr_of(instr)
 		elif isinstance(instr, IRParam):
 			pass  # args are conveyed via IRCall.args; IRParam is a no-op here
 		else:
@@ -704,7 +704,7 @@ class CodeGenerator:
 		self._store_to_temp("%rax", instr.dest)
 
 	def _gen_addr_of(self, instr: IRAddrOf) -> None:
-		offset = self._stack_map[instr.source.name]
+		offset = self._get_offset(instr.source.name)
 		self._emit_instr(f"leaq {offset}(%rbp), %rax")
 		self._store_to_temp("%rax", instr.dest)
 
