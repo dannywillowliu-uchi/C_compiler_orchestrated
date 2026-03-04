@@ -50,8 +50,12 @@ class Preprocessor:
 	) -> None:
 		self.include_paths: list[str] = include_paths or []
 		self.macros: dict[str, Macro] = {}
+		self.warnings: list[str] = []
 		self._if_stack: list[_IfState] = []
 		self._included_files: set[str] = set()
+		self._pragma_once_files: set[str] = set()
+		self._line_offset: int = 0
+		self._file_override: str | None = None
 
 		if predefined_macros:
 			for name, body in predefined_macros.items():
@@ -59,6 +63,8 @@ class Preprocessor:
 
 	def process(self, source: str, filename: str = "<stdin>") -> str:
 		"""Process source text and return preprocessed output."""
+		self._line_offset = 0
+		self._file_override = None
 		source = self._strip_comments(source)
 		source = self._join_continuation_lines(source)
 		lines = source.split("\n")
@@ -70,7 +76,9 @@ class Preprocessor:
 			if stripped.startswith("#"):
 				self._handle_directive(stripped, filename, line_num, output_lines)
 			elif self._is_active():
-				expanded = self._expand_macros(line, filename, line_num)
+				effective_line = line_num + self._line_offset
+				effective_file = self._file_override or filename
+				expanded = self._expand_macros(line, effective_file, effective_line)
 				output_lines.append(expanded)
 			else:
 				output_lines.append("")
@@ -220,8 +228,17 @@ class Preprocessor:
 				included = self._handle_include(args, filename, line_num)
 				output_lines.append(included)
 			elif directive == "error":
-				raise PreprocessorError(f"#error {args}", filename, line_num)
-			elif directive == "warning" or directive == "pragma" or directive == "line":
+				effective_file = self._file_override or filename
+				effective_line = line_num + self._line_offset
+				raise PreprocessorError(f"#error {args}", effective_file, effective_line)
+			elif directive == "warning":
+				self._handle_warning(args, filename, line_num)
+				output_lines.append("")
+			elif directive == "line":
+				self._handle_line_directive(args, filename, line_num)
+				output_lines.append("")
+			elif directive == "pragma":
+				self._handle_pragma(args, filename, line_num)
 				output_lines.append("")
 			else:
 				raise PreprocessorError(f"Unknown directive #{directive}", filename, line_num)
@@ -338,6 +355,36 @@ class Preprocessor:
 			raise PreprocessorError("#endif without matching #if", filename, line_num)
 		self._if_stack.pop()
 
+	def _handle_warning(self, args: str, filename: str, line_num: int) -> None:
+		"""Handle #warning directive."""
+		effective_file = self._file_override or filename
+		effective_line = line_num + self._line_offset
+		self.warnings.append(f"{effective_file}:{effective_line}: warning: #warning {args}")
+
+	def _handle_line_directive(self, args: str, filename: str, line_num: int) -> None:
+		"""Handle #line directive: #line number [\"filename\"]."""
+		parts = args.split(None, 1)
+		if not parts:
+			raise PreprocessorError("Expected line number after #line", filename, line_num)
+		try:
+			new_line = int(parts[0])
+		except ValueError:
+			raise PreprocessorError(f"Invalid line number in #line: {parts[0]!r}", filename, line_num)
+		# Next source line (line_num + 1) should report as new_line
+		self._line_offset = new_line - line_num - 1
+		if len(parts) > 1:
+			fname = parts[1].strip()
+			if fname.startswith('"') and fname.endswith('"'):
+				self._file_override = fname[1:-1]
+			else:
+				raise PreprocessorError(f"Invalid filename in #line: {fname!r}", filename, line_num)
+
+	def _handle_pragma(self, args: str, filename: str, line_num: int) -> None:
+		"""Handle #pragma directive."""
+		if args.strip() == "once":
+			if filename != "<stdin>":
+				self._pragma_once_files.add(os.path.abspath(filename))
+
 	def _evaluate_condition(self, expr: str, filename: str, line_num: int) -> bool:
 		"""Evaluate a preprocessor conditional expression."""
 		# Handle defined() operator
@@ -445,6 +492,9 @@ class Preprocessor:
 		if abs_path in self._included_files:
 			return ""  # Already included (simple include guard)
 
+		if abs_path in self._pragma_once_files:
+			return ""  # Marked with #pragma once
+
 		self._included_files.add(abs_path)
 
 		try:
@@ -453,13 +503,17 @@ class Preprocessor:
 		except OSError as e:
 			raise PreprocessorError(f"Cannot read include file: {filepath}", parent_file, line_num) from e
 
-		# Save and restore if_stack state (included files shouldn't leak conditionals)
+		# Save and restore state (included files shouldn't leak conditionals or line info)
 		saved_stack = self._if_stack[:]
+		saved_line_offset = self._line_offset
+		saved_file_override = self._file_override
 		self._if_stack = []
 
 		result = self.process(content, filepath)
 
 		self._if_stack = saved_stack
+		self._line_offset = saved_line_offset
+		self._file_override = saved_file_override
 		return result
 
 	def _expand_macros(self, text: str, filename: str, line_num: int) -> str:
