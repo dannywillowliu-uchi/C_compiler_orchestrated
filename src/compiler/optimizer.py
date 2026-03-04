@@ -276,9 +276,6 @@ class IROptimizer:
 				return copies[val.name]
 			return val
 
-		if isinstance(instr, IRAddrOf):
-			# IRAddrOf source must remain the original temp (stack slot reference)
-			return instr
 		if isinstance(instr, IRBinOp):
 			nl, nr = resolve(instr.left), resolve(instr.right)
 			if nl is not instr.left or nr is not instr.right:
@@ -287,6 +284,9 @@ class IROptimizer:
 			no = resolve(instr.operand)
 			if no is not instr.operand:
 				return IRUnaryOp(dest=instr.dest, op=instr.op, operand=no)
+		elif isinstance(instr, IRAddrOf):
+			# Do not substitute source — IRAddrOf needs the actual stack slot
+			pass
 		elif isinstance(instr, IRCopy):
 			ns = resolve(instr.source)
 			if ns is not instr.source:
@@ -333,7 +333,7 @@ class IROptimizer:
 					used.add(val.name)
 		return [
 			instr for instr in body
-			if not (isinstance(instr, (IRAddrOf, IRBinOp, IRUnaryOp, IRCopy, IRConvert)) and instr.dest.name not in used)
+			if not (isinstance(instr, (IRBinOp, IRUnaryOp, IRCopy, IRConvert, IRAddrOf)) and instr.dest.name not in used)
 		]
 
 	# -- Strength Reduction --
@@ -580,6 +580,8 @@ class IROptimizer:
 			return [instr.left, instr.right]
 		if isinstance(instr, IRUnaryOp):
 			return [instr.operand]
+		if isinstance(instr, IRAddrOf):
+			return [instr.source]
 		if isinstance(instr, IRCopy):
 			return [instr.source]
 		if isinstance(instr, IRLoad):
@@ -595,7 +597,5 @@ class IROptimizer:
 		if isinstance(instr, IRParam):
 			return [instr.value]
 		if isinstance(instr, IRConvert):
-			return [instr.source]
-		if isinstance(instr, IRAddrOf):
 			return [instr.source]
 		return []

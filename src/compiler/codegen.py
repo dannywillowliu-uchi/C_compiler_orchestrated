@@ -356,6 +356,9 @@ class CodeGenerator:
 				self._collect_value_temp(instr.value, temps)
 		elif isinstance(instr, IRParam):
 			self._collect_value_temp(instr.value, temps)
+		elif isinstance(instr, IRAddrOf):
+			temps.add(instr.dest.name)
+			temps.add(instr.source.name)
 		elif isinstance(instr, IRAlloc):
 			temps.add(instr.dest.name)
 		elif isinstance(instr, IRCondJump):
@@ -363,9 +366,6 @@ class CodeGenerator:
 		elif isinstance(instr, IRConvert):
 			temps.add(instr.dest.name)
 			self._collect_value_temp(instr.source, temps)
-		elif isinstance(instr, IRAddrOf):
-			temps.add(instr.dest.name)
-			temps.add(instr.source.name)
 
 	@staticmethod
 	def _collect_value_temp(value: IRValue, temps: set[str]) -> None:
@@ -474,6 +474,8 @@ class CodeGenerator:
 				self._gen_float_unaryop(instr)
 			else:
 				self._gen_unaryop(instr)
+		elif isinstance(instr, IRAddrOf):
+			self._gen_addr_of(instr)
 		elif isinstance(instr, IRCopy):
 			if _is_float(instr.ir_type):
 				self._gen_float_copy(instr)
@@ -503,8 +505,6 @@ class CodeGenerator:
 			self._gen_alloc(instr)
 		elif isinstance(instr, IRConvert):
 			self._gen_convert(instr)
-		elif isinstance(instr, IRAddrOf):
-			self._gen_addr_of(instr)
 		elif isinstance(instr, IRParam):
 			pass  # args are conveyed via IRCall.args; IRParam is a no-op here
 		else:
@@ -586,6 +586,12 @@ class CodeGenerator:
 
 		if op != "!":
 			self._truncate_narrow(instr.ir_type)
+		self._store_to_temp("%rax", instr.dest)
+
+	def _gen_addr_of(self, instr: IRAddrOf) -> None:
+		"""Generate leaq to get the stack address of source temp."""
+		offset = self._get_offset(instr.source.name)
+		self._emit_instr(f"leaq {offset}(%rbp), %rax")
 		self._store_to_temp("%rax", instr.dest)
 
 	def _gen_copy(self, instr: IRCopy) -> None:
@@ -701,11 +707,6 @@ class CodeGenerator:
 		aligned = self._align16(instr.size)
 		self._emit_instr(f"subq ${aligned}, %rsp")
 		self._emit_instr("movq %rsp, %rax")
-		self._store_to_temp("%rax", instr.dest)
-
-	def _gen_addr_of(self, instr: IRAddrOf) -> None:
-		offset = self._get_offset(instr.source.name)
-		self._emit_instr(f"leaq {offset}(%rbp), %rax")
 		self._store_to_temp("%rax", instr.dest)
 
 	# ------------------------------------------------------------------
