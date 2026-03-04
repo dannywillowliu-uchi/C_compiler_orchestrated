@@ -4,6 +4,17 @@ from dataclasses import dataclass
 from enum import Enum, auto
 
 
+class IntegerSuffix(Enum):
+	"""Integer literal suffix indicating type."""
+
+	NONE = ""
+	U = "u"
+	L = "l"
+	UL = "ul"
+	LL = "ll"
+	ULL = "ull"
+
+
 class TokenType(Enum):
 	"""All token types for C89."""
 
@@ -152,6 +163,7 @@ class Token:
 	value: str
 	line: int
 	column: int
+	suffix: IntegerSuffix = IntegerSuffix.NONE
 
 	def __repr__(self) -> str:
 		return f"Token({self.type.name}, {self.value!r}, {self.line}:{self.column})"
