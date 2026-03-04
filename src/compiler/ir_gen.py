@@ -152,6 +152,8 @@ class IRGenerator(ASTVisitor):
 		self._functions: list[IRFunction] = []
 		self._globals: list[IRGlobalVar] = []
 		self._global_names: set[str] = set()
+		self._global_types: dict[str, TypeSpec] = {}
+		self._global_array: dict[str, list[int]] = {}
 		self._in_function: bool = False
 		self._current_function_name: str = ""
 		self._loop_stack: list[tuple[str, str]] = []  # (continue_label, break_label)
@@ -417,6 +419,14 @@ class IRGenerator(ASTVisitor):
 	def visit_var_decl(self, node: VarDecl) -> None:
 		if not self._in_function:
 			self._emit_global_var(node.name, node)
+			self._global_types[node.name] = node.type_spec
+			if node.array_sizes:
+				size_vals = []
+				for se in node.array_sizes:
+					if isinstance(se, IntLiteral):
+						size_vals.append(se.value)
+				if size_vals:
+					self._global_array[node.name] = size_vals
 			if node.type_spec.is_function_pointer:
 				self._func_ptr_locals.add(node.name)
 			return
@@ -1195,7 +1205,7 @@ class IRGenerator(ASTVisitor):
 	def _infer_expr_type(self, node: ASTNode) -> TypeSpec | None:
 		"""Infer the C type of an expression AST node without emitting IR."""
 		if isinstance(node, Identifier):
-			return self._local_types.get(node.name)
+			return self._local_types.get(node.name) or self._global_types.get(node.name)
 		if isinstance(node, CharLiteral):
 			return TypeSpec(base_type="char")
 		if isinstance(node, IntLiteral):
@@ -1229,10 +1239,15 @@ class IRGenerator(ASTVisitor):
 					)
 			return self._infer_expr_type(node.operand)
 		if isinstance(node, ArraySubscript):
-			current: ASTNode = node
-			while isinstance(current, ArraySubscript):
-				current = current.array
-			return self._infer_expr_type(current)
+			arr_type = self._infer_expr_type(node.array)
+			if arr_type and arr_type.pointer_count > 0:
+				return TypeSpec(
+					base_type=arr_type.base_type,
+					pointer_count=arr_type.pointer_count - 1,
+					width_modifier=arr_type.width_modifier,
+					signedness=arr_type.signedness,
+				)
+			return arr_type
 		if isinstance(node, MemberAccess):
 			obj_type = self._infer_expr_type(node.object)
 			if obj_type:
@@ -1269,9 +1284,9 @@ class IRGenerator(ASTVisitor):
 			# sizeof(array_variable) returns total array size
 			if isinstance(node.operand, Identifier):
 				name = node.operand.name
-				ts = self._local_types.get(name)
+				ts = self._local_types.get(name) or self._global_types.get(name)
 				if ts is not None:
-					dims = self._local_array.get(name)
+					dims = self._local_array.get(name) or self._global_array.get(name)
 					if dims:
 						elem_size = self._resolve_member_size(ts)
 						total = elem_size
