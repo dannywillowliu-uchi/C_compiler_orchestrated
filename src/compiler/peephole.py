@@ -83,6 +83,14 @@ class PeepholeOptimizer:
 		self._movl_zero_re = re.compile(
 			r"^\tmovl\s+\$0,\s+(%\w+)$"
 		)
+		# movw $0, %reg -> xorl %reg32, %reg32
+		self._movw_zero_re = re.compile(
+			r"^\tmovw\s+\$0,\s+(%\w+)$"
+		)
+		# movb $0, %reg -> xorl %reg32, %reg32
+		self._movb_zero_re = re.compile(
+			r"^\tmovb\s+\$0,\s+(%\w+)$"
+		)
 		# Strength reduction patterns
 		self._imulq_imm_re = re.compile(
 			r"^\timulq\s+\$(\d+),\s+(%\w+)$"
@@ -451,6 +459,22 @@ class PeepholeOptimizer:
 				i += 1
 				continue
 
+			# movw $0, %reg -> xorl %reg32, %reg32
+			opt = self._try_movw_zero_to_xorl(lines[i])
+			if opt is not None:
+				result.append(opt)
+				changed = True
+				i += 1
+				continue
+
+			# movb $0, %reg -> xorl %reg32, %reg32
+			opt = self._try_movb_zero_to_xorl(lines[i])
+			if opt is not None:
+				result.append(opt)
+				changed = True
+				i += 1
+				continue
+
 			# Strength reduction: imulq by power of 2 -> shlq
 			opt = self._try_strength_reduction_mul(lines[i])
 			if opt is not None:
@@ -631,6 +655,28 @@ class PeepholeOptimizer:
 			return None
 		reg = m.group(1)
 		return f"\txorl {reg}, {reg}"
+
+	def _try_movw_zero_to_xorl(self, line: str) -> str | None:
+		"""Replace 'movw $0, %reg16' with 'xorl %reg32, %reg32'."""
+		m = self._movw_zero_re.match(line)
+		if m is None:
+			return None
+		reg16 = m.group(1)
+		reg32 = self._reg16_to_reg32.get(reg16)
+		if reg32 is not None:
+			return f"\txorl {reg32}, {reg32}"
+		return None
+
+	def _try_movb_zero_to_xorl(self, line: str) -> str | None:
+		"""Replace 'movb $0, %reg8' with 'xorl %reg32, %reg32'."""
+		m = self._movb_zero_re.match(line)
+		if m is None:
+			return None
+		reg8 = m.group(1)
+		reg32 = self._reg8_to_reg32.get(reg8)
+		if reg32 is not None:
+			return f"\txorl {reg32}, {reg32}"
+		return None
 
 	def _try_reverse_move(self, line1: str, line2: str) -> list[str] | None:
 		"""Eliminate movq %rA, %rB followed by movq %rB, %rA (reverse copy is redundant)."""
