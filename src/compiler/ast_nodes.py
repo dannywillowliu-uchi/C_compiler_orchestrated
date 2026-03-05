@@ -177,6 +177,9 @@ class ASTVisitor:
 	def visit_compound_literal(self, node: CompoundLiteral) -> Any:
 		return None
 
+	def visit_static_assert_decl(self, node: StaticAssertDecl) -> Any:
+		return None
+
 
 # --- Type node ---
 
@@ -630,6 +633,7 @@ class StructDecl(ASTNode):
 
 	name: str = ""
 	members: list[StructMember] = field(default_factory=list)
+	static_asserts: list[StaticAssertDecl] = field(default_factory=list)
 
 	def accept(self, visitor: ASTVisitor) -> Any:
 		return visitor.visit_struct_decl(self)
@@ -641,6 +645,7 @@ class UnionDecl(ASTNode):
 
 	name: str = ""
 	members: list[StructMember] = field(default_factory=list)
+	static_asserts: list[StaticAssertDecl] = field(default_factory=list)
 
 	def accept(self, visitor: ASTVisitor) -> Any:
 		return visitor.visit_union_decl(self)
@@ -680,6 +685,17 @@ class TypedefDecl(ASTNode):
 
 	def accept(self, visitor: ASTVisitor) -> Any:
 		return visitor.visit_typedef_decl(self)
+
+
+@dataclass
+class StaticAssertDecl(ASTNode):
+	"""C11 _Static_assert(expr, string-literal)."""
+
+	expression: ASTNode = field(default_factory=ASTNode)
+	message: str = ""
+
+	def accept(self, visitor: ASTVisitor) -> Any:
+		return visitor.visit_static_assert_decl(self)
 
 
 @dataclass
