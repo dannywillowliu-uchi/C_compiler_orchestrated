@@ -145,10 +145,10 @@ class TestPushPopElimination:
 		asm = "\tpushq %rbp\n\tpopq %rbp"
 		assert _opt(asm) == ""
 
-	def test_push_pop_different_regs_preserved(self) -> None:
-		"""pushq %rbx + popq %rcx is a move, not redundant."""
+	def test_push_pop_different_regs_becomes_movq(self) -> None:
+		"""pushq %rbx + popq %rcx -> movq %rbx, %rcx."""
 		asm = "\tpushq %rbx\n\tpopq %rcx"
-		assert _opt(asm) == asm
+		assert _opt(asm) == "\tmovq %rbx, %rcx"
 
 	def test_push_pop_with_intervening_preserved(self) -> None:
 		"""Push/pop with instructions between them are NOT eliminated."""

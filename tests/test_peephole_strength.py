@@ -58,10 +58,10 @@ class TestReverseMoveElimination:
 		])
 		assert result == expected
 
-	def test_same_direction_not_eliminated(self) -> None:
-		"""Two identical moves are not reverse moves."""
+	def test_same_direction_deduplicated(self) -> None:
+		"""Two identical moves are deduplicated to one."""
 		asm = "\tmovq %rax, %rbx\n\tmovq %rax, %rbx"
-		assert _opt(asm) == asm
+		assert _opt(asm) == "\tmovq %rax, %rbx"
 
 
 # ---------------------------------------------------------------------------

@@ -92,10 +92,10 @@ class TestPushPopElimination:
 		asm = "\tpushq %rax\n\tpopq %rax"
 		assert _opt(asm) == ""
 
-	def test_different_register_not_eliminated(self) -> None:
-		"""pushq %rax + popq %rbx should NOT be eliminated."""
+	def test_different_register_becomes_movq(self) -> None:
+		"""pushq %rax + popq %rbx -> movq %rax, %rbx."""
 		asm = "\tpushq %rax\n\tpopq %rbx"
-		assert _opt(asm) == asm
+		assert _opt(asm) == "\tmovq %rax, %rbx"
 
 	def test_push_pop_with_surrounding_code(self) -> None:
 		asm = "\tmovq $1, %rax\n\tpushq %rbx\n\tpopq %rbx\n\tret"
