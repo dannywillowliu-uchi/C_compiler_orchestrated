@@ -57,6 +57,7 @@ class IROptimizer:
 				self._copy_propagation,
 				self._convert_elimination,
 				self._cse,
+				self._constant_condjump_folding,
 				self._dead_code_elimination,
 				self._jump_threading,
 				self._unreachable_elimination,
@@ -442,6 +443,25 @@ class IROptimizer:
 				result.append(instr)
 				if isinstance(instr, (IRJump, IRReturn)):
 					unreachable = True
+		return result
+
+	# -- Constant Conditional Jump Folding --
+
+	def _constant_condjump_folding(self, body: list[IRInstruction]) -> list[IRInstruction]:
+		"""Replace conditional jumps on constant conditions with unconditional jumps."""
+		result: list[IRInstruction] = []
+		for instr in body:
+			if isinstance(instr, IRCondJump) and isinstance(instr.condition, (IRConst, IRFloatConst)):
+				if isinstance(instr.condition, IRFloatConst):
+					is_true = instr.condition.value != 0.0
+				else:
+					is_true = instr.condition.value != 0
+				if is_true:
+					result.append(IRJump(target=instr.true_label))
+				else:
+					result.append(IRJump(target=instr.false_label))
+				continue
+			result.append(instr)
 		return result
 
 	# -- Common Subexpression Elimination --

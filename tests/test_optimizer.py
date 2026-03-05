@@ -428,7 +428,7 @@ class TestCombinedOptimizations:
 		assert result.functions[1].body[0].value == IRConst(99)
 
 	def test_complex_cfg_preserved(self):
-		"""Labels, jumps, and conditional jumps are preserved."""
+		"""Constant condition is folded: condjump becomes unconditional jump to true_label."""
 		body = [
 			IRCopy(dest=IRTemp("t0"), source=IRConst(1)),
 			IRCondJump(condition=IRTemp("t0"), true_label="L1", false_label="L2"),
@@ -438,12 +438,10 @@ class TestCombinedOptimizations:
 			IRReturn(value=IRConst(0)),
 		]
 		result = _opt(body)
-		# Const propagated into condjump
-		cjs = [i for i in result if isinstance(i, IRCondJump)]
-		assert cjs[0].condition == IRConst(1)
-		# Labels preserved
-		labels = [i for i in result if isinstance(i, IRLabelInstr)]
-		assert len(labels) == 2
+		# Const propagated then condjump folded to unconditional jump
+		assert not any(isinstance(i, IRCondJump) for i in result)
+		jumps = [i for i in result if isinstance(i, IRJump)]
+		assert any(j.target == "L1" for j in jumps)
 
 	def test_empty_function(self):
 		result = _opt([])
