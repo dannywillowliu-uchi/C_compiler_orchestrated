@@ -135,6 +135,8 @@ class CodeGenerator:
 					self._emit_instr(f".quad {g.string_label}")
 				elif g.ir_type in (IRType.CHAR, IRType.BOOL):
 					self._emit_instr(f".byte {g.initializer}")
+				elif g.ir_type == IRType.SHORT:
+					self._emit_instr(f".word {g.initializer}")
 				elif g.ir_type == IRType.FLOAT:
 					bits = struct.unpack("<I", struct.pack("<f", float(g.initializer or 0)))[0]
 					self._emit_instr(f".long {bits}")
