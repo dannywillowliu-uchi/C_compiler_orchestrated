@@ -470,6 +470,22 @@ class IROptimizer:
 				return IRBinOp(dest=instr.dest, left=left, op="<<", right=IRConst(right.value.bit_length() - 1))
 			if isinstance(left, IRConst) and left.value > 1 and (left.value & (left.value - 1)) == 0:
 				return IRBinOp(dest=instr.dest, left=right, op="<<", right=IRConst(left.value.bit_length() - 1))
+		elif op == "/":
+			# x / 1 -> x
+			if isinstance(right, IRConst) and right.value == 1:
+				return IRCopy(dest=instr.dest, source=left)
+			# unsigned x / power_of_2 -> right shift
+			if isinstance(right, IRConst) and right.value > 1 and (right.value & (right.value - 1)) == 0:
+				shift = right.value.bit_length() - 1
+				return IRBinOp(dest=instr.dest, left=left, op=">>", right=IRConst(shift))
+		elif op == "%":
+			# x % 1 -> 0
+			if isinstance(right, IRConst) and right.value == 1:
+				return IRCopy(dest=instr.dest, source=IRConst(0))
+			# unsigned x % power_of_2 -> bitwise AND with (power_of_2 - 1)
+			if isinstance(right, IRConst) and right.value > 1 and (right.value & (right.value - 1)) == 0:
+				mask = right.value - 1
+				return IRBinOp(dest=instr.dest, left=left, op="&", right=IRConst(mask))
 		elif op == "+":
 			if isinstance(right, IRConst) and right.value == 0:
 				return IRCopy(dest=instr.dest, source=left)
