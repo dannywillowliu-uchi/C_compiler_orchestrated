@@ -14,6 +14,7 @@ from compiler.ast_nodes import (
 	CharLiteral,
 	CommaExpr,
 	CompoundAssignment,
+	CompoundLiteral,
 	CompoundStmt,
 	ContinueStmt,
 	DesignatedInit,
@@ -2396,6 +2397,84 @@ class IRGenerator(ASTVisitor):
 			self._emit(IRConvert(dest=dest, source=val, from_type=val_type, to_type=target_ir_type))
 		else:
 			self._emit(IRCopy(dest=dest, source=val, ir_type=target_ir_type))
+		return dest
+
+	def visit_compound_literal(self, node: CompoundLiteral) -> IRTemp:
+		"""Handle compound literals: allocate stack space, initialize, return address."""
+		ts = node.type_spec
+		base_type = ts.base_type
+		dest = self._new_temp()
+		self._set_temp_type(dest, IRType.POINTER)
+
+		if base_type.startswith("struct "):
+			struct_name = base_type[len("struct "):]
+			members = self._structs.get(struct_name, [])
+			total_size = self._compute_struct_size(struct_name)
+			self._emit(IRAlloc(dest=dest, size=total_size))
+			# Emit stores for each element
+			has_designated = any(isinstance(e, DesignatedInit) for e in node.init_list.elements)
+			if has_designated:
+				self._zero_fill_struct(dest, members)
+				positional_idx = 0
+				for elem in node.init_list.elements:
+					if isinstance(elem, DesignatedInit) and elem.field_name is not None:
+						field_offset = self._compute_field_offset(struct_name, elem.field_name)
+						val = self.visit(elem.value)
+						a = self._new_temp()
+						self._emit(IRBinOp(dest=a, left=dest, op="+", right=IRConst(field_offset)))
+						self._emit(IRStore(address=a, value=val))
+						for mi, m in enumerate(members):
+							if m.name == elem.field_name:
+								positional_idx = mi + 1
+								break
+					else:
+						if positional_idx >= len(members):
+							break
+						field_offset = self._compute_field_offset_by_index(struct_name, positional_idx)
+						val = self.visit(elem)
+						a = self._new_temp()
+						self._emit(IRBinOp(dest=a, left=dest, op="+", right=IRConst(field_offset)))
+						self._emit(IRStore(address=a, value=val))
+						positional_idx += 1
+			else:
+				for i, elem in enumerate(node.init_list.elements):
+					if i >= len(members):
+						break
+					field_offset = self._compute_field_offset_by_index(struct_name, i)
+					val = self.visit(elem)
+					a = self._new_temp()
+					self._emit(IRBinOp(dest=a, left=dest, op="+", right=IRConst(field_offset)))
+					self._emit(IRStore(address=a, value=val))
+		elif base_type.startswith("union "):
+			union_name = base_type[len("union "):]
+			total_size = self._compute_union_size(union_name)
+			self._emit(IRAlloc(dest=dest, size=total_size))
+			if node.init_list.elements:
+				elem = node.init_list.elements[0]
+				if isinstance(elem, DesignatedInit) and elem.field_name is not None:
+					val = self.visit(elem.value)
+				else:
+					val = self.visit(elem)
+				self._emit(IRStore(address=dest, value=val))
+		else:
+			# Scalar or array compound literal
+			element_size = _resolve_size(ts)
+			num_elements = len(node.init_list.elements)
+			if num_elements <= 1:
+				total_size = element_size
+			else:
+				total_size = element_size * num_elements
+			self._emit(IRAlloc(dest=dest, size=total_size))
+			for i, elem in enumerate(node.init_list.elements):
+				val = self.visit(elem)
+				if num_elements > 1:
+					offset = self._new_temp()
+					self._emit(IRBinOp(dest=offset, left=IRConst(i), op="*", right=IRConst(element_size)))
+					addr = self._new_temp()
+					self._emit(IRBinOp(dest=addr, left=dest, op="+", right=offset))
+					self._emit(IRStore(address=addr, value=val))
+				else:
+					self._emit(IRStore(address=dest, value=val))
 		return dest
 
 	def visit_comma_expr(self, node: CommaExpr) -> IRValue:

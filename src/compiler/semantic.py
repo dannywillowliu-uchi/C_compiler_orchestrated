@@ -16,6 +16,7 @@ from compiler.ast_nodes import (
 	CharLiteral,
 	CommaExpr,
 	CompoundAssignment,
+	CompoundLiteral,
 	CompoundStmt,
 	ContinueStmt,
 	DesignatedInit,
@@ -1145,6 +1146,11 @@ class SemanticAnalyzer(ASTVisitor):
 					node,
 				)
 		return target
+
+	def visit_compound_literal(self, node: CompoundLiteral) -> TypeSpec:
+		node.type_spec = self._resolve_type(node.type_spec)
+		self.visit(node.init_list)
+		return node.type_spec
 
 	def visit_comma_expr(self, node: CommaExpr) -> TypeSpec | None:
 		self.visit(node.left)
