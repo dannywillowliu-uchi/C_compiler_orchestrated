@@ -112,10 +112,10 @@ class TestStrengthReduction:
 		])
 		assert result == expected
 
-	def test_imulq_0_to_xorq(self) -> None:
+	def test_imulq_0_to_xorl(self) -> None:
 		"""Multiplication by 0 should zero the register."""
 		asm = "\timulq $0, %rax"
-		assert _opt(asm) == "\txorq %rax, %rax"
+		assert _opt(asm) == "\txorl %eax, %eax"
 
 	def test_strength_reduction_with_context(self) -> None:
 		lines = [
@@ -237,11 +237,11 @@ class TestCombineAddSub:
 class TestZeroToXor:
 	def test_mov_zero_to_xor(self) -> None:
 		asm = "\tmovq $0, %rax"
-		assert _opt(asm) == "\txorq %rax, %rax"
+		assert _opt(asm) == "\txorl %eax, %eax"
 
 	def test_mov_zero_to_xor_different_reg(self) -> None:
 		asm = "\tmovq $0, %rcx"
-		assert _opt(asm) == "\txorq %rcx, %rcx"
+		assert _opt(asm) == "\txorl %ecx, %ecx"
 
 	def test_non_zero_mov_preserved(self) -> None:
 		asm = "\tmovq $42, %rax"

@@ -13,16 +13,21 @@ def opt() -> PeepholeOptimizer:
 # --- movq $0 -> xorq ---
 
 class TestMovZeroToXor:
-	def test_movq_zero_to_xorq(self, opt: PeepholeOptimizer) -> None:
+	def test_movq_zero_to_xorl(self, opt: PeepholeOptimizer) -> None:
 		asm = "\tmovq $0, %rax"
 		result = opt.optimize(asm)
-		assert result == "\txorq %rax, %rax"
+		assert result == "\txorl %eax, %eax"
 
 	def test_movq_zero_different_regs(self, opt: PeepholeOptimizer) -> None:
+		reg_map = {
+			"%rbx": "%ebx", "%rcx": "%ecx", "%rdx": "%edx",
+			"%rsi": "%esi", "%rdi": "%edi", "%r8": "%r8d", "%r9": "%r9d",
+		}
 		for reg in ["%rbx", "%rcx", "%rdx", "%rsi", "%rdi", "%r8", "%r9"]:
 			asm = f"\tmovq $0, {reg}"
 			result = opt.optimize(asm)
-			assert result == f"\txorq {reg}, {reg}"
+			reg32 = reg_map[reg]
+			assert result == f"\txorl {reg32}, {reg32}"
 
 	def test_movl_zero_to_xorl(self, opt: PeepholeOptimizer) -> None:
 		asm = "\tmovl $0, %eax"
@@ -222,13 +227,13 @@ class TestMovAddRegToLea:
 
 class TestCombinedPatterns:
 	def test_movq_zero_then_cmpq_zero(self, opt: PeepholeOptimizer) -> None:
-		"""movq $0 + cmpq $0 folds to xorq (testq eliminated as redundant)."""
+		"""movq $0 + cmpq $0 folds to xorl (testq eliminated as redundant)."""
 		asm = "\n".join([
 			"\tmovq $0, %rax",
 			"\tcmpq $0, %rax",
 		])
 		result = opt.optimize(asm)
-		assert "\txorq %rax, %rax" in result
+		assert "\txorl %eax, %eax" in result
 
 	def test_multiple_zero_moves(self, opt: PeepholeOptimizer) -> None:
 		asm = "\n".join([
@@ -237,9 +242,9 @@ class TestCombinedPatterns:
 			"\tmovq $0, %rcx",
 		])
 		result = opt.optimize(asm)
-		assert "\txorq %rax, %rax" in result
-		assert "\txorq %rbx, %rbx" in result
-		assert "\txorq %rcx, %rcx" in result
+		assert "\txorl %eax, %eax" in result
+		assert "\txorl %ebx, %ebx" in result
+		assert "\txorl %ecx, %ecx" in result
 		assert "movq $0" not in result
 
 	def test_lea_fold_chain(self, opt: PeepholeOptimizer) -> None:

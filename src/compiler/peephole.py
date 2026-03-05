@@ -120,6 +120,10 @@ class PeepholeOptimizer:
 		self._addq_imm_to_reg_re = re.compile(
 			r"^\taddq\s+\$(-?\d+),\s+(%\w+)$"
 		)
+		# movq offset(%rbp), %reg for load+add -> lea folding
+		self._movq_load_rbp_re = re.compile(
+			r"^\tmovq\s+(-?\d+)\(%rbp\),\s+(%\w+)$"
+		)
 		# Extension instruction patterns (movzbl, movsbl, movzwl, movswl, movzbw, movsbw)
 		self._ext_re = re.compile(
 			r"^\t(movzbl|movsbl|movzwl|movswl|movzbw|movsbw)\s+(%\w+),\s+(%\w+)$"
@@ -200,6 +204,14 @@ class PeepholeOptimizer:
 
 				# LEA folding: movq %rA, %rB + addq $imm, %rB -> leaq imm(%rA), %rB
 				opt = self._try_mov_addimm_to_lea(lines, i)
+				if opt is not None:
+					result.extend(opt)
+					changed = True
+					i += 2
+					continue
+
+				# LEA folding: movq offset(%rbp), %r1 + addq $imm, %r1 -> leaq offset+imm(%rbp), %r1
+				opt = self._try_load_add_to_lea(lines[i], lines[i + 1])
 				if opt is not None:
 					result.extend(opt)
 					changed = True
@@ -492,6 +504,9 @@ class PeepholeOptimizer:
 			return None
 		if mov_m.group(1) == cmp_m.group(1):
 			reg = mov_m.group(1)
+			reg32 = self._reg64_to_reg32.get(reg)
+			if reg32 is not None:
+				return [f"\txorl {reg32}, {reg32}", f"\ttestq {reg}, {reg}"]
 			return [f"\txorq {reg}, {reg}", f"\ttestq {reg}, {reg}"]
 		return None
 
@@ -596,11 +611,14 @@ class PeepholeOptimizer:
 		return f"\ttestq {reg}, {reg}"
 
 	def _try_mov_zero_to_xor(self, line: str) -> str | None:
-		"""Replace 'movq $0, %reg' with 'xorq %reg, %reg' (shorter encoding)."""
+		"""Replace 'movq $0, %reg' with 'xorl %e_reg, %e_reg' (shorter encoding, breaks deps)."""
 		m = self._movq_zero_re.match(line)
 		if m is None:
 			return None
 		reg = m.group(1)
+		reg32 = self._reg64_to_reg32.get(reg)
+		if reg32 is not None:
+			return f"\txorl {reg32}, {reg32}"
 		return f"\txorq {reg}, {reg}"
 
 	def _try_movl_zero_to_xorl(self, line: str) -> str | None:
@@ -634,6 +652,9 @@ class PeepholeOptimizer:
 		imm = int(m.group(1))
 		reg = m.group(2)
 		if imm == 0:
+			reg32 = self._reg64_to_reg32.get(reg)
+			if reg32 is not None:
+				return f"\txorl {reg32}, {reg32}"
 			return f"\txorq {reg}, {reg}"
 		if imm == 1:
 			return ""
@@ -942,6 +963,25 @@ class PeepholeOptimizer:
 			return None
 		return [f"\tleaq ({ra},{rc}), {rb}"]
 
+	def _try_load_add_to_lea(self, line1: str, line2: str) -> list[str] | None:
+		"""Fold 'movq offset(%rbp), %r1; addq $imm, %r1' into 'leaq offset+imm(%rbp), %r1'."""
+		m_load = self._movq_load_rbp_re.match(line1)
+		if m_load is None:
+			return None
+		offset = int(m_load.group(1))
+		reg = m_load.group(2)
+		m_add = self._addq_imm_to_reg_re.match(line2)
+		if m_add is None:
+			return None
+		imm = int(m_add.group(1))
+		add_dst = m_add.group(2)
+		if add_dst != reg:
+			return None
+		combined = offset + imm
+		if not (-2147483648 <= combined <= 2147483647):
+			return None
+		return [f"\tleaq {combined}(%rbp), {reg}"]
+
 	def _try_redundant_test_after_arith(self, line1: str, line2: str) -> list[str] | None:
 		"""Eliminate testq %reg, %reg after flag-setting arithmetic on same register.
 
@@ -1103,6 +1143,14 @@ class PeepholeOptimizer:
 
 	# Map from 16-bit register to its 32-bit counterpart
 	_reg16_to_reg32 = {v: k for k, v in _reg32_to_reg16.items()}
+
+	# Map from 64-bit register to its 32-bit counterpart
+	_reg64_to_reg32 = {
+		"%rax": "%eax", "%rbx": "%ebx", "%rcx": "%ecx", "%rdx": "%edx",
+		"%rsi": "%esi", "%rdi": "%edi", "%r8": "%r8d", "%r9": "%r9d",
+		"%r10": "%r10d", "%r11": "%r11d", "%r12": "%r12d",
+		"%r13": "%r13d", "%r14": "%r14d", "%r15": "%r15d",
+	}
 
 	def _regs_same_physical(self, r1: str, r2: str) -> bool:
 		"""Check if two register names refer to the same physical register."""
