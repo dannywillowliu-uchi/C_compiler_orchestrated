@@ -162,6 +162,18 @@ class ASTVisitor:
 	def visit_label_stmt(self, node: LabelStmt) -> Any:
 		return None
 
+	def visit_va_start_expr(self, node: VaStartExpr) -> Any:
+		return None
+
+	def visit_va_arg_expr(self, node: VaArgExpr) -> Any:
+		return None
+
+	def visit_va_end_expr(self, node: VaEndExpr) -> Any:
+		return None
+
+	def visit_va_copy_expr(self, node: VaCopyExpr) -> Any:
+		return None
+
 
 # --- Type node ---
 
@@ -396,6 +408,49 @@ class CommaExpr(ASTNode):
 
 	def accept(self, visitor: ASTVisitor) -> Any:
 		return visitor.visit_comma_expr(self)
+
+
+@dataclass
+class VaStartExpr(ASTNode):
+	"""va_start(ap, last_param): initialize va_list."""
+
+	ap: ASTNode = field(default_factory=ASTNode)
+	last_param: str = ""
+
+	def accept(self, visitor: ASTVisitor) -> Any:
+		return visitor.visit_va_start_expr(self)
+
+
+@dataclass
+class VaArgExpr(ASTNode):
+	"""va_arg(ap, type): fetch next variadic argument of given type."""
+
+	ap: ASTNode = field(default_factory=ASTNode)
+	arg_type: TypeSpec = field(default_factory=TypeSpec)
+
+	def accept(self, visitor: ASTVisitor) -> Any:
+		return visitor.visit_va_arg_expr(self)
+
+
+@dataclass
+class VaEndExpr(ASTNode):
+	"""va_end(ap): clean up va_list."""
+
+	ap: ASTNode = field(default_factory=ASTNode)
+
+	def accept(self, visitor: ASTVisitor) -> Any:
+		return visitor.visit_va_end_expr(self)
+
+
+@dataclass
+class VaCopyExpr(ASTNode):
+	"""va_copy(dest, src): copy va_list."""
+
+	dest: ASTNode = field(default_factory=ASTNode)
+	src: ASTNode = field(default_factory=ASTNode)
+
+	def accept(self, visitor: ASTVisitor) -> Any:
+		return visitor.visit_va_copy_expr(self)
 
 
 # --- Statement nodes ---

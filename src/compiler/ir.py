@@ -289,6 +289,46 @@ class IRAlloc(IRInstruction):
 		return f"{self.dest} = alloc {self.size}"
 
 
+@dataclass
+class IRVaStart(IRInstruction):
+	"""Initialize a va_list: va_start(ap, last_named_param)."""
+	ap_addr: IRValue
+	num_named_gp: int = 0
+
+	def __str__(self) -> str:
+		return f"va_start {self.ap_addr}, named_gp={self.num_named_gp}"
+
+
+@dataclass
+class IRVaArg(IRInstruction):
+	"""Fetch next variadic argument: dest = va_arg(ap, type)."""
+	dest: IRTemp
+	ap_addr: IRValue
+	ir_type: IRType = IRType.INT
+
+	def __str__(self) -> str:
+		return f"{self.dest} = va_arg {self.ap_addr}, {self.ir_type.name}"
+
+
+@dataclass
+class IRVaEnd(IRInstruction):
+	"""Clean up a va_list: va_end(ap)."""
+	ap_addr: IRValue
+
+	def __str__(self) -> str:
+		return f"va_end {self.ap_addr}"
+
+
+@dataclass
+class IRVaCopy(IRInstruction):
+	"""Copy a va_list: va_copy(dest, src)."""
+	dest_addr: IRValue
+	src_addr: IRValue
+
+	def __str__(self) -> str:
+		return f"va_copy {self.dest_addr}, {self.src_addr}"
+
+
 # ---------------------------------------------------------------------------
 # Program structure
 # ---------------------------------------------------------------------------
@@ -333,6 +373,7 @@ class IRFunction:
 	param_types: list[IRType] = field(default_factory=list)
 	storage_class: Optional[str] = None  # "static", "extern", or None (default/global)
 	is_prototype: bool = False  # True if declaration-only (no body)
+	is_variadic: bool = False
 
 	def __str__(self) -> str:
 		params_str = ", ".join(str(p) for p in self.params)

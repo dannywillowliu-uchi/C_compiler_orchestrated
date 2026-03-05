@@ -50,6 +50,10 @@ from compiler.ast_nodes import (
 	TypeSpec,
 	UnaryOp,
 	UnionDecl,
+	VaCopyExpr,
+	VaArgExpr,
+	VaEndExpr,
+	VaStartExpr,
 	VarDecl,
 	WhileStmt,
 )
@@ -1294,6 +1298,36 @@ class Parser:
 			return StringLiteral(value=inner, loc=self._loc(tok))
 
 		if tok.type == TokenType.IDENTIFIER:
+			if tok.value in ("va_start", "__builtin_va_start"):
+				self._advance()
+				self._expect(TokenType.LPAREN, "Expected '(' after va_start")
+				ap = self._parse_assignment()
+				self._expect(TokenType.COMMA, "Expected ',' in va_start")
+				last_tok = self._expect(TokenType.IDENTIFIER, "Expected parameter name in va_start")
+				self._expect(TokenType.RPAREN, "Expected ')' after va_start")
+				return VaStartExpr(ap=ap, last_param=last_tok.value, loc=self._loc(tok))
+			if tok.value in ("va_arg", "__builtin_va_arg"):
+				self._advance()
+				self._expect(TokenType.LPAREN, "Expected '(' after va_arg")
+				ap = self._parse_assignment()
+				self._expect(TokenType.COMMA, "Expected ',' in va_arg")
+				arg_type = self._parse_type_spec()
+				self._expect(TokenType.RPAREN, "Expected ')' after va_arg")
+				return VaArgExpr(ap=ap, arg_type=arg_type, loc=self._loc(tok))
+			if tok.value in ("va_end", "__builtin_va_end"):
+				self._advance()
+				self._expect(TokenType.LPAREN, "Expected '(' after va_end")
+				ap = self._parse_assignment()
+				self._expect(TokenType.RPAREN, "Expected ')' after va_end")
+				return VaEndExpr(ap=ap, loc=self._loc(tok))
+			if tok.value in ("va_copy", "__builtin_va_copy"):
+				self._advance()
+				self._expect(TokenType.LPAREN, "Expected '(' after va_copy")
+				dest = self._parse_assignment()
+				self._expect(TokenType.COMMA, "Expected ',' in va_copy")
+				src = self._parse_assignment()
+				self._expect(TokenType.RPAREN, "Expected ')' after va_copy")
+				return VaCopyExpr(dest=dest, src=src, loc=self._loc(tok))
 			self._advance()
 			return Identifier(name=tok.value, loc=self._loc(tok))
 
