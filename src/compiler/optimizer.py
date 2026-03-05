@@ -62,6 +62,7 @@ class IROptimizer:
 				self._cse,
 				self._constant_condjump_folding,
 				self._dead_store_elimination,
+				self._unused_variable_elimination,
 				self._dead_code_elimination,
 				self._jump_threading,
 				self._unreachable_elimination,
@@ -962,6 +963,50 @@ class IROptimizer:
 						pending_stores.clear()
 				elif isinstance(instr, (IRCall, IRVaStart, IRVaArg, IRVaEnd, IRVaCopy, IRAddrOf)):
 					pending_stores.clear()
+
+		if not dead_ids:
+			return body
+
+		return [instr for instr in body if id(instr) not in dead_ids]
+
+	# -- Unused Variable Elimination (Liveness-Based) --
+
+	def _unused_variable_elimination(self, body: list[IRInstruction]) -> list[IRInstruction]:
+		"""Eliminate pure definitions whose dest is not live after the instruction.
+
+		Uses CFG-based liveness analysis to identify IRTemp values that are defined
+		but never read before reassignment or end of function. Only eliminates
+		side-effect-free instructions: IRBinOp, IRUnaryOp, IRCopy, IRConvert,
+		IRLoad, IRAddrOf, IRAlloc.
+		"""
+		if not body:
+			return body
+
+		cfg = CFG(body)
+		analyzer = LivenessAnalyzer(cfg)
+		liveness = analyzer.compute_liveness()
+
+		dead_ids: set[int] = set()
+		pure_types = (IRBinOp, IRUnaryOp, IRCopy, IRConvert, IRLoad, IRAddrOf, IRAlloc)
+
+		for block in cfg.blocks():
+			instrs = block.instructions
+			live = set(liveness[block.label][1])  # live_out
+
+			for i in range(len(instrs) - 1, -1, -1):
+				instr = instrs[i]
+				defined = _defined_temp(instr)
+				used = _used_temps(instr)
+
+				if defined is not None and defined not in live:
+					if isinstance(instr, pure_types):
+						dead_ids.add(id(instr))
+						# Don't update live set for dead instructions
+						continue
+
+				if defined is not None:
+					live.discard(defined)
+				live |= used
 
 		if not dead_ids:
 			return body
