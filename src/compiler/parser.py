@@ -386,19 +386,43 @@ class Parser:
 	# -- Struct declaration --------------------------------------------------
 
 	def _parse_struct_member(self) -> StructMember:
-		"""Parse a single struct/union member: type name [dims] ;"""
+		"""Parse a single struct/union member: type [name] [dims] [: bitwidth] ;"""
 		member_type = self._parse_type_spec()
+		bit_width: int | None = None
+		member_name = ""
+		loc_tok = self._peek()
+		if self._check(TokenType.COLON):
+			# Unnamed bitfield: type : width ;
+			self._advance()
+			width_tok = self._expect(TokenType.INTEGER_LITERAL, "Expected bitfield width")
+			bit_width = int(width_tok.value)
+			self._expect(TokenType.SEMICOLON, "Expected ';' after struct member")
+			return StructMember(
+				type_spec=member_type,
+				name="",
+				bit_width=bit_width,
+				loc=self._loc(loc_tok),
+			)
 		member_name_tok = self._expect(TokenType.IDENTIFIER, "Expected member name")
+		member_name = member_name_tok.value
+		loc_tok = member_name_tok
 		dims: list[ASTNode] = []
-		while self._match(TokenType.LBRACKET):
-			dims.append(self._parse_expression())
-			self._expect(TokenType.RBRACKET, "Expected ']' after array dimension")
+		if self._check(TokenType.COLON):
+			# Named bitfield: type name : width ;
+			self._advance()
+			width_tok = self._expect(TokenType.INTEGER_LITERAL, "Expected bitfield width")
+			bit_width = int(width_tok.value)
+		else:
+			while self._match(TokenType.LBRACKET):
+				dims.append(self._parse_expression())
+				self._expect(TokenType.RBRACKET, "Expected ']' after array dimension")
 		self._expect(TokenType.SEMICOLON, "Expected ';' after struct member")
 		return StructMember(
 			type_spec=member_type,
-			name=member_name_tok.value,
+			name=member_name,
 			array_dims=dims,
-			loc=self._loc(member_name_tok),
+			bit_width=bit_width,
+			loc=self._loc(loc_tok),
 		)
 
 	def _parse_struct_decl(self) -> StructDecl:
