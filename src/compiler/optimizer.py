@@ -426,7 +426,11 @@ class IROptimizer:
 	# -- Dead Code Elimination --
 
 	def _dead_code_elimination(self, body: list[IRInstruction]) -> list[IRInstruction]:
-		"""Remove pure instructions whose dest is never read."""
+		"""Remove pure instructions whose dest is never read.
+
+		Handles IRBinOp, IRUnaryOp, IRCopy, IRConvert, and IRLoad (which has no
+		side effects beyond reading memory).
+		"""
 		used: set[str] = set()
 		for instr in body:
 			for val in self._get_uses(instr):
@@ -434,7 +438,7 @@ class IROptimizer:
 					used.add(val.name)
 		return [
 			instr for instr in body
-			if not (isinstance(instr, (IRBinOp, IRUnaryOp, IRCopy, IRConvert)) and instr.dest.name not in used)
+			if not (isinstance(instr, (IRBinOp, IRUnaryOp, IRCopy, IRConvert, IRLoad)) and instr.dest.name not in used)
 		]
 
 	# -- Strength Reduction --
