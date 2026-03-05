@@ -263,6 +263,28 @@ class LivenessAnalyzer:
 
 		return result
 
+	def def_use_chains(self) -> dict[str, tuple[list[tuple[str, int]], list[tuple[str, int]]]]:
+		"""Compute def-use chains for each temporary variable.
+
+		Returns a dict mapping temp name to (defs, uses) where each is a list
+		of (block_label, instruction_index) pairs indicating where the temp
+		is defined and used respectively.
+		"""
+		defs: dict[str, list[tuple[str, int]]] = {}
+		uses: dict[str, list[tuple[str, int]]] = {}
+		for block in self._cfg.blocks():
+			for i, instr in enumerate(block.instructions):
+				defined = _defined_temp(instr)
+				if defined is not None:
+					defs.setdefault(defined, []).append((block.label, i))
+				for name in _used_temps(instr):
+					uses.setdefault(name, []).append((block.label, i))
+		result: dict[str, tuple[list[tuple[str, int]], list[tuple[str, int]]]] = {}
+		all_temps = set(defs.keys()) | set(uses.keys())
+		for t in all_temps:
+			result[t] = (defs.get(t, []), uses.get(t, []))
+		return result
+
 	def interference_graph(self) -> dict[str, set[str]]:
 		"""Build an interference graph: maps each variable to its set of interfering variables.
 
