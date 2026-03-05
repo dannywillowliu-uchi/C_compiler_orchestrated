@@ -48,7 +48,8 @@ class TestReturnConstant:
 		"""
 		asm = compile_source(source)
 		assert "main:" in asm
-		assert "negq" in asm
+		# Constant-folded: -1 loaded directly as $-1 (no negq needed)
+		assert "$-1" in asm or "negq" in asm
 		assert "ret" in asm
 
 
@@ -844,9 +845,9 @@ class TestTernaryExpression:
 		assert "cmpq" in asm
 		# Conditional jump for ternary
 		assert "jne" in asm
-		# Both branches present
+		# Both branches present: -1 may be constant-folded
 		assert "$1" in asm
-		assert "negq" in asm
+		assert "$-1" in asm or "negq" in asm
 		assert "ret" in asm
 
 	def test_ternary_in_assignment(self) -> None:

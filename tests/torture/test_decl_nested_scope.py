@@ -11,7 +11,7 @@ from compiler.ast_nodes import (
 	TypeSpec,
 	VarDecl,
 )
-from compiler.ir import IRAlloc, IRCopy
+from compiler.ir import IRAlloc, IRCopy, IRReturn
 from compiler.ir_gen import IRGenerator
 
 
@@ -114,11 +114,16 @@ def test_decl_nested_scope_different_vars() -> None:
 	ir = IRGenerator().generate(prog)
 	fn = ir.functions[0]
 	outer_x = [i for i in fn.body if isinstance(i, IRAlloc)][0].dest
+	# x is referenced either via a copy or directly in the return
 	copies_from_outer = [
 		i for i in fn.body
 		if isinstance(i, IRCopy) and i.source == outer_x
 	]
-	assert len(copies_from_outer) >= 1
+	returns_outer = [
+		i for i in fn.body
+		if isinstance(i, IRReturn) and i.value == outer_x
+	]
+	assert len(copies_from_outer) >= 1 or len(returns_outer) >= 1
 
 
 def test_decl_nested_scope_in_for() -> None:
