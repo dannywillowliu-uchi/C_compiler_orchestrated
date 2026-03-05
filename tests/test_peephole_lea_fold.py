@@ -222,14 +222,13 @@ class TestMovAddRegToLea:
 
 class TestCombinedPatterns:
 	def test_movq_zero_then_cmpq_zero(self, opt: PeepholeOptimizer) -> None:
-		"""movq $0 + cmpq $0 should fold to xorq + testq."""
+		"""movq $0 + cmpq $0 folds to xorq (testq eliminated as redundant)."""
 		asm = "\n".join([
 			"\tmovq $0, %rax",
 			"\tcmpq $0, %rax",
 		])
 		result = opt.optimize(asm)
 		assert "\txorq %rax, %rax" in result
-		assert "\ttestq %rax, %rax" in result
 
 	def test_multiple_zero_moves(self, opt: PeepholeOptimizer) -> None:
 		asm = "\n".join([

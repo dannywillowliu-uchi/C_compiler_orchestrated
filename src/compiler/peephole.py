@@ -45,6 +45,27 @@ class PeepholeOptimizer:
 		self._arith_flag_setting_re = re.compile(
 			r"^\t(addq|subq|andq|orq|xorq)\s+[^,]+,\s+(%\w+)$"
 		)
+		# Extended flag-setting instructions (single-operand or shift forms)
+		self._negq_re = re.compile(r"^\tnegq\s+(%\w+)$")
+		self._incq_re = re.compile(r"^\tincq\s+(%\w+)$")
+		self._decq_re = re.compile(r"^\tdecq\s+(%\w+)$")
+		self._shift_re = re.compile(
+			r"^\t(shlq|shrq|sarq)\s+\$\d+,\s+(%\w+)$"
+		)
+		self._testq_self_re = re.compile(
+			r"^\ttestq\s+(%\w+),\s+\1$"
+		)
+		# Conditional jump patterns for cmov optimization
+		self._jcc_re = re.compile(r"^\t(je|jne|jg|jge|jl|jle|ja|jae|jb|jbe|js|jns)\s+(\.\w+)$")
+		# cmov condition inversion map
+		self._jcc_to_cmov = {
+			"je": "cmovne", "jne": "cmove",
+			"jg": "cmovle", "jge": "cmovl",
+			"jl": "cmovge", "jle": "cmovg",
+			"ja": "cmovbe", "jae": "cmovb",
+			"jb": "cmovae", "jbe": "cmova",
+			"js": "cmovns", "jns": "cmovs",
+		}
 		self._leaq_rip_re = re.compile(
 			r"^\tleaq\s+(\w+)\(%rip\),\s+(%\w+)$"
 		)
@@ -252,6 +273,30 @@ class PeepholeOptimizer:
 					i += 2
 					continue
 
+				# Redundant testq after flag-setting arithmetic
+				opt = self._try_redundant_test_after_arith(lines[i], lines[i + 1])
+				if opt is not None:
+					result.extend(opt)
+					changed = True
+					i += 2
+					continue
+
+				# Redundant cmp/test after negq/incq/decq
+				opt = self._try_redundant_cmp_after_unary(lines[i], lines[i + 1])
+				if opt is not None:
+					result.extend(opt)
+					changed = True
+					i += 2
+					continue
+
+				# Redundant cmp/test after shift
+				opt = self._try_redundant_cmp_after_shift(lines[i], lines[i + 1])
+				if opt is not None:
+					result.extend(opt)
+					changed = True
+					i += 2
+					continue
+
 				# Consecutive identical register moves
 				opt = self._try_duplicate_move(lines[i], lines[i + 1])
 				if opt is not None:
@@ -286,6 +331,15 @@ class PeepholeOptimizer:
 					result.extend(opt)
 					changed = True
 					i += 3
+					continue
+
+			# Conditional branch to cmov optimization (5-line window)
+			if i + 4 < len(lines):
+				opt = self._try_branch_to_cmov(lines, i)
+				if opt is not None:
+					result.extend(opt[0])
+					changed = True
+					i += opt[1]
 					continue
 
 			# Push/pop to different register: pushq %rA; popq %rB -> movq %rA, %rB
@@ -834,6 +888,144 @@ class PeepholeOptimizer:
 		if not self._is_reg_dead_in_window(lines, idx + 2, ra):
 			return None
 		return [f"\tleaq ({ra},{rc}), {rb}"]
+
+	def _try_redundant_test_after_arith(self, line1: str, line2: str) -> list[str] | None:
+		"""Eliminate testq %reg, %reg after flag-setting arithmetic on same register.
+
+		add/sub/and/or/xor already set ZF/SF, so a following testq is redundant.
+		"""
+		m_arith = self._arith_flag_setting_re.match(line1)
+		if m_arith is None:
+			return None
+		m_test = self._testq_self_re.match(line2)
+		if m_test is None:
+			return None
+		if m_arith.group(2) == m_test.group(1):
+			return [line1]
+		return None
+
+	def _try_redundant_cmp_after_unary(self, line1: str, line2: str) -> list[str] | None:
+		"""Eliminate cmpq $0 or testq after negq/incq/decq on same register.
+
+		These single-operand instructions set ZF/SF based on the result.
+		"""
+		reg = None
+		for pat in (self._negq_re, self._incq_re, self._decq_re):
+			m = pat.match(line1)
+			if m is not None:
+				reg = m.group(1)
+				break
+		if reg is None:
+			return None
+		# Check for cmpq $0, %reg
+		m_cmp = self._cmpq_zero_re.match(line2)
+		if m_cmp is not None and m_cmp.group(1) == reg:
+			return [line1]
+		# Check for testq %reg, %reg
+		m_test = self._testq_self_re.match(line2)
+		if m_test is not None and m_test.group(1) == reg:
+			return [line1]
+		return None
+
+	def _try_redundant_cmp_after_shift(self, line1: str, line2: str) -> list[str] | None:
+		"""Eliminate cmpq $0 or testq after shift on same register.
+
+		shlq/shrq/sarq set ZF/SF based on the result.
+		"""
+		m_shift = self._shift_re.match(line1)
+		if m_shift is None:
+			return None
+		reg = m_shift.group(2)
+		m_cmp = self._cmpq_zero_re.match(line2)
+		if m_cmp is not None and m_cmp.group(1) == reg:
+			return [line1]
+		m_test = self._testq_self_re.match(line2)
+		if m_test is not None and m_test.group(1) == reg:
+			return [line1]
+		return None
+
+	def _try_branch_to_cmov(self, lines: list[str], idx: int) -> tuple[list[str], int] | None:
+		"""Convert simple conditional branch pattern to cmov.
+
+		Pattern (5 lines):
+		  jCC .Lfalse
+		  movq %rA, %rDst       (or movq mem, %rDst)
+		  jmp .Lend
+		  .Lfalse:
+		  movq %rB, %rDst       (or movq mem, %rDst)
+
+		Becomes:
+		  movq %rB, %rDst
+		  cmovINV_CC %rA, %rDst
+
+		Only applies when the true-branch source is a register (cmov requires reg/mem src).
+		The false-branch can be reg or memory.
+		"""
+		# Line 0: jCC .Lfalse
+		m_jcc = self._jcc_re.match(lines[idx])
+		if m_jcc is None:
+			return None
+		cc = m_jcc.group(1)
+		false_label = m_jcc.group(2)
+
+		# Line 1: movq src_true, %rDst
+		m_true_mov = re.match(r"^\tmovq\s+([^,]+),\s+(%\w+)$", lines[idx + 1])
+		if m_true_mov is None:
+			return None
+		src_true = m_true_mov.group(1).strip()
+		dst = m_true_mov.group(2)
+
+		# Line 2: jmp .Lend
+		m_jmp = self._jmp_re.match(lines[idx + 2])
+		if m_jmp is None:
+			return None
+		end_label = m_jmp.group(1)
+
+		# Line 3: .Lfalse:
+		m_flabel = self._label_re.match(lines[idx + 3])
+		if m_flabel is None or m_flabel.group(1) != false_label:
+			return None
+
+		# Line 4: movq src_false, %rDst
+		m_false_mov = re.match(r"^\tmovq\s+([^,]+),\s+(%\w+)$", lines[idx + 4])
+		if m_false_mov is None:
+			return None
+		src_false = m_false_mov.group(1).strip()
+		false_dst = m_false_mov.group(2)
+		if false_dst != dst:
+			return None
+
+		# cmov requires register or memory source, not immediate
+		if src_true.startswith("$"):
+			return None
+
+		# Check if end_label follows immediately after (line idx+5)
+		if idx + 5 < len(lines):
+			m_elabel = self._label_re.match(lines[idx + 5])
+			if m_elabel is not None and m_elabel.group(1) == end_label:
+				# Full 6-line pattern: consume all 6 lines
+				# The condition was: if CC, jump to false_label (skip true branch)
+				# So the true branch executes when CC is NOT met
+				# cmov should apply the true value when CC is NOT met
+				# i.e., cmovINV_CC src_true, %rDst (inverted condition)
+				cmov_cc = self._jcc_to_cmov.get(cc)
+				if cmov_cc is None:
+					return None
+				result = []
+				# First load the false value (default)
+				if src_false.startswith("$"):
+					# Can't use cmov with immediate for false path either,
+					# but we can load it with movq
+					result.append(f"\tmovq {src_false}, {dst}")
+				else:
+					result.append(f"\tmovq {src_false}, {dst}")
+				# Then conditionally overwrite with true value
+				result.append(f"\t{cmov_cc}q {src_true}, {dst}")
+				# Keep the end label (other code may jump to it)
+				result.append(lines[idx + 5])
+				return (result, 6)
+
+		return None
 
 	def _is_reg_dead_in_window(self, lines: list[str], start_idx: int, reg: str) -> bool:
 		"""Check if reg is dead (overwritten before read) in a forward window."""

@@ -129,12 +129,14 @@ class TestZeroCmpCollapse:
 	def test_basic_zero_cmp(self) -> None:
 		asm = "\tmovq $0, %rax\n\tcmpq $0, %rax"
 		result = _opt(asm)
-		assert result == "\txorq %rax, %rax\n\ttestq %rax, %rax"
+		# xorq sets flags, so testq is redundant and gets eliminated
+		assert result == "\txorq %rax, %rax"
 
 	def test_zero_cmp_rcx(self) -> None:
 		asm = "\tmovq $0, %rcx\n\tcmpq $0, %rcx"
 		result = _opt(asm)
-		assert result == "\txorq %rcx, %rcx\n\ttestq %rcx, %rcx"
+		# xorq sets flags, so testq is redundant and gets eliminated
+		assert result == "\txorq %rcx, %rcx"
 
 	def test_different_registers_not_collapsed(self) -> None:
 		asm = "\tmovq $0, %rax\n\tcmpq $0, %rcx"
@@ -155,9 +157,9 @@ class TestZeroCmpCollapse:
 			"\tjne .L1",
 		]
 		result = _opt("\n".join(lines))
+		# xorq sets flags, so testq is redundant and gets eliminated
 		expected = "\n".join([
 			"\txorq %rax, %rax",
-			"\ttestq %rax, %rax",
 			"\tjne .L1",
 		])
 		assert result == expected
@@ -219,10 +221,10 @@ class TestCombined:
 			"\tsubq $0, %rsp",
 		]
 		result = _opt("\n".join(lines))
+		# xorq sets flags, so testq is redundant and gets eliminated
 		expected = "\n".join([
 			"\tmovq %rax, -8(%rbp)",
 			"\txorq %rax, %rax",
-			"\ttestq %rax, %rax",
 		])
 		assert result == expected
 
