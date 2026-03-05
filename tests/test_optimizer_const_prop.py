@@ -1,5 +1,5 @@
 """Tests for constant propagation through IRConvert, boolean simplification,
-and redundant IRCopy chain folding."""
+arithmetic constant folding, and redundant IRCopy chain folding."""
 
 from compiler.ir import (
 	IRBinOp,
@@ -32,6 +32,11 @@ def _opt(body):
 	return result.functions[0].body
 
 
+def _fold_only(body):
+	"""Run only the constant folding pass."""
+	return IROptimizer()._constant_fold(body)
+
+
 def _convert_const_only(body):
 	"""Run only convert constant propagation."""
 	return IROptimizer()._convert_const_propagation(body)
@@ -40,6 +45,269 @@ def _convert_const_only(body):
 def _bool_only(body):
 	"""Run only boolean simplification."""
 	return IROptimizer()._boolean_simplification(body)
+
+
+# ── Arithmetic Constant Propagation (Folding) ──
+
+
+class TestArithmeticConstantPropagation:
+	"""Tests that IRBinOp/IRUnaryOp with all-constant operands are folded."""
+
+	def test_add_two_consts(self):
+		"""t0 = 3 + 5 -> t0 = 8"""
+		body = [
+			IRBinOp(dest=IRTemp("t0"), left=IRConst(3), op="+", right=IRConst(5)),
+		]
+		result = _fold_only(body)
+		assert len(result) == 1
+		assert isinstance(result[0], IRCopy)
+		assert result[0].source == IRConst(8)
+
+	def test_sub_two_consts(self):
+		"""t0 = 10 - 3 -> t0 = 7"""
+		body = [
+			IRBinOp(dest=IRTemp("t0"), left=IRConst(10), op="-", right=IRConst(3)),
+		]
+		result = _fold_only(body)
+		assert isinstance(result[0], IRCopy)
+		assert result[0].source == IRConst(7)
+
+	def test_mul_two_consts(self):
+		"""t0 = 4 * 6 -> t0 = 24"""
+		body = [
+			IRBinOp(dest=IRTemp("t0"), left=IRConst(4), op="*", right=IRConst(6)),
+		]
+		result = _fold_only(body)
+		assert isinstance(result[0], IRCopy)
+		assert result[0].source == IRConst(24)
+
+	def test_div_two_consts(self):
+		"""t0 = 15 / 3 -> t0 = 5"""
+		body = [
+			IRBinOp(dest=IRTemp("t0"), left=IRConst(15), op="/", right=IRConst(3)),
+		]
+		result = _fold_only(body)
+		assert isinstance(result[0], IRCopy)
+		assert result[0].source == IRConst(5)
+
+	def test_div_by_zero_not_folded(self):
+		"""t0 = 10 / 0 -> not folded"""
+		body = [
+			IRBinOp(dest=IRTemp("t0"), left=IRConst(10), op="/", right=IRConst(0)),
+		]
+		result = _fold_only(body)
+		assert isinstance(result[0], IRBinOp)
+
+	def test_mod_two_consts(self):
+		"""t0 = 17 % 5 -> t0 = 2"""
+		body = [
+			IRBinOp(dest=IRTemp("t0"), left=IRConst(17), op="%", right=IRConst(5)),
+		]
+		result = _fold_only(body)
+		assert isinstance(result[0], IRCopy)
+		assert result[0].source == IRConst(2)
+
+	def test_bitwise_and(self):
+		"""t0 = 0xFF & 0x0F -> t0 = 15"""
+		body = [
+			IRBinOp(dest=IRTemp("t0"), left=IRConst(0xFF), op="&", right=IRConst(0x0F)),
+		]
+		result = _fold_only(body)
+		assert isinstance(result[0], IRCopy)
+		assert result[0].source == IRConst(15)
+
+	def test_bitwise_or(self):
+		"""t0 = 0xF0 | 0x0F -> t0 = 0xFF"""
+		body = [
+			IRBinOp(dest=IRTemp("t0"), left=IRConst(0xF0), op="|", right=IRConst(0x0F)),
+		]
+		result = _fold_only(body)
+		assert isinstance(result[0], IRCopy)
+		assert result[0].source == IRConst(0xFF)
+
+	def test_bitwise_xor(self):
+		"""t0 = 0xFF ^ 0x0F -> t0 = 0xF0"""
+		body = [
+			IRBinOp(dest=IRTemp("t0"), left=IRConst(0xFF), op="^", right=IRConst(0x0F)),
+		]
+		result = _fold_only(body)
+		assert isinstance(result[0], IRCopy)
+		assert result[0].source == IRConst(0xF0)
+
+	def test_shift_left(self):
+		"""t0 = 1 << 4 -> t0 = 16"""
+		body = [
+			IRBinOp(dest=IRTemp("t0"), left=IRConst(1), op="<<", right=IRConst(4)),
+		]
+		result = _fold_only(body)
+		assert isinstance(result[0], IRCopy)
+		assert result[0].source == IRConst(16)
+
+	def test_shift_right(self):
+		"""t0 = 32 >> 2 -> t0 = 8"""
+		body = [
+			IRBinOp(dest=IRTemp("t0"), left=IRConst(32), op=">>", right=IRConst(2)),
+		]
+		result = _fold_only(body)
+		assert isinstance(result[0], IRCopy)
+		assert result[0].source == IRConst(8)
+
+	def test_comparison_less(self):
+		"""t0 = 3 < 5 -> t0 = 1"""
+		body = [
+			IRBinOp(dest=IRTemp("t0"), left=IRConst(3), op="<", right=IRConst(5)),
+		]
+		result = _fold_only(body)
+		assert isinstance(result[0], IRCopy)
+		assert result[0].source == IRConst(1)
+
+	def test_comparison_eq(self):
+		"""t0 = 3 == 3 -> t0 = 1"""
+		body = [
+			IRBinOp(dest=IRTemp("t0"), left=IRConst(3), op="==", right=IRConst(3)),
+		]
+		result = _fold_only(body)
+		assert isinstance(result[0], IRCopy)
+		assert result[0].source == IRConst(1)
+
+	def test_comparison_neq(self):
+		"""t0 = 3 != 5 -> t0 = 1"""
+		body = [
+			IRBinOp(dest=IRTemp("t0"), left=IRConst(3), op="!=", right=IRConst(5)),
+		]
+		result = _fold_only(body)
+		assert isinstance(result[0], IRCopy)
+		assert result[0].source == IRConst(1)
+
+	def test_logical_and_consts(self):
+		"""t0 = 1 && 0 -> t0 = 0"""
+		body = [
+			IRBinOp(dest=IRTemp("t0"), left=IRConst(1), op="&&", right=IRConst(0)),
+		]
+		result = _fold_only(body)
+		assert isinstance(result[0], IRCopy)
+		assert result[0].source == IRConst(0)
+
+	def test_logical_or_consts(self):
+		"""t0 = 0 || 1 -> t0 = 1"""
+		body = [
+			IRBinOp(dest=IRTemp("t0"), left=IRConst(0), op="||", right=IRConst(1)),
+		]
+		result = _fold_only(body)
+		assert isinstance(result[0], IRCopy)
+		assert result[0].source == IRConst(1)
+
+	def test_unary_negate(self):
+		"""t0 = -5 -> t0 = -5"""
+		body = [
+			IRUnaryOp(dest=IRTemp("t0"), op="-", operand=IRConst(5)),
+		]
+		result = _fold_only(body)
+		assert isinstance(result[0], IRCopy)
+		assert result[0].source == IRConst(-5)
+
+	def test_unary_bitwise_not(self):
+		"""t0 = ~0 -> t0 = -1"""
+		body = [
+			IRUnaryOp(dest=IRTemp("t0"), op="~", operand=IRConst(0)),
+		]
+		result = _fold_only(body)
+		assert isinstance(result[0], IRCopy)
+		assert result[0].source == IRConst(-1)
+
+	def test_unary_logical_not(self):
+		"""t0 = !5 -> t0 = 0"""
+		body = [
+			IRUnaryOp(dest=IRTemp("t0"), op="!", operand=IRConst(5)),
+		]
+		result = _fold_only(body)
+		assert isinstance(result[0], IRCopy)
+		assert result[0].source == IRConst(0)
+
+	def test_non_const_operand_not_folded(self):
+		"""t0 = t1 + 5 -> not folded"""
+		body = [
+			IRBinOp(dest=IRTemp("t0"), left=IRTemp("t1"), op="+", right=IRConst(5)),
+		]
+		result = _fold_only(body)
+		assert isinstance(result[0], IRBinOp)
+
+	def test_float_add_consts(self):
+		"""t0 = 1.5 + 2.5 -> t0 = 4.0"""
+		body = [
+			IRBinOp(dest=IRTemp("t0"), left=IRFloatConst(1.5), op="+", right=IRFloatConst(2.5)),
+		]
+		result = _fold_only(body)
+		assert isinstance(result[0], IRCopy)
+		assert isinstance(result[0].source, IRFloatConst)
+		assert result[0].source.value == 4.0
+
+	def test_float_comparison(self):
+		"""t0 = 1.0 < 2.0 -> t0 = 1 (int)"""
+		body = [
+			IRBinOp(dest=IRTemp("t0"), left=IRFloatConst(1.0), op="<", right=IRFloatConst(2.0)),
+		]
+		result = _fold_only(body)
+		assert isinstance(result[0], IRCopy)
+		assert isinstance(result[0].source, IRConst)
+		assert result[0].source.value == 1
+
+	def test_mixed_int_float(self):
+		"""t0 = IRConst(3) + IRFloatConst(2.5) -> t0 = 5.5"""
+		body = [
+			IRBinOp(dest=IRTemp("t0"), left=IRConst(3), op="+", right=IRFloatConst(2.5)),
+		]
+		result = _fold_only(body)
+		assert isinstance(result[0], IRCopy)
+		assert isinstance(result[0].source, IRFloatConst)
+		assert result[0].source.value == 5.5
+
+	def test_float_unary_negate(self):
+		"""t0 = -3.14 -> t0 = -3.14"""
+		body = [
+			IRUnaryOp(dest=IRTemp("t0"), op="-", operand=IRFloatConst(3.14)),
+		]
+		result = _fold_only(body)
+		assert isinstance(result[0], IRCopy)
+		assert isinstance(result[0].source, IRFloatConst)
+		assert result[0].source.value == -3.14
+
+	def test_chained_const_fold_via_full_opt(self):
+		"""t1 = 3 + 5; t2 = t1 * 2 -> t2 = 16 after copy prop + refold."""
+		body = [
+			IRBinOp(dest=IRTemp("t1"), left=IRConst(3), op="+", right=IRConst(5)),
+			IRBinOp(dest=IRTemp("t2"), left=IRTemp("t1"), op="*", right=IRConst(2)),
+			IRReturn(value=IRTemp("t2")),
+		]
+		result = _opt(body)
+		ret = [i for i in result if isinstance(i, IRReturn)]
+		assert len(ret) == 1
+		assert ret[0].value == IRConst(16)
+
+	def test_multi_step_propagation(self):
+		"""t1 = 10; t2 = t1 + 20; t3 = t2 - 5 -> t3 = 25."""
+		body = [
+			IRCopy(dest=IRTemp("t1"), source=IRConst(10)),
+			IRBinOp(dest=IRTemp("t2"), left=IRTemp("t1"), op="+", right=IRConst(20)),
+			IRBinOp(dest=IRTemp("t3"), left=IRTemp("t2"), op="-", right=IRConst(5)),
+			IRReturn(value=IRTemp("t3")),
+		]
+		result = _opt(body)
+		ret = [i for i in result if isinstance(i, IRReturn)]
+		assert len(ret) == 1
+		assert ret[0].value == IRConst(25)
+
+	def test_unary_then_binary_fold(self):
+		"""t1 = -3; t2 = t1 + 10 -> t2 = 7."""
+		body = [
+			IRUnaryOp(dest=IRTemp("t1"), op="-", operand=IRConst(3)),
+			IRBinOp(dest=IRTemp("t2"), left=IRTemp("t1"), op="+", right=IRConst(10)),
+			IRReturn(value=IRTemp("t2")),
+		]
+		result = _opt(body)
+		ret = [i for i in result if isinstance(i, IRReturn)]
+		assert len(ret) == 1
+		assert ret[0].value == IRConst(7)
 
 
 # ── Constant Propagation through IRConvert ──
