@@ -87,6 +87,14 @@ class PeepholeOptimizer:
 		self._instr_dst_re = re.compile(
 			r"^\t(?:movq|movl|movw|movb|leaq|xorq|xorl)\s+([^,]+),\s+(%\w+)$"
 		)
+		# Division strength reduction patterns
+		self._cqto_re = re.compile(r"^\tcqto$")
+		self._idivq_re = re.compile(r"^\tidivq\s+(%\w+)$")
+		self._xorq_rdx_re = re.compile(r"^\txorq\s+%rdx,\s+%rdx$")
+		self._divq_re = re.compile(r"^\tdivq\s+(%\w+)$")
+		# Push different reg pop: pushq %rA; popq %rB -> movq %rA, %rB
+		self._pushq_any_re = self._pushq_re
+		self._popq_any_re = self._popq_re
 
 	def optimize(self, assembly: str) -> str:
 		"""Apply peephole optimizations to assembly text and return optimized version."""
@@ -234,6 +242,35 @@ class PeepholeOptimizer:
 
 				# Dead register move: movq %rA, %rB where %rB is immediately overwritten
 				opt = self._try_dead_reg_move(lines[i], lines[i + 1])
+				if opt is not None:
+					result.extend(opt)
+					changed = True
+					i += 2
+					continue
+
+			# 3-instruction window patterns
+			if i + 2 < len(lines):
+				# Signed division strength reduction:
+				# movq $N, %reg + cqto + idivq %reg -> sarq $log2(N), %rax
+				opt = self._try_signed_div_strength(lines[i], lines[i + 1], lines[i + 2])
+				if opt is not None:
+					result.extend(opt)
+					changed = True
+					i += 3
+					continue
+
+				# Unsigned division strength reduction:
+				# movq $N, %reg + xorq %rdx, %rdx + divq %reg -> shrq $log2(N), %rax
+				opt = self._try_unsigned_div_strength(lines[i], lines[i + 1], lines[i + 2])
+				if opt is not None:
+					result.extend(opt)
+					changed = True
+					i += 3
+					continue
+
+			# Push/pop to different register: pushq %rA; popq %rB -> movq %rA, %rB
+			if i + 1 < len(lines):
+				opt = self._try_push_pop_move(lines[i], lines[i + 1])
 				if opt is not None:
 					result.extend(opt)
 					changed = True
@@ -679,6 +716,57 @@ class PeepholeOptimizer:
 			return None
 		src, dst = m.group(1), m.group(2)
 		return f"\tmovq {src}, {dst}"
+
+	def _try_signed_div_strength(self, line1: str, line2: str, line3: str) -> list[str] | None:
+		"""Replace movq $N, %reg + cqto + idivq %reg -> sarq $log2(N), %rax when N is power of 2."""
+		m_mov = self._movq_imm_reg_re.match(line1)
+		if m_mov is None:
+			return None
+		imm = int(m_mov.group(1))
+		reg = m_mov.group(2)
+		if imm <= 0 or imm & (imm - 1) != 0:
+			return None
+		if not self._cqto_re.match(line2):
+			return None
+		m_div = self._idivq_re.match(line3)
+		if m_div is None or m_div.group(1) != reg:
+			return None
+		if imm == 1:
+			return []
+		shift = imm.bit_length() - 1
+		return [f"\tsarq ${shift}, %rax"]
+
+	def _try_unsigned_div_strength(self, line1: str, line2: str, line3: str) -> list[str] | None:
+		"""Replace movq $N, %reg + xorq %rdx,%rdx + divq %reg -> shrq $log2(N), %rax."""
+		m_mov = self._movq_imm_reg_re.match(line1)
+		if m_mov is None:
+			return None
+		imm = int(m_mov.group(1))
+		reg = m_mov.group(2)
+		if imm <= 0 or imm & (imm - 1) != 0:
+			return None
+		if not self._xorq_rdx_re.match(line2):
+			return None
+		m_div = self._divq_re.match(line3)
+		if m_div is None or m_div.group(1) != reg:
+			return None
+		if imm == 1:
+			return []
+		shift = imm.bit_length() - 1
+		return [f"\tshrq ${shift}, %rax"]
+
+	def _try_push_pop_move(self, line1: str, line2: str) -> list[str] | None:
+		"""Replace pushq %rA + popq %rB (different registers) with movq %rA, %rB."""
+		m_push = self._pushq_re.match(line1)
+		if m_push is None:
+			return None
+		m_pop = self._popq_re.match(line2)
+		if m_pop is None:
+			return None
+		src, dst = m_push.group(1), m_pop.group(1)
+		if src == dst:
+			return None  # Same-register case handled by _try_push_pop
+		return [f"\tmovq {src}, {dst}"]
 
 	def _is_reg_dead_in_window(self, lines: list[str], start_idx: int, reg: str) -> bool:
 		"""Check if reg is dead (overwritten before read) in a forward window."""

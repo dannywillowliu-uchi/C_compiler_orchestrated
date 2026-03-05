@@ -7,9 +7,12 @@ from compiler.ir import (
 	IRAddrOf,
 	IRBinOp,
 	IRCall,
+	IRConst,
 	IRConvert,
 	IRCopy,
+	IRFloatConst,
 	IRFunction,
+	IRGlobalRef,
 	IRInstruction,
 	IRLoad,
 	IRProgram,
@@ -18,6 +21,10 @@ from compiler.ir import (
 	IRTemp,
 	IRType,
 	IRUnaryOp,
+	IRVaArg,
+	IRVaCopy,
+	IRVaEnd,
+	IRVaStart,
 )
 from compiler.liveness import LivenessAnalyzer
 
@@ -151,6 +158,21 @@ def _get_temp_refs(instr: IRInstruction) -> list[str]:
 	elif isinstance(instr, IRAddrOf):
 		refs.append(instr.dest.name)
 		refs.append(instr.source.name)
+	elif isinstance(instr, IRVaStart):
+		if isinstance(instr.ap_addr, IRTemp):
+			refs.append(instr.ap_addr.name)
+	elif isinstance(instr, IRVaArg):
+		refs.append(instr.dest.name)
+		if isinstance(instr.ap_addr, IRTemp):
+			refs.append(instr.ap_addr.name)
+	elif isinstance(instr, IRVaEnd):
+		if isinstance(instr.ap_addr, IRTemp):
+			refs.append(instr.ap_addr.name)
+	elif isinstance(instr, IRVaCopy):
+		if isinstance(instr.dest_addr, IRTemp):
+			refs.append(instr.dest_addr.name)
+		if isinstance(instr.src_addr, IRTemp):
+			refs.append(instr.src_addr.name)
 	return refs
 
 
@@ -173,6 +195,60 @@ def _compute_weighted_uses(cfg: CFG, loop_depths: dict[str, int]) -> dict[str, f
 			for name in _get_temp_refs(instr):
 				weighted[name] = weighted.get(name, 0.0) + weight
 	return weighted
+
+
+def _find_rematerializable_temps(func: IRFunction) -> set[str]:
+	"""Identify temps that can be rematerialized instead of spilled.
+
+	A temp is rematerializable if it's defined by loading a constant or a
+	global reference -- these can be recomputed cheaply instead of
+	spilling to memory.
+	"""
+	remat: set[str] = set()
+	# Track which temps are defined more than once (can't safely remat)
+	def_counts: dict[str, int] = {}
+	for instr in func.body:
+		if isinstance(instr, IRCopy):
+			def_counts[instr.dest.name] = def_counts.get(instr.dest.name, 0) + 1
+			if isinstance(instr.source, (IRConst, IRFloatConst, IRGlobalRef)):
+				remat.add(instr.dest.name)
+		elif isinstance(instr, (IRBinOp, IRUnaryOp, IRLoad, IRCall, IRConvert, IRAddrOf)):
+			def_counts[instr.dest.name] = def_counts.get(instr.dest.name, 0) + 1
+			# Remove from remat if redefined by non-const instruction
+			remat.discard(instr.dest.name)
+
+	# Exclude temps defined more than once (e.g. in loops)
+	for name, count in def_counts.items():
+		if count > 1:
+			remat.discard(name)
+
+	return remat
+
+
+def _compute_use_density(cfg: CFG, analyzer: LivenessAnalyzer) -> dict[str, float]:
+	"""Compute use density: number of uses / live range length.
+
+	Temps used infrequently over a long range have low density and are
+	cheap to spill. Temps used frequently over a short range are expensive.
+	"""
+	first_seen: dict[str, int] = {}
+	last_seen: dict[str, int] = {}
+	use_count: dict[str, int] = {}
+	pos = 0
+	for block in cfg.blocks():
+		for instr in block.instructions:
+			refs = _get_temp_refs(instr)
+			for name in refs:
+				if name not in first_seen:
+					first_seen[name] = pos
+				last_seen[name] = pos
+				use_count[name] = use_count.get(name, 0) + 1
+			pos += 1
+	density: dict[str, float] = {}
+	for name in first_seen:
+		span = max(last_seen[name] - first_seen[name], 1)
+		density[name] = use_count.get(name, 1) / span
+	return density
 
 
 def _compute_live_range_lengths(cfg: CFG, analyzer: LivenessAnalyzer) -> dict[str, int]:
@@ -227,6 +303,8 @@ class RegisterAllocator:
 		loop_depths = cfg.loop_depth()
 		weighted_uses = _compute_weighted_uses(cfg, loop_depths)
 		live_range_lengths = _compute_live_range_lengths(cfg, analyzer)
+		remat_temps = _find_rematerializable_temps(self._func)
+		use_density = _compute_use_density(cfg, analyzer)
 
 		# Build integer-only interference subgraph (exclude address-taken temps)
 		int_temps = {t for t in interference if t not in float_temps and t not in addr_taken}
@@ -250,6 +328,8 @@ class RegisterAllocator:
 		coalesced_use_counts: dict[str, int] = {}
 		coalesced_weighted_uses: dict[str, float] = {}
 		coalesced_range_lengths: dict[str, int] = {}
+		coalesced_remat: set[str] = set()
+		coalesced_density: dict[str, float] = {}
 		for t in int_temps:
 			rep = coalesce_map.find(t)
 			coalesced_use_counts[rep] = coalesced_use_counts.get(rep, 0) + use_counts.get(t, 1)
@@ -257,11 +337,20 @@ class RegisterAllocator:
 			coalesced_range_lengths[rep] = max(
 				coalesced_range_lengths.get(rep, 1), live_range_lengths.get(t, 1)
 			)
+			if t in remat_temps:
+				coalesced_remat.add(rep)
+			else:
+				# If any member is not rematerializable, the group isn't
+				coalesced_remat.discard(rep)
+			coalesced_density[rep] = max(
+				coalesced_density.get(rep, 0.0), use_density.get(t, 1.0)
+			)
 
 		# Color the coalesced graph
 		coloring = self._color_graph(
 			coalesced_graph, coalesced_call_crossing, coalesced_use_counts,
-			coalesced_weighted_uses, coalesced_range_lengths,
+			coalesced_weighted_uses, coalesced_range_lengths, coalesced_remat,
+			coalesced_density,
 		)
 
 		# Expand coloring back to all original temps
@@ -379,12 +468,16 @@ class RegisterAllocator:
 		use_counts: dict[str, int] | None = None,
 		weighted_uses: dict[str, float] | None = None,
 		range_lengths: dict[str, int] | None = None,
+		remat_temps: set[str] | None = None,
+		use_density: dict[str, float] | None = None,
 	) -> dict[str, str]:
 		"""Chaitin-Briggs graph coloring with improved spill heuristic.
 
-		Spill cost considers loop-depth-weighted usage frequency and live range
-		length. Temps used heavily inside loops are very expensive to spill.
-		Temps with long live ranges but few uses are cheap to spill.
+		Spill cost considers:
+		- Loop-depth-weighted usage frequency (hot temps are expensive to spill)
+		- Live range length (long ranges contribute more pressure)
+		- Rematerialization (constants can be recomputed, nearly free to spill)
+		- Use density (infrequent uses over long ranges are cheap to spill)
 		"""
 		if not graph:
 			return {}
@@ -392,6 +485,9 @@ class RegisterAllocator:
 		adj: dict[str, set[str]] = {n: set(neighbors) for n, neighbors in graph.items()}
 		remaining: set[str] = set(adj.keys())
 		stack: list[tuple[str, bool]] = []  # (node, is_potential_spill)
+
+		_remat = remat_temps or set()
+		_density = use_density or {}
 
 		# Simplify phase: repeatedly remove low-degree nodes, spill when stuck
 		while remaining:
@@ -406,17 +502,24 @@ class RegisterAllocator:
 
 			if not found:
 				# Spill heuristic: pick the node with lowest spill cost.
-				# cost = weighted_uses / (degree * range_length)
-				# Higher weighted_uses = more expensive to spill (keep in register).
-				# Higher degree = removing it frees more neighbors (good to spill).
-				# Longer range = more pressure contribution (good to spill).
+				# Rematerializable temps are preferred for spilling (cost ~0).
+				# cost = weighted_uses * density_factor / (degree * range_length)
 				def spill_cost(n: str) -> float:
 					degree = len(adj[n] & remaining)
 					wu = (weighted_uses or {}).get(n, 0.0)
 					if wu == 0.0:
 						wu = float((use_counts or {}).get(n, 1))
 					rl = (range_lengths or {}).get(n, 1)
-					return wu / max(degree * rl, 1)
+
+					if n in _remat:
+						# Rematerializable temps: cheap to spill since they can
+						# be recomputed. Still respect loop weight (wu) so hot
+						# constants in loops aren't naively spilled.
+						return wu * 0.1 / max(degree, 1)
+
+					# Factor in use density: low density = cheaper to spill
+					density = _density.get(n, 1.0)
+					return (wu * (1.0 + density)) / max(degree * rl, 1)
 
 				spill_node = min(remaining, key=spill_cost)
 				stack.append((spill_node, True))

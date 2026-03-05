@@ -3,6 +3,7 @@
 from compiler.ir import (
 	IRConst,
 	IRConvert,
+	IRFloatConst,
 	IRFunction,
 	IRLabelInstr,
 	IRProgram,
@@ -142,18 +143,18 @@ class TestChainedConvertCollapse:
 		assert converts[0].to_type == IRType.LONG
 
 	def test_chain_with_const_source(self) -> None:
-		"""Chained converts with a constant source should also collapse."""
+		"""Chained converts with a constant source should be fully folded."""
 		body = [
 			IRConvert(dest=IRTemp("t1"), source=IRConst(42), from_type=IRType.INT, to_type=IRType.LONG),
 			IRConvert(dest=IRTemp("t2"), source=IRTemp("t1"), from_type=IRType.LONG, to_type=IRType.FLOAT),
 			IRReturn(IRTemp("t2")),
 		]
 		result = _optimize_body(body)
-		converts = [i for i in result if isinstance(i, IRConvert)]
-		assert len(converts) == 1
-		assert converts[0].from_type == IRType.INT
-		assert converts[0].to_type == IRType.FLOAT
-		assert isinstance(converts[0].source, IRConst) and converts[0].source.value == 42
+		# Both converts fold away: IRConst(42) -> IRFloatConst(42.0)
+		ret = [i for i in result if isinstance(i, IRReturn)]
+		assert len(ret) == 1
+		assert isinstance(ret[0].value, IRFloatConst)
+		assert ret[0].value.value == 42.0
 
 
 class TestConvertEliminationEdgeCases:

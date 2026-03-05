@@ -26,6 +26,10 @@ from compiler.ir import (
 	IRTemp,
 	IRType,
 	IRUnaryOp,
+	IRVaArg,
+	IRVaCopy,
+	IRVaEnd,
+	IRVaStart,
 	IRValue,
 )
 
@@ -92,6 +96,8 @@ class CodeGenerator:
 		self._regalloc_maps: dict[str, dict[str, str]] = regalloc_maps or {}
 		self._reg_map: dict[str, str] = {}
 		self._callee_save_offsets: list[tuple[str, int]] = []
+		self._va_label_counter: int = 0
+		self._reg_save_area_offset: int = 0
 
 	# ------------------------------------------------------------------
 	# Public API
@@ -316,6 +322,7 @@ class CodeGenerator:
 		self._stack_size = 0
 		self._stack_map = {}
 		self._callee_save_offsets = []
+		self._reg_save_area_offset = 0
 
 		# Reserve slots for callee-saved register saves
 		used_callee = set(self._reg_map.values())
@@ -323,6 +330,11 @@ class CodeGenerator:
 			if reg in used_callee:
 				self._stack_size += 8
 				self._callee_save_offsets.append((reg, -self._stack_size))
+
+		# Reserve register save area for variadic functions (6 GP regs * 8 bytes = 48)
+		if func.is_variadic:
+			self._stack_size += 48
+			self._reg_save_area_offset = -self._stack_size
 
 		# Allocate spill slots
 		for name in stack_temps:
@@ -368,6 +380,16 @@ class CodeGenerator:
 		elif isinstance(instr, IRConvert):
 			temps.add(instr.dest.name)
 			self._collect_value_temp(instr.source, temps)
+		elif isinstance(instr, IRVaStart):
+			self._collect_value_temp(instr.ap_addr, temps)
+		elif isinstance(instr, IRVaArg):
+			temps.add(instr.dest.name)
+			self._collect_value_temp(instr.ap_addr, temps)
+		elif isinstance(instr, IRVaEnd):
+			self._collect_value_temp(instr.ap_addr, temps)
+		elif isinstance(instr, IRVaCopy):
+			self._collect_value_temp(instr.dest_addr, temps)
+			self._collect_value_temp(instr.src_addr, temps)
 
 	@staticmethod
 	def _collect_value_temp(value: IRValue, temps: set[str]) -> None:
@@ -413,6 +435,12 @@ class CodeGenerator:
 		# Save callee-saved registers used by regalloc
 		for reg, offset in self._callee_save_offsets:
 			self._emit_instr(f"movq {reg}, {offset}(%rbp)")
+
+		# Save all GP registers to register save area for variadic functions
+		if func.is_variadic:
+			for i, reg in enumerate(_ARG_REGS):
+				offset = self._reg_save_area_offset + i * 8
+				self._emit_instr(f"movq {reg}, {offset}(%rbp)")
 
 		# Copy register-passed params to their destinations
 		int_idx = 0
@@ -509,6 +537,14 @@ class CodeGenerator:
 			self._gen_convert(instr)
 		elif isinstance(instr, IRParam):
 			pass  # args are conveyed via IRCall.args; IRParam is a no-op here
+		elif isinstance(instr, IRVaStart):
+			self._gen_va_start(instr)
+		elif isinstance(instr, IRVaArg):
+			self._gen_va_arg(instr)
+		elif isinstance(instr, IRVaEnd):
+			pass  # va_end is a no-op on x86-64
+		elif isinstance(instr, IRVaCopy):
+			self._gen_va_copy(instr)
 		else:
 			raise ValueError(f"Unknown instruction type: {type(instr).__name__}")
 
@@ -828,3 +864,65 @@ class CodeGenerator:
 			# Fallback: just copy
 			self._load_value(instr.source, "%rax")
 			self._store_to_temp("%rax", instr.dest)
+
+	# ------------------------------------------------------------------
+	# Variadic argument instruction generators
+	# ------------------------------------------------------------------
+
+	def _gen_va_start(self, instr: IRVaStart) -> None:
+		"""Initialize va_list struct: {gp_offset(4), fp_offset(4), overflow_arg_area(8), reg_save_area(8)}."""
+		self._load_value(instr.ap_addr, "%rax")
+		# gp_offset = num_named_gp * 8
+		gp_offset = instr.num_named_gp * 8
+		self._emit_instr(f"movl ${gp_offset}, (%rax)")
+		# fp_offset = 48 (6 GP regs * 8 = 48, all FP slots "used")
+		self._emit_instr("movl $48, 4(%rax)")
+		# overflow_arg_area = first stack arg = 16(%rbp)
+		self._emit_instr("leaq 16(%rbp), %rcx")
+		self._emit_instr("movq %rcx, 8(%rax)")
+		# reg_save_area = address of saved GP registers
+		self._emit_instr(f"leaq {self._reg_save_area_offset}(%rbp), %rcx")
+		self._emit_instr("movq %rcx, 16(%rax)")
+
+	def _gen_va_arg(self, instr: IRVaArg) -> None:
+		"""Fetch next variadic argument from va_list struct."""
+		lbl = self._va_label_counter
+		self._va_label_counter += 1
+		overflow_label = f".Lva_overflow_{lbl}"
+		done_label = f".Lva_done_{lbl}"
+
+		# Load va_list struct address into %rax
+		self._load_value(instr.ap_addr, "%rax")
+		# Load gp_offset
+		self._emit_instr("movl (%rax), %ecx")
+		# If gp_offset >= 48, go to overflow path
+		self._emit_instr("cmpl $48, %ecx")
+		self._emit_instr(f"jae {overflow_label}")
+		# Register path: load from reg_save_area + gp_offset
+		self._emit_instr("movslq %ecx, %rcx")
+		self._emit_instr("addq 16(%rax), %rcx")
+		self._emit_instr("movq (%rcx), %rdx")
+		# Increment gp_offset by 8
+		self._emit_instr("addl $8, (%rax)")
+		self._emit_instr(f"jmp {done_label}")
+		# Overflow path: load from overflow_arg_area
+		self._emit(f"{overflow_label}:")
+		self._load_value(instr.ap_addr, "%rax")
+		self._emit_instr("movq 8(%rax), %rcx")
+		self._emit_instr("movq (%rcx), %rdx")
+		# Increment overflow_arg_area by 8
+		self._emit_instr("addq $8, 8(%rax)")
+		self._emit(f"{done_label}:")
+		self._store_to_temp("%rdx", instr.dest)
+
+	def _gen_va_copy(self, instr: IRVaCopy) -> None:
+		"""Copy 24-byte va_list struct from src to dest."""
+		self._load_value(instr.src_addr, "%rsi")
+		self._load_value(instr.dest_addr, "%rdi")
+		# Copy 24 bytes (3 quadwords)
+		self._emit_instr("movq (%rsi), %rax")
+		self._emit_instr("movq %rax, (%rdi)")
+		self._emit_instr("movq 8(%rsi), %rax")
+		self._emit_instr("movq %rax, 8(%rdi)")
+		self._emit_instr("movq 16(%rsi), %rax")
+		self._emit_instr("movq %rax, 16(%rdi)")

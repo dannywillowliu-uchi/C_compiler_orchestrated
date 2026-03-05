@@ -24,6 +24,10 @@ from compiler.ir import (
 	IRStore,
 	IRTemp,
 	IRUnaryOp,
+	IRVaArg,
+	IRVaCopy,
+	IRVaEnd,
+	IRVaStart,
 	IRValue,
 	IRLabelInstr,
 	IRType,
@@ -53,6 +57,7 @@ class IROptimizer:
 				self._copy_propagation,
 				self._convert_elimination,
 				self._cse,
+				self._constant_condjump_folding,
 				self._dead_code_elimination,
 				self._jump_threading,
 				self._unreachable_elimination,
@@ -440,6 +445,25 @@ class IROptimizer:
 					unreachable = True
 		return result
 
+	# -- Constant Conditional Jump Folding --
+
+	def _constant_condjump_folding(self, body: list[IRInstruction]) -> list[IRInstruction]:
+		"""Replace conditional jumps on constant conditions with unconditional jumps."""
+		result: list[IRInstruction] = []
+		for instr in body:
+			if isinstance(instr, IRCondJump) and isinstance(instr.condition, (IRConst, IRFloatConst)):
+				if isinstance(instr.condition, IRFloatConst):
+					is_true = instr.condition.value != 0.0
+				else:
+					is_true = instr.condition.value != 0
+				if is_true:
+					result.append(IRJump(target=instr.true_label))
+				else:
+					result.append(IRJump(target=instr.false_label))
+				continue
+			result.append(instr)
+		return result
+
 	# -- Common Subexpression Elimination --
 
 	def _cse(self, body: list[IRInstruction]) -> list[IRInstruction]:
@@ -737,7 +761,7 @@ class IROptimizer:
 
 	def _get_dest(self, instr: IRInstruction) -> IRTemp | None:
 		"""Return the destination temp written by an instruction, if any."""
-		if isinstance(instr, (IRAddrOf, IRBinOp, IRUnaryOp, IRCopy, IRLoad, IRAlloc, IRConvert)):
+		if isinstance(instr, (IRAddrOf, IRBinOp, IRUnaryOp, IRCopy, IRLoad, IRAlloc, IRConvert, IRVaArg)):
 			return instr.dest
 		if isinstance(instr, IRCall):
 			return instr.dest
@@ -767,4 +791,12 @@ class IROptimizer:
 			return [instr.value]
 		if isinstance(instr, IRConvert):
 			return [instr.source]
+		if isinstance(instr, IRVaStart):
+			return [instr.ap_addr]
+		if isinstance(instr, IRVaArg):
+			return [instr.ap_addr]
+		if isinstance(instr, IRVaEnd):
+			return [instr.ap_addr]
+		if isinstance(instr, IRVaCopy):
+			return [instr.dest_addr, instr.src_addr]
 		return []

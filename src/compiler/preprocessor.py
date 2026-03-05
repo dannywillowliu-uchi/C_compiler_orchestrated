@@ -50,6 +50,12 @@ _BUILTIN_HEADERS: dict[str, str] = {
 		"#define __bool_true_false_are_defined 1",
 		"#endif",
 	]),
+	"stdarg.h": "\n".join([
+		"#ifndef _STDARG_H",
+		"#define _STDARG_H",
+		"typedef void *va_list;",
+		"#endif",
+	]),
 }
 
 

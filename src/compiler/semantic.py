@@ -47,6 +47,10 @@ from compiler.ast_nodes import (
 	TypeSpec,
 	UnaryOp,
 	UnionDecl,
+	VaCopyExpr,
+	VaArgExpr,
+	VaEndExpr,
+	VaStartExpr,
 	VarDecl,
 	WhileStmt,
 )
@@ -1145,6 +1149,23 @@ class SemanticAnalyzer(ASTVisitor):
 	def visit_comma_expr(self, node: CommaExpr) -> TypeSpec | None:
 		self.visit(node.left)
 		return self.visit(node.right)
+
+	def visit_va_start_expr(self, node: VaStartExpr) -> TypeSpec | None:
+		self.visit(node.ap)
+		return TypeSpec(base_type="void")
+
+	def visit_va_arg_expr(self, node: VaArgExpr) -> TypeSpec | None:
+		self.visit(node.ap)
+		return node.arg_type
+
+	def visit_va_end_expr(self, node: VaEndExpr) -> TypeSpec | None:
+		self.visit(node.ap)
+		return TypeSpec(base_type="void")
+
+	def visit_va_copy_expr(self, node: VaCopyExpr) -> TypeSpec | None:
+		self.visit(node.dest)
+		self.visit(node.src)
+		return TypeSpec(base_type="void")
 
 	def _is_const_target(self, node: ASTNode) -> bool:
 		"""Return True if *node* refers to a const-qualified variable.

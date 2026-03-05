@@ -142,9 +142,9 @@ class TestLeaReduction:
 		assert _opt(asm) == "\tleaq -16(%rbx), %rax"
 
 	def test_zero_immediate(self) -> None:
-		"""Zero immediate produces leaq 0(%reg), %reg."""
+		"""Zero immediate folds through leaq 0(%reg) -> movq."""
 		asm = "\tmovq $0, %rcx\n\taddq %rdx, %rcx"
-		assert _opt(asm) == "\tleaq 0(%rdx), %rcx"
+		assert _opt(asm) == "\tmovq %rdx, %rcx"
 
 	def test_large_positive_immediate(self) -> None:
 		"""Immediate at 32-bit max boundary."""
@@ -204,10 +204,10 @@ class TestPushPopElimination:
 		asm = "\tpushq %rbx\n\tpopq %rbx"
 		assert _opt(asm) == ""
 
-	def test_push_pop_different_regs_no_fire(self) -> None:
-		"""pushq %rax + popq %rbx should NOT be removed."""
+	def test_push_pop_different_regs_to_movq(self) -> None:
+		"""pushq %rax + popq %rbx -> movq %rax, %rbx."""
 		asm = "\tpushq %rax\n\tpopq %rbx"
-		assert _opt(asm) == asm
+		assert _opt(asm) == "\tmovq %rax, %rbx"
 
 	def test_push_pop_with_surrounding_code(self) -> None:
 		"""Push/pop elimination within surrounding code."""
