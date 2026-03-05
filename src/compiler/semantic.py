@@ -56,6 +56,7 @@ from compiler.ast_nodes import (
 	VarDecl,
 	WhileStmt,
 )
+from compiler.const_eval import ConstExprEvaluator
 
 if TYPE_CHECKING:
 	from compiler.ast_nodes import ASTNode
@@ -1057,8 +1058,9 @@ class SemanticAnalyzer(ASTVisitor):
 	def visit_switch_stmt(self, node: SwitchStmt) -> None:
 		self.visit(node.expression)
 		self._switch_depth += 1
-		seen_values: set[int | str] = set()
+		seen_values: set[int] = set()
 		has_default = False
+		evaluator = self._get_const_evaluator()
 		for case in node.cases:
 			if case.is_pre_switch:
 				pass  # Pre-switch statements (before first case/default)
@@ -1067,13 +1069,8 @@ class SemanticAnalyzer(ASTVisitor):
 					self._error("duplicate default label in switch", case)
 				has_default = True
 			else:
-				if isinstance(case.value, (IntLiteral, CharLiteral)):
-					val: int | str = case.value.value
-					if val in seen_values:
-						self._error(f"duplicate case value {val!r}", case)
-					seen_values.add(val)
-				elif isinstance(case.value, Identifier) and case.value.name in self._enum_constants:
-					val = self._enum_constants[case.value.name]
+				val = evaluator.evaluate(case.value)
+				if val is not None:
 					if val in seen_values:
 						self._error(f"duplicate case value {val!r}", case)
 					seen_values.add(val)
@@ -1204,8 +1201,10 @@ class SemanticAnalyzer(ASTVisitor):
 		next_value = 0
 		for const in node.constants:
 			if const.value is not None:
-				if isinstance(const.value, IntLiteral):
-					next_value = const.value.value
+				evaluator = self._get_const_evaluator()
+				val = evaluator.evaluate(const.value)
+				if val is not None:
+					next_value = val
 				else:
 					self.visit(const.value)
 			self._enum_constants[const.name] = next_value
@@ -1353,97 +1352,18 @@ class SemanticAnalyzer(ASTVisitor):
 			msg = interpret_c_escapes(msg)
 			self._error(f"static assertion failed: \"{msg}\"", node)
 
+	def _get_const_evaluator(self) -> ConstExprEvaluator:
+		"""Create a ConstExprEvaluator with current semantic state."""
+		return ConstExprEvaluator(
+			enum_constants=self._enum_constants,
+			struct_types=self._struct_types,
+			union_types=self._union_types,
+			typedef_map=self._typedef_types,
+		)
+
 	def _try_eval_constant(self, node: ASTNode) -> int | None:
 		"""Try to evaluate an AST expression as a compile-time integer constant."""
-		if isinstance(node, IntLiteral):
-			return node.value
-		if isinstance(node, CharLiteral):
-			from compiler.lexer import interpret_c_escapes
-			ch = interpret_c_escapes(node.value)
-			return ord(ch[0]) if ch else 0
-		if isinstance(node, Identifier):
-			if node.name in self._enum_constants:
-				return self._enum_constants[node.name]
-			return None
-		if isinstance(node, UnaryOp) and node.prefix:
-			operand = self._try_eval_constant(node.operand)
-			if operand is None:
-				return None
-			if node.op == "-":
-				return -operand
-			if node.op == "+":
-				return operand
-			if node.op == "~":
-				return ~operand
-			if node.op == "!":
-				return 0 if operand else 1
-			return None
-		if isinstance(node, BinaryOp):
-			left = self._try_eval_constant(node.left)
-			right = self._try_eval_constant(node.right)
-			if left is None or right is None:
-				return None
-			op = node.op
-			if op == "+":
-				return left + right
-			if op == "-":
-				return left - right
-			if op == "*":
-				return left * right
-			if op == "/" and right != 0:
-				return int(left / right)
-			if op == "%" and right != 0:
-				return left % right
-			if op == "<<":
-				return left << right
-			if op == ">>":
-				return left >> right
-			if op == "&":
-				return left & right
-			if op == "|":
-				return left | right
-			if op == "^":
-				return left ^ right
-			if op == "==":
-				return 1 if left == right else 0
-			if op == "!=":
-				return 1 if left != right else 0
-			if op == "<":
-				return 1 if left < right else 0
-			if op == ">":
-				return 1 if left > right else 0
-			if op == "<=":
-				return 1 if left <= right else 0
-			if op == ">=":
-				return 1 if left >= right else 0
-			if op == "&&":
-				return 1 if left and right else 0
-			if op == "||":
-				return 1 if left or right else 0
-			return None
-		if isinstance(node, TernaryExpr):
-			cond = self._try_eval_constant(node.condition)
-			if cond is None:
-				return None
-			return self._try_eval_constant(node.true_expr if cond else node.false_expr)
-		if isinstance(node, SizeofExpr):
-			return self._eval_sizeof(node)
-		if isinstance(node, CastExpr):
-			return self._try_eval_constant(node.operand)
-		return None
-
-	def _eval_sizeof(self, node: SizeofExpr) -> int | None:
-		"""Evaluate sizeof for constant expression contexts."""
-		_SIZE_MAP = {
-			"char": 1, "short": 2, "int": 4, "long": 8,
-			"float": 4, "double": 8, "void": 1, "_Bool": 1,
-		}
-		if node.type_operand is not None:
-			ts = node.type_operand
-			if ts.pointer_count > 0:
-				return 8
-			return _SIZE_MAP.get(ts.base_type)
-		return None
+		return self._get_const_evaluator().evaluate(node)
 
 	def visit_type_spec(self, node: TypeSpec) -> TypeSpec:
 		return self._resolve_type(node)
