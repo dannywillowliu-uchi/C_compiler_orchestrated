@@ -42,6 +42,7 @@ from compiler.ast_nodes import (
 	ReturnStmt,
 	SizeofExpr,
 	SourceLocation,
+	StaticAssertDecl,
 	StringLiteral,
 	StructDecl,
 	StructMember,
@@ -221,6 +222,10 @@ class Parser:
 
 	def _parse_top_level_decl(self) -> ASTNode:
 		"""Parse a top-level declaration (function, global variable, struct, enum, or typedef)."""
+		# Check for _Static_assert
+		if self._check(TokenType.STATIC_ASSERT):
+			return self._parse_static_assert()
+
 		# Check for typedef
 		if self._check(TokenType.TYPEDEF):
 			return self._parse_typedef_decl()
@@ -438,11 +443,15 @@ class Parser:
 			return StructDecl(name=name_tok.value, members=[], loc=self._loc(tok))
 		self._expect(TokenType.LBRACE, "Expected '{' after struct name")
 		members: list[StructMember] = []
+		sa_list: list[StaticAssertDecl] = []
 		while not self._check(TokenType.RBRACE) and not self._at_end():
+			if self._check(TokenType.STATIC_ASSERT):
+				sa_list.append(self._parse_static_assert())
+				continue
 			members.append(self._parse_struct_member())
 		self._expect(TokenType.RBRACE, "Expected '}' after struct members")
 		self._expect(TokenType.SEMICOLON, "Expected ';' after struct definition")
-		return StructDecl(name=name_tok.value, members=members, loc=self._loc(tok))
+		return StructDecl(name=name_tok.value, members=members, static_asserts=sa_list, loc=self._loc(tok))
 
 	# -- Union declaration ---------------------------------------------------
 
@@ -454,11 +463,15 @@ class Parser:
 			return UnionDecl(name=name_tok.value, members=[], loc=self._loc(tok))
 		self._expect(TokenType.LBRACE, "Expected '{' after union name")
 		members: list[StructMember] = []
+		sa_list: list[StaticAssertDecl] = []
 		while not self._check(TokenType.RBRACE) and not self._at_end():
+			if self._check(TokenType.STATIC_ASSERT):
+				sa_list.append(self._parse_static_assert())
+				continue
 			members.append(self._parse_struct_member())
 		self._expect(TokenType.RBRACE, "Expected '}' after union members")
 		self._expect(TokenType.SEMICOLON, "Expected ';' after union definition")
-		return UnionDecl(name=name_tok.value, members=members, loc=self._loc(tok))
+		return UnionDecl(name=name_tok.value, members=members, static_asserts=sa_list, loc=self._loc(tok))
 
 	# -- Enum declaration ----------------------------------------------------
 
@@ -483,6 +496,20 @@ class Parser:
 		self._expect(TokenType.RBRACE, "Expected '}' after enum constants")
 		self._expect(TokenType.SEMICOLON, "Expected ';' after enum definition")
 		return EnumDecl(name=name_tok.value, constants=constants, loc=self._loc(tok))
+
+	# -- Static assert -------------------------------------------------------
+
+	def _parse_static_assert(self) -> StaticAssertDecl:
+		"""Parse '_Static_assert(constant-expression, string-literal);'."""
+		tok = self._advance()  # consume '_Static_assert'
+		self._expect(TokenType.LPAREN, "Expected '(' after '_Static_assert'")
+		expr = self._parse_assignment()
+		self._expect(TokenType.COMMA, "Expected ',' in _Static_assert")
+		msg_tok = self._expect(TokenType.STRING_LITERAL, "Expected string literal in _Static_assert")
+		msg = msg_tok.value[1:-1]  # strip quotes
+		self._expect(TokenType.RPAREN, "Expected ')' after _Static_assert")
+		self._expect(TokenType.SEMICOLON, "Expected ';' after _Static_assert")
+		return StaticAssertDecl(expression=expr, message=msg, loc=self._loc(tok))
 
 	# -- Typedef declaration -------------------------------------------------
 
@@ -740,6 +767,8 @@ class Parser:
 
 	def _parse_statement(self) -> ASTNode:
 		"""Parse a single statement."""
+		if self._check(TokenType.STATIC_ASSERT):
+			return self._parse_static_assert()
 		if self._check(TokenType.LBRACE):
 			return self._parse_compound_stmt()
 		if self._check(TokenType.RETURN):
