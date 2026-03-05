@@ -6,6 +6,7 @@ from compiler.cfg import CFG
 from compiler.ir import (
 	IRAddrOf,
 	IRBinOp,
+	IRBulkCopy,
 	IRCall,
 	IRConst,
 	IRConvert,
@@ -170,6 +171,11 @@ def _get_temp_refs(instr: IRInstruction) -> list[str]:
 		if isinstance(instr.ap_addr, IRTemp):
 			refs.append(instr.ap_addr.name)
 	elif isinstance(instr, IRVaCopy):
+		if isinstance(instr.dest_addr, IRTemp):
+			refs.append(instr.dest_addr.name)
+		if isinstance(instr.src_addr, IRTemp):
+			refs.append(instr.src_addr.name)
+	elif isinstance(instr, IRBulkCopy):
 		if isinstance(instr.dest_addr, IRTemp):
 			refs.append(instr.dest_addr.name)
 		if isinstance(instr.src_addr, IRTemp):

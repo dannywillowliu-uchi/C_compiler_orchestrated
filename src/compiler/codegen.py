@@ -9,6 +9,7 @@ from compiler.ir import (
 	IRAddrOf,
 	IRAlloc,
 	IRBinOp,
+	IRBulkCopy,
 	IRCall,
 	IRCondJump,
 	IRConst,
@@ -786,6 +787,9 @@ class CodeGenerator:
 			temps.add(instr.source.name)
 		elif isinstance(instr, IRAlloc):
 			temps.add(instr.dest.name)
+		elif isinstance(instr, IRBulkCopy):
+			self._collect_value_temp(instr.dest_addr, temps)
+			self._collect_value_temp(instr.src_addr, temps)
 		elif isinstance(instr, IRCondJump):
 			self._collect_value_temp(instr.condition, temps)
 		elif isinstance(instr, IRConvert):
@@ -944,6 +948,8 @@ class CodeGenerator:
 			self._gen_addr_of(instr)
 		elif isinstance(instr, IRAlloc):
 			self._gen_alloc(instr)
+		elif isinstance(instr, IRBulkCopy):
+			self._gen_bulk_copy(instr)
 		elif isinstance(instr, IRConvert):
 			self._gen_convert(instr)
 		elif isinstance(instr, IRParam):
@@ -1151,6 +1157,37 @@ class CodeGenerator:
 		self._emit_instr(f"subq ${aligned}, %rsp")
 		self._emit_instr("movq %rsp, %rax")
 		self._store_to_temp("%rax", instr.dest)
+
+	def _gen_bulk_copy(self, instr: IRBulkCopy) -> None:
+		"""Emit bulk memory copy using rep movsb or unrolled movq/movb sequences."""
+		size = instr.size
+		if size <= 0:
+			return
+		# Load source into %rsi, dest into %rdi
+		self._load_value(instr.src_addr, "%rsi")
+		self._load_value(instr.dest_addr, "%rdi")
+		if size >= 16:
+			# Use rep movsb for larger copies
+			self._emit_instr(f"movq ${size}, %rcx")
+			self._emit_instr("rep movsb")
+		else:
+			# Unrolled copy: movq for 8-byte chunks, then movl/movw/movb for remainder
+			offset = 0
+			while offset + 8 <= size:
+				self._emit_instr(f"movq {offset}(%rsi), %rax")
+				self._emit_instr(f"movq %rax, {offset}(%rdi)")
+				offset += 8
+			if offset + 4 <= size:
+				self._emit_instr(f"movl {offset}(%rsi), %eax")
+				self._emit_instr(f"movl %eax, {offset}(%rdi)")
+				offset += 4
+			if offset + 2 <= size:
+				self._emit_instr(f"movw {offset}(%rsi), %ax")
+				self._emit_instr(f"movw %ax, {offset}(%rdi)")
+				offset += 2
+			if offset < size:
+				self._emit_instr(f"movb {offset}(%rsi), %al")
+				self._emit_instr(f"movb %al, {offset}(%rdi)")
 
 	def _gen_addr_of(self, instr: IRAddrOf) -> None:
 		offset = self._get_offset(instr.source.name)
