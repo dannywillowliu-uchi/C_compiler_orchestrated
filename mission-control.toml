@@ -2,21 +2,16 @@
 name = "C_compiler_orchestrated"
 path = "/Users/dannyliu/personal_projects/C_compiler_orchestrated"
 branch = "main"
-objective = """Continue building and improving the C compiler. Focus on closing known gaps and increasing correctness.
+objective = """Continue building the C compiler. The compiler should be able to pass the GCC torture tests, with results from the core test runner (tests/torture/runner.py). Focus on the most impactful changes.
 
-Priority areas:
-1. Add long, short, signed type modifiers
-2. Add variadic function support (...)
-3. Add goto/labels
-4. Add bitfields in structs
-5. Reduce unnecessary stack spills in register allocator
-6. Add #include path search to preprocessor
-7. Add _Bool / stdbool.h support
-8. Improve codegen quality -- reduce redundant moves and unnecessary temporaries
-9. Add more edge-case tests for existing features
-10. Fix any bugs discovered by expanding test coverage
+Currently 70/225 GCC torture tests pass. Read TORTURE_RESULTS.md for full failure diagnostics and skip analysis showing which missing features block the most tests.
 
-Use PYTHONPATH=src .venv/bin/python for all Python commands.
+Strategy:
+1. Fix FAIL tests first -- these are bugs in existing code (crashes, wrong output)
+2. Fix the highest-count skip patterns to unlock the most new tests at once
+3. Do NOT add unit tests, optimizer passes, or features unrelated to improving the torture test pass rate
+
+The compiler lives in src/compiler/. Use PYTHONPATH=src .venv/bin/python for all commands.
 """
 
 [target.verification]
