@@ -70,6 +70,7 @@ class IROptimizer:
 				self._jump_threading,
 				self._unreachable_elimination,
 				self._licm,
+				self._loop_strength_reduction,
 			):
 				new_body = pass_fn(body)
 				if new_body != body:
@@ -878,6 +879,184 @@ class IROptimizer:
 					new_body.extend(hoisted)
 				if id(instr) not in hoist_ids:
 					new_body.append(instr)
+
+			return new_body
+
+		return body
+
+	# -- Loop Strength Reduction --
+
+	_lsr_counter: int = 0
+
+	def _lsr_new_temp(self) -> IRTemp:
+		"""Generate a unique temporary for loop strength reduction."""
+		self._lsr_counter += 1
+		return IRTemp(f"__lsr_{self._lsr_counter}")
+
+	def _loop_strength_reduction(self, body: list[IRInstruction]) -> list[IRInstruction]:
+		"""Convert multiply-by-induction-variable patterns into incremental additions.
+
+		For each natural loop, find basic induction variables (i = i + c) and
+		derived expressions (t = i * stride). Replace t with an accumulator
+		that is initialized before the loop and incremented by stride * step
+		inside the loop body.
+		"""
+		if not body:
+			return body
+
+		cfg = CFG(body)
+		loops = cfg.find_natural_loops()
+		if not loops:
+			return body
+
+		block_instrs: dict[str, list[IRInstruction]] = {}
+		for block in cfg.blocks():
+			block_instrs[block.label] = block.instructions
+
+		for loop in loops:
+			loop_blocks = loop.body
+			# Collect all instructions in this loop
+			loop_instr_list: list[IRInstruction] = []
+			for label in loop_blocks:
+				loop_instr_list.extend(block_instrs.get(label, []))
+
+			# Find basic induction variables: temps defined exactly once in the
+			# loop as iv = iv + const (or iv = iv - const or iv = const + iv)
+			defs_in_loop: dict[str, list[IRInstruction]] = {}
+			for instr in loop_instr_list:
+				d = self._get_dest(instr)
+				if d is not None:
+					defs_in_loop.setdefault(d.name, []).append(instr)
+
+			# iv_info: maps iv_name -> (step_value, step_type)
+			iv_info: dict[str, tuple[int, IRType]] = {}
+			for name, defs in defs_in_loop.items():
+				if len(defs) != 1:
+					continue
+				defn = defs[0]
+				if not isinstance(defn, IRBinOp):
+					continue
+				if defn.op not in ("+", "-"):
+					continue
+				# Pattern: iv = iv + const
+				if (
+					isinstance(defn.left, IRTemp)
+					and defn.left.name == name
+					and isinstance(defn.right, IRConst)
+				):
+					step = defn.right.value if defn.op == "+" else -defn.right.value
+					iv_info[name] = (step, defn.ir_type)
+				# Pattern: iv = const + iv
+				elif (
+					defn.op == "+"
+					and isinstance(defn.right, IRTemp)
+					and defn.right.name == name
+					and isinstance(defn.left, IRConst)
+				):
+					iv_info[name] = (defn.left.value, defn.ir_type)
+
+			if not iv_info:
+				continue
+
+			# Find derived expressions: t = iv * stride or t = stride * iv
+			# where stride is loop-invariant (constant or defined outside loop)
+			replacements: list[tuple[IRBinOp, str, int, int, IRType]] = []
+			# (original_mul_instr, iv_name, stride, step, ir_type)
+
+			for instr in loop_instr_list:
+				if not isinstance(instr, IRBinOp) or instr.op != "*":
+					continue
+				dest = instr.dest
+				# Don't reduce if dest is itself an IV (shouldn't happen but be safe)
+				if dest.name in iv_info:
+					continue
+
+				iv_name: str | None = None
+				stride: int | None = None
+
+				# t = iv * const
+				if (
+					isinstance(instr.left, IRTemp)
+					and instr.left.name in iv_info
+					and isinstance(instr.right, IRConst)
+				):
+					iv_name = instr.left.name
+					stride = instr.right.value
+				# t = const * iv
+				elif (
+					isinstance(instr.right, IRTemp)
+					and instr.right.name in iv_info
+					and isinstance(instr.left, IRConst)
+				):
+					iv_name = instr.right.name
+					stride = instr.left.value
+
+				if iv_name is not None and stride is not None:
+					step, ir_type = iv_info[iv_name]
+					replacements.append((instr, iv_name, stride, step, ir_type))
+
+			if not replacements:
+				continue
+
+			# Build the transformed body
+			# For each replacement: create an accumulator temp, initialize it
+			# before the loop header, and replace the multiply with a copy
+			# from the accumulator. After each IV update, add accumulator += stride * step.
+
+			# Map from id(mul_instr) -> (accum_temp, stride * step increment)
+			mul_to_accum: dict[int, tuple[IRTemp, int, IRType]] = {}
+			init_instrs: list[IRInstruction] = []  # to insert before loop header
+			# Map from id(iv_update_instr) -> list of accumulator increments to insert after
+			iv_update_extras: dict[int, list[IRInstruction]] = {}
+
+			for mul_instr, iv_name, stride, step, ir_type in replacements:
+				accum = self._lsr_new_temp()
+				increment = stride * step
+				mul_to_accum[id(mul_instr)] = (accum, increment, ir_type)
+
+				# Initialize accumulator: accum = iv * stride (before loop)
+				# We use the same multiply, but it's computed once before the loop
+				init_instrs.append(IRBinOp(
+					dest=accum,
+					left=IRTemp(iv_name),
+					op="*",
+					right=IRConst(stride),
+					ir_type=ir_type,
+				))
+
+				# After the IV update, add: accum = accum + (stride * step)
+				iv_update = defs_in_loop[iv_name][0]
+				extras = iv_update_extras.setdefault(id(iv_update), [])
+				extras.append(IRBinOp(
+					dest=accum,
+					left=accum,
+					op="+",
+					right=IRConst(increment),
+					ir_type=ir_type,
+				))
+
+			# Reconstruct the full body with replacements
+			header_label = loop.header
+			new_body: list[IRInstruction] = []
+			for instr in body:
+				# Insert initializations before the loop header label
+				if isinstance(instr, IRLabelInstr) and instr.name == header_label:
+					new_body.extend(init_instrs)
+
+				if id(instr) in mul_to_accum:
+					# Replace multiply with copy from accumulator
+					accum, _, ir_type = mul_to_accum[id(instr)]
+					new_body.append(IRCopy(
+						dest=instr.dest,
+						source=accum,
+						ir_type=ir_type,
+					))
+				else:
+					new_body.append(instr)
+
+				# Insert accumulator increments after IV updates
+				if id(instr) in iv_update_extras:
+					new_body.extend(iv_update_extras[id(instr)])
 
 			return new_body
 
