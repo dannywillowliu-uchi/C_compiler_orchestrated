@@ -178,6 +178,8 @@ class IRGenerator(ASTVisitor):
 		self._user_labels: dict[str, str] = {}  # C label name -> IR label name
 		self._static_local_map: dict[str, str] = {}  # local name -> mangled global name
 		self._temp_pointee_size: dict[str, int] = {}  # pointer temp -> element size
+		# Bitfield layout: struct_name -> {member_name: (byte_offset, bit_offset, bit_width, storage_size)}
+		self._bitfield_layouts: dict[str, dict[str, tuple[int, int, int, int]]] = {}
 
 	# ------------------------------------------------------------------
 	# Helpers
@@ -833,6 +835,14 @@ class IRGenerator(ASTVisitor):
 					self._emit(IRStore(address=IRGlobalRef(node.operand.name), value=result, ir_type=ir_type))
 					return result
 			if isinstance(node.operand, MemberAccess):
+				bf_info = self._get_bitfield_info(node.operand)
+				if bf_info is not None:
+					current = self._bitfield_read(node.operand, bf_info)
+					result = self._new_temp()
+					delta_op = "+" if node.op == "++" else "-"
+					self._emit(IRBinOp(dest=result, left=current, op=delta_op, right=IRConst(1)))
+					self._bitfield_write(node.operand, bf_info, result)
+					return result
 				addr = self._compute_member_addr(node.operand)
 				member_type = self._member_ir_type(node.operand)
 				current = self._new_temp()
@@ -897,6 +907,10 @@ class IRGenerator(ASTVisitor):
 			self._emit(IRStore(address=addr, value=val, ir_type=val_type))
 			return val if isinstance(val, IRTemp) else self._new_temp()
 		if isinstance(node.target, MemberAccess):
+			bf_info = self._get_bitfield_info(node.target)
+			if bf_info is not None:
+				self._bitfield_write(node.target, bf_info, val)
+				return val if isinstance(val, IRTemp) else self._new_temp()
 			addr = self._compute_member_addr(node.target)
 			member_ts = self._resolve_member_type_spec(node.target)
 			if self._member_is_aggregate(member_ts):
@@ -1222,15 +1236,23 @@ class IRGenerator(ASTVisitor):
 			addr2 = self._compute_array_addr(node.target)
 			self._emit(IRStore(address=addr2, value=result))
 		elif isinstance(node.target, MemberAccess):
-			addr = self._compute_member_addr(node.target)
-			member_type = self._member_ir_type(node.target)
-			current = self._new_temp()
-			self._emit(IRLoad(dest=current, address=addr, ir_type=member_type))
-			rhs = self.visit(node.value)
-			result = self._new_temp()
-			self._emit(IRBinOp(dest=result, left=current, op=arith_op, right=rhs))
-			addr2 = self._compute_member_addr(node.target)
-			self._emit(IRStore(address=addr2, value=result, ir_type=member_type))
+			bf_info = self._get_bitfield_info(node.target)
+			if bf_info is not None:
+				current = self._bitfield_read(node.target, bf_info)
+				rhs = self.visit(node.value)
+				result = self._new_temp()
+				self._emit(IRBinOp(dest=result, left=current, op=arith_op, right=rhs))
+				self._bitfield_write(node.target, bf_info, result)
+			else:
+				addr = self._compute_member_addr(node.target)
+				member_type = self._member_ir_type(node.target)
+				current = self._new_temp()
+				self._emit(IRLoad(dest=current, address=addr, ir_type=member_type))
+				rhs = self.visit(node.value)
+				result = self._new_temp()
+				self._emit(IRBinOp(dest=result, left=current, op=arith_op, right=rhs))
+				addr2 = self._compute_member_addr(node.target)
+				self._emit(IRStore(address=addr2, value=result, ir_type=member_type))
 		elif isinstance(node.target, UnaryOp) and node.target.op == "*":
 			addr = self.visit(node.target.operand)
 			current = self._new_temp()
@@ -1462,18 +1484,110 @@ class IRGenerator(ASTVisitor):
 		"""Resolve the size of a type, handling struct/union types."""
 		return self._resolve_member_size(ts)
 
+	def _compute_bitfield_layout(self, name: str) -> None:
+		"""Pre-compute bitfield layout for a struct, storing byte_offset, bit_offset, bit_width, storage_size."""
+		members = self._structs.get(name, [])
+		has_bitfields = any(m.bit_width is not None for m in members)
+		if not has_bitfields:
+			return
+		layout: dict[str, tuple[int, int, int, int]] = {}
+		byte_offset = 0
+		bit_offset = 0  # bits used within current storage unit
+		storage_size = 0  # current storage unit size in bytes
+		max_align = 1
+		for m in members:
+			if m.bit_width is not None:
+				type_size = _resolve_size(m.type_spec)
+				if m.bit_width == 0:
+					# Zero-width bitfield: force alignment to next storage unit boundary
+					if bit_offset > 0:
+						byte_offset += storage_size
+						bit_offset = 0
+						storage_size = 0
+					continue
+				if storage_size == 0:
+					# Start new storage unit
+					align = _resolve_alignment(m.type_spec)
+					max_align = max(max_align, align)
+					byte_offset = _align_to(byte_offset, align)
+					storage_size = type_size
+					bit_offset = 0
+				elif bit_offset + m.bit_width > storage_size * 8:
+					# Doesn't fit in current storage unit, start new one
+					byte_offset += storage_size
+					align = _resolve_alignment(m.type_spec)
+					max_align = max(max_align, align)
+					byte_offset = _align_to(byte_offset, align)
+					storage_size = type_size
+					bit_offset = 0
+				if m.name:
+					layout[m.name] = (byte_offset, bit_offset, m.bit_width, storage_size)
+				bit_offset += m.bit_width
+			else:
+				# Non-bitfield member: flush any pending bitfield storage
+				if bit_offset > 0:
+					byte_offset += storage_size
+					bit_offset = 0
+					storage_size = 0
+				align = self._resolve_type_alignment(m.type_spec)
+				max_align = max(max_align, align)
+				byte_offset = _align_to(byte_offset, align)
+				byte_offset += self._resolve_member_size(m.type_spec)
+		self._bitfield_layouts[name] = layout
+
 	def _compute_struct_size(self, name: str) -> int:
 		"""Compute the total size of a struct including alignment padding."""
 		members = self._structs.get(name, [])
-		offset = 0
+		has_bitfields = any(m.bit_width is not None for m in members)
+		if not has_bitfields:
+			offset = 0
+			max_align = 1
+			for m in members:
+				align = self._resolve_type_alignment(m.type_spec)
+				max_align = max(max_align, align)
+				offset = _align_to(offset, align)
+				offset += self._resolve_member_size(m.type_spec)
+			return _align_to(offset, max_align)
+		# Bitfield-aware size computation
+		byte_offset = 0
+		bit_offset = 0
+		storage_size = 0
 		max_align = 1
 		for m in members:
-			align = self._resolve_type_alignment(m.type_spec)
-			max_align = max(max_align, align)
-			offset = _align_to(offset, align)
-			offset += self._resolve_member_size(m.type_spec)
-		# Pad total size to the struct's overall alignment
-		return _align_to(offset, max_align)
+			if m.bit_width is not None:
+				type_size = _resolve_size(m.type_spec)
+				if m.bit_width == 0:
+					if bit_offset > 0:
+						byte_offset += storage_size
+						bit_offset = 0
+						storage_size = 0
+					continue
+				if storage_size == 0:
+					align = _resolve_alignment(m.type_spec)
+					max_align = max(max_align, align)
+					byte_offset = _align_to(byte_offset, align)
+					storage_size = type_size
+					bit_offset = 0
+				elif bit_offset + m.bit_width > storage_size * 8:
+					byte_offset += storage_size
+					align = _resolve_alignment(m.type_spec)
+					max_align = max(max_align, align)
+					byte_offset = _align_to(byte_offset, align)
+					storage_size = type_size
+					bit_offset = 0
+				bit_offset += m.bit_width
+			else:
+				if bit_offset > 0:
+					byte_offset += storage_size
+					bit_offset = 0
+					storage_size = 0
+				align = self._resolve_type_alignment(m.type_spec)
+				max_align = max(max_align, align)
+				byte_offset = _align_to(byte_offset, align)
+				byte_offset += self._resolve_member_size(m.type_spec)
+		if bit_offset > 0:
+			byte_offset += storage_size
+		return _align_to(byte_offset, max_align)
 
 	def _compute_union_size(self, name: str) -> int:
 		"""Compute the size of a union (largest member, padded to max alignment)."""
@@ -1586,6 +1700,14 @@ class IRGenerator(ASTVisitor):
 			self._emit(IRStore(address=addr2, value=new_val))
 			return old_val
 		if isinstance(node.operand, MemberAccess):
+			bf_info = self._get_bitfield_info(node.operand)
+			if bf_info is not None:
+				old_val = self._bitfield_read(node.operand, bf_info)
+				new_val = self._new_temp()
+				delta_op = "+" if node.op == "++" else "-"
+				self._emit(IRBinOp(dest=new_val, left=old_val, op=delta_op, right=IRConst(1)))
+				self._bitfield_write(node.operand, bf_info, new_val)
+				return old_val
 			addr = self._compute_member_addr(node.operand)
 			member_type = self._member_ir_type(node.operand)
 			old_val = self._new_temp()
@@ -1639,6 +1761,7 @@ class IRGenerator(ASTVisitor):
 
 	def visit_struct_decl(self, node: StructDecl) -> None:
 		self._structs[node.name] = list(node.members)
+		self._compute_bitfield_layout(node.name)
 
 	def visit_union_decl(self, node: UnionDecl) -> None:
 		self._unions[node.name] = list(node.members)
@@ -1889,14 +2012,60 @@ class IRGenerator(ASTVisitor):
 	def _compute_field_offset_by_index(self, struct_name: str, field_index: int) -> int:
 		"""Compute the byte offset of a struct field by its index."""
 		members = self._structs.get(struct_name, [])
-		offset = 0
+		# Check bitfield layout
+		bf_layout = self._bitfield_layouts.get(struct_name)
+		if bf_layout and field_index < len(members):
+			m = members[field_index]
+			if m.name and m.name in bf_layout:
+				return bf_layout[m.name][0]
+		has_bitfields = any(m.bit_width is not None for m in members)
+		if not has_bitfields:
+			offset = 0
+			for i, m in enumerate(members):
+				align = self._resolve_type_alignment(m.type_spec)
+				offset = _align_to(offset, align)
+				if i == field_index:
+					return offset
+				offset += self._resolve_member_size(m.type_spec)
+			return offset
+		# Bitfield-aware computation
+		byte_offset = 0
+		bit_offset = 0
+		storage_size = 0
 		for i, m in enumerate(members):
-			align = self._resolve_type_alignment(m.type_spec)
-			offset = _align_to(offset, align)
-			if i == field_index:
-				return offset
-			offset += self._resolve_member_size(m.type_spec)
-		return offset
+			if m.bit_width is not None:
+				type_size = _resolve_size(m.type_spec)
+				if m.bit_width == 0:
+					if bit_offset > 0:
+						byte_offset += storage_size
+						bit_offset = 0
+						storage_size = 0
+					continue
+				if storage_size == 0:
+					align = _resolve_alignment(m.type_spec)
+					byte_offset = _align_to(byte_offset, align)
+					storage_size = type_size
+					bit_offset = 0
+				elif bit_offset + m.bit_width > storage_size * 8:
+					byte_offset += storage_size
+					align = _resolve_alignment(m.type_spec)
+					byte_offset = _align_to(byte_offset, align)
+					storage_size = type_size
+					bit_offset = 0
+				if i == field_index:
+					return byte_offset
+				bit_offset += m.bit_width
+			else:
+				if bit_offset > 0:
+					byte_offset += storage_size
+					bit_offset = 0
+					storage_size = 0
+				align = self._resolve_type_alignment(m.type_spec)
+				byte_offset = _align_to(byte_offset, align)
+				if i == field_index:
+					return byte_offset
+				byte_offset += self._resolve_member_size(m.type_spec)
+		return byte_offset
 
 	def visit_designated_init(self, node: DesignatedInit) -> IRValue:
 		return self.visit(node.value)
@@ -2080,7 +2249,69 @@ class IRGenerator(ASTVisitor):
 		self._emit(IRBinOp(dest=addr, left=base, op="+", right=IRConst(offset)))
 		return addr
 
+	def _get_bitfield_info(self, node: MemberAccess) -> tuple[int, int, int, int] | None:
+		"""Return (byte_offset, bit_offset, bit_width, storage_size) if member is a bitfield."""
+		type_name = self._resolve_aggregate_name(node.object)
+		if not type_name:
+			return None
+		bf_layout = self._bitfield_layouts.get(type_name)
+		if bf_layout and node.member in bf_layout:
+			return bf_layout[node.member]
+		return None
+
+	def _bitfield_read(self, node: MemberAccess, bf_info: tuple[int, int, int, int]) -> IRTemp:
+		"""Generate IR for reading a bitfield: load storage unit, shift right, mask."""
+		byte_offset, bit_offset, bit_width, storage_size = bf_info
+		storage_ir_type = {1: IRType.CHAR, 2: IRType.SHORT, 4: IRType.INT, 8: IRType.LONG}.get(
+			storage_size, IRType.INT
+		)
+		addr = self._compute_member_addr(node)
+		raw = self._new_temp()
+		self._emit(IRLoad(dest=raw, address=addr, ir_type=storage_ir_type))
+		if bit_offset > 0:
+			shifted = self._new_temp()
+			self._emit(IRBinOp(dest=shifted, left=raw, op=">>", right=IRConst(bit_offset), is_unsigned=True))
+		else:
+			shifted = raw
+		mask_val = (1 << bit_width) - 1
+		result = self._new_temp()
+		self._emit(IRBinOp(dest=result, left=shifted, op="&", right=IRConst(mask_val)))
+		return result
+
+	def _bitfield_write(self, node: MemberAccess, bf_info: tuple[int, int, int, int], value: IRValue) -> None:
+		"""Generate IR for writing a bitfield: load, clear bits, shift value, OR, store."""
+		byte_offset, bit_offset, bit_width, storage_size = bf_info
+		storage_ir_type = {1: IRType.CHAR, 2: IRType.SHORT, 4: IRType.INT, 8: IRType.LONG}.get(
+			storage_size, IRType.INT
+		)
+		addr = self._compute_member_addr(node)
+		# Load current storage unit
+		old = self._new_temp()
+		self._emit(IRLoad(dest=old, address=addr, ir_type=storage_ir_type))
+		# Clear the bitfield bits: old & ~(mask << bit_offset)
+		mask_val = (1 << bit_width) - 1
+		clear_mask = ~(mask_val << bit_offset)
+		cleared = self._new_temp()
+		self._emit(IRBinOp(dest=cleared, left=old, op="&", right=IRConst(clear_mask)))
+		# Mask and shift the new value: (value & mask) << bit_offset
+		masked_val = self._new_temp()
+		self._emit(IRBinOp(dest=masked_val, left=value, op="&", right=IRConst(mask_val)))
+		if bit_offset > 0:
+			shifted_val = self._new_temp()
+			self._emit(IRBinOp(dest=shifted_val, left=masked_val, op="<<", right=IRConst(bit_offset)))
+		else:
+			shifted_val = masked_val
+		# OR them together and store
+		combined = self._new_temp()
+		self._emit(IRBinOp(dest=combined, left=cleared, op="|", right=shifted_val))
+		addr2 = self._compute_member_addr(node)
+		self._emit(IRStore(address=addr2, value=combined, ir_type=storage_ir_type))
+
 	def visit_member_access(self, node: MemberAccess) -> IRTemp:
+		# Check for bitfield access
+		bf_info = self._get_bitfield_info(node)
+		if bf_info is not None:
+			return self._bitfield_read(node, bf_info)
 		addr = self._compute_member_addr(node)
 		member_ts = self._resolve_member_type_spec(node)
 		# For struct/union-typed members, return the address directly (no scalar load)
@@ -2143,12 +2374,56 @@ class IRGenerator(ASTVisitor):
 		return ""
 
 	def _compute_field_offset(self, struct_name: str, field_name: str) -> int:
+		# Check bitfield layout first
+		bf_layout = self._bitfield_layouts.get(struct_name)
+		if bf_layout and field_name in bf_layout:
+			return bf_layout[field_name][0]  # byte_offset
 		members = self._structs.get(struct_name, [])
-		offset = 0
+		has_bitfields = any(m.bit_width is not None for m in members)
+		if not has_bitfields:
+			offset = 0
+			for m in members:
+				align = self._resolve_type_alignment(m.type_spec)
+				offset = _align_to(offset, align)
+				if m.name == field_name:
+					return offset
+				offset += self._resolve_member_size(m.type_spec)
+			return offset
+		# Walk through with bitfield-aware offsets for non-bitfield members
+		byte_offset = 0
+		bit_offset = 0
+		storage_size = 0
 		for m in members:
-			align = self._resolve_type_alignment(m.type_spec)
-			offset = _align_to(offset, align)
-			if m.name == field_name:
-				return offset
-			offset += self._resolve_member_size(m.type_spec)
-		return offset
+			if m.bit_width is not None:
+				type_size = _resolve_size(m.type_spec)
+				if m.bit_width == 0:
+					if bit_offset > 0:
+						byte_offset += storage_size
+						bit_offset = 0
+						storage_size = 0
+					continue
+				if storage_size == 0:
+					align = _resolve_alignment(m.type_spec)
+					byte_offset = _align_to(byte_offset, align)
+					storage_size = type_size
+					bit_offset = 0
+				elif bit_offset + m.bit_width > storage_size * 8:
+					byte_offset += storage_size
+					align = _resolve_alignment(m.type_spec)
+					byte_offset = _align_to(byte_offset, align)
+					storage_size = type_size
+					bit_offset = 0
+				if m.name == field_name:
+					return byte_offset
+				bit_offset += m.bit_width
+			else:
+				if bit_offset > 0:
+					byte_offset += storage_size
+					bit_offset = 0
+					storage_size = 0
+				align = self._resolve_type_alignment(m.type_spec)
+				byte_offset = _align_to(byte_offset, align)
+				if m.name == field_name:
+					return byte_offset
+				byte_offset += self._resolve_member_size(m.type_spec)
+		return byte_offset
