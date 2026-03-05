@@ -28,6 +28,7 @@ from compiler.ir import (
 	IRLabelInstr,
 	IRType,
 	ir_type_byte_width,
+	ir_type_is_integer,
 )
 
 
@@ -46,6 +47,8 @@ class IROptimizer:
 			changed = False
 			for pass_fn in (
 				self._constant_fold,
+				self._convert_const_propagation,
+				self._boolean_simplification,
 				self._strength_reduction,
 				self._copy_propagation,
 				self._convert_elimination,
@@ -560,6 +563,175 @@ class IROptimizer:
 					return new_body
 
 		return body
+
+	# -- Constant Propagation through IRConvert --
+
+	def _convert_const_propagation(self, body: list[IRInstruction]) -> list[IRInstruction]:
+		"""Fold IRConvert of constant values into the resulting constant."""
+		result: list[IRInstruction] = []
+		for instr in body:
+			if isinstance(instr, IRConvert):
+				folded = self._fold_convert(instr)
+				if folded is not None:
+					result.append(folded)
+					continue
+			result.append(instr)
+		return result
+
+	def _fold_convert(self, instr: IRConvert) -> IRCopy | None:
+		"""Try to fold a convert of a constant into a copy of the result constant."""
+		source = instr.source
+		to_type = instr.to_type
+
+		if isinstance(source, IRConst):
+			val = source.value
+			if ir_type_is_integer(to_type):
+				truncated = self._truncate_int(val, to_type)
+				return IRCopy(dest=instr.dest, source=IRConst(truncated, ir_type=to_type))
+			if to_type in (IRType.FLOAT, IRType.DOUBLE):
+				return IRCopy(dest=instr.dest, source=IRFloatConst(float(val), ir_type=to_type))
+		elif isinstance(source, IRFloatConst):
+			val = source.value
+			if ir_type_is_integer(to_type):
+				truncated = self._truncate_int(int(val), to_type)
+				return IRCopy(dest=instr.dest, source=IRConst(truncated, ir_type=to_type))
+			if to_type in (IRType.FLOAT, IRType.DOUBLE):
+				return IRCopy(dest=instr.dest, source=IRFloatConst(val, ir_type=to_type))
+		return None
+
+	@staticmethod
+	def _truncate_int(value: int, ir_type: IRType) -> int:
+		"""Truncate an integer value to fit the given IR integer type."""
+		widths = {
+			IRType.BOOL: 1,
+			IRType.CHAR: 8,
+			IRType.SHORT: 16,
+			IRType.INT: 32,
+			IRType.LONG: 64,
+		}
+		bits = widths.get(ir_type)
+		if bits is None:
+			return value
+		if ir_type == IRType.BOOL:
+			return 1 if value else 0
+		mask = (1 << bits) - 1
+		truncated = value & mask
+		# Sign-extend for signed types
+		if truncated >= (1 << (bits - 1)):
+			truncated -= (1 << bits)
+		return truncated
+
+	# -- Boolean Simplification --
+
+	def _boolean_simplification(self, body: list[IRInstruction]) -> list[IRInstruction]:
+		"""Simplify boolean operations: comparisons with 0/1, double negation, logical ops with constants."""
+		# Track which temps are negations: temp_name -> negated_operand
+		negation_map: dict[str, IRValue] = {}
+		result: list[IRInstruction] = []
+
+		for instr in body:
+			if isinstance(instr, IRLabelInstr):
+				negation_map.clear()
+				result.append(instr)
+				continue
+
+			# Double negation elimination: !!x -> x (when x is boolean-valued)
+			if isinstance(instr, IRUnaryOp) and instr.op == "!":
+				if isinstance(instr.operand, IRTemp) and instr.operand.name in negation_map:
+					original = negation_map[instr.operand.name]
+					result.append(IRCopy(dest=instr.dest, source=original))
+					continue
+
+			# Simplify comparisons with 0
+			if isinstance(instr, IRBinOp) and isinstance(instr.right, IRConst):
+				simplified = self._simplify_bool_binop(instr)
+				if simplified is not None:
+					# Track if the simplified result is a negation
+					if isinstance(simplified, IRUnaryOp) and simplified.op == "!":
+						negation_map[simplified.dest.name] = simplified.operand
+					else:
+						dest = self._get_dest(simplified)
+						if dest is not None:
+							negation_map.pop(dest.name, None)
+					result.append(simplified)
+					continue
+
+			# Simplify comparisons with 0 on left side
+			if isinstance(instr, IRBinOp) and isinstance(instr.left, IRConst):
+				simplified = self._simplify_bool_binop_left(instr)
+				if simplified is not None:
+					if isinstance(simplified, IRUnaryOp) and simplified.op == "!":
+						negation_map[simplified.dest.name] = simplified.operand
+					else:
+						dest = self._get_dest(simplified)
+						if dest is not None:
+							negation_map.pop(dest.name, None)
+					result.append(simplified)
+					continue
+
+			# Kill mappings for redefined temps, then track negations
+			dest = self._get_dest(instr)
+			if dest is not None:
+				negation_map.pop(dest.name, None)
+
+			# Track negations after killing old mappings
+			if isinstance(instr, IRUnaryOp) and instr.op == "!":
+				negation_map[instr.dest.name] = instr.operand
+
+			result.append(instr)
+		return result
+
+	def _simplify_bool_binop(self, instr: IRBinOp) -> IRInstruction | None:
+		"""Simplify binary ops where the right operand is a constant 0 or 1."""
+		right_val = instr.right.value if isinstance(instr.right, IRConst) else None
+		if right_val is None:
+			return None
+
+		op = instr.op
+		# x == 0 -> !x
+		if op == "==" and right_val == 0:
+			return IRUnaryOp(dest=instr.dest, op="!", operand=instr.left)
+		# x != 0 -> !!x (will be folded by double negation if already boolean)
+		# Actually just leave x != 0 as-is since it's not simpler
+		# x && 0 -> 0
+		if op == "&&" and right_val == 0:
+			return IRCopy(dest=instr.dest, source=IRConst(0))
+		# x && 1 -> !!x (convert to boolean) - but simpler: !(!x)
+		# Actually x && 1 -> x != 0, leave as unary !(!x) via later passes
+		# x || 0 -> x (as boolean: x != 0, but keep as copy if already boolean)
+		if op == "||" and right_val == 0:
+			return IRCopy(dest=instr.dest, source=instr.left)
+		# x || 1 -> 1
+		if op == "||" and right_val == 1:
+			return IRCopy(dest=instr.dest, source=IRConst(1))
+		# x && 1 -> x (preserves boolean value since && already produces 0/1)
+		if op == "&&" and right_val == 1:
+			return IRCopy(dest=instr.dest, source=instr.left)
+		return None
+
+	def _simplify_bool_binop_left(self, instr: IRBinOp) -> IRInstruction | None:
+		"""Simplify binary ops where the left operand is a constant 0 or 1."""
+		left_val = instr.left.value if isinstance(instr.left, IRConst) else None
+		if left_val is None:
+			return None
+
+		op = instr.op
+		# 0 == x -> !x
+		if op == "==" and left_val == 0:
+			return IRUnaryOp(dest=instr.dest, op="!", operand=instr.right)
+		# 0 && x -> 0
+		if op == "&&" and left_val == 0:
+			return IRCopy(dest=instr.dest, source=IRConst(0))
+		# 1 && x -> x
+		if op == "&&" and left_val == 1:
+			return IRCopy(dest=instr.dest, source=instr.right)
+		# 0 || x -> x
+		if op == "||" and left_val == 0:
+			return IRCopy(dest=instr.dest, source=instr.right)
+		# 1 || x -> 1
+		if op == "||" and left_val == 1:
+			return IRCopy(dest=instr.dest, source=IRConst(1))
+		return None
 
 	# -- Helpers --
 
