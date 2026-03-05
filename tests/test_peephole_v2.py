@@ -310,11 +310,11 @@ class TestJumpToNext:
 		assert _opt(asm) == asm
 
 	def test_jmp_not_followed_by_label_no_fire(self) -> None:
-		"""jmp followed by instruction should NOT fire."""
+		"""jmp followed by instruction: jump-to-next doesn't fire, dead code after jmp is removed."""
 		asm = "\tjmp .L1\n\tmovq $0, %rax"
 		result = _opt(asm)
-		# Jump-to-next doesn't fire, but movq $0 -> xorq does
-		assert result == "\tjmp .L1\n\txorq %rax, %rax"
+		# Dead code after unconditional jmp is eliminated
+		assert result == "\tjmp .L1"
 
 	def test_jump_to_next_with_context(self) -> None:
 		"""Jump-to-next within a realistic function."""

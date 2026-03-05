@@ -66,6 +66,12 @@ class PeepholeOptimizer:
 		self._imulq_imm_re = re.compile(
 			r"^\timulq\s+\$(\d+),\s+(%\w+)$"
 		)
+		# testq %reg, %reg pattern for redundant cmpq elimination
+		self._testq_reg_re = re.compile(
+			r"^\ttestq\s+(%\w+),\s+(%\w+)$"
+		)
+		# Unconditional control flow (jmp or ret)
+		self._unconditional_jmp_re = re.compile(r"^\t(jmp|ret)\b")
 		# Immediate add/sub for combining adjacent operations
 		self._addq_imm_val_re = re.compile(
 			r"^\taddq\s+\$(-?\d+),\s+(%\w+)$"
@@ -201,6 +207,22 @@ class PeepholeOptimizer:
 					changed = True
 					i += 2
 					continue
+
+				# Redundant cmpq $0 after testq on same register
+				opt = self._try_redundant_cmp_after_test(lines[i], lines[i + 1])
+				if opt is not None:
+					result.extend(opt)
+					changed = True
+					i += 2
+					continue
+
+			# Dead code elimination after unconditional jmp/ret
+			consumed = self._try_dead_code_after_jump(lines, i)
+			if consumed is not None:
+				result.append(lines[i])
+				changed = True
+				i = consumed
+				continue
 
 			# cmpq $0, %reg -> testq %reg, %reg
 			opt = self._try_cmp_zero_to_test(lines[i])
@@ -535,6 +557,58 @@ class PeepholeOptimizer:
 		if m_xor is not None and m_xor.group(1) == m_xor.group(2) == loaded_reg:
 			return [line2]
 		return None
+
+	def _try_redundant_cmp_after_test(self, line1: str, line2: str) -> list[str] | None:
+		"""Eliminate cmpq $0 after testq on the same register.
+
+		testq %reg, %reg already sets ZF/SF based on the register value,
+		so a following cmpq $0, %reg is redundant.
+		"""
+		m_test = self._testq_reg_re.match(line1)
+		if m_test is None:
+			return None
+		# testq %reg, %reg (same register)
+		if m_test.group(1) != m_test.group(2):
+			return None
+		m_cmp = self._cmpq_zero_re.match(line2)
+		if m_cmp is None:
+			return None
+		if m_test.group(1) == m_cmp.group(1):
+			return [line1]
+		return None
+
+	def _try_dead_code_after_jump(self, lines: list[str], idx: int) -> int | None:
+		"""Remove unreachable instructions after unconditional jmp/ret until next label.
+
+		Returns the new index to continue from (pointing at the next label),
+		or None if this pattern doesn't apply.
+		"""
+		if not self._unconditional_jmp_re.match(lines[idx]):
+			return None
+		# Scan forward: skip instructions until we hit a label, directive, or end
+		j = idx + 1
+		found_dead = False
+		while j < len(lines):
+			line = lines[j]
+			stripped = line.strip()
+			# Empty line: stop scanning
+			if not stripped:
+				break
+			# Any label (both .Lxxx: and named labels like while_body1:)
+			if stripped.endswith(":"):
+				break
+			# Directive lines (e.g. .globl, .section, .size)
+			if stripped.startswith("."):
+				break
+			# Only remove tab-indented instructions
+			if not line.startswith("\t") or line.startswith("\t."):
+				break
+			# This is an unreachable instruction - skip it
+			found_dead = True
+			j += 1
+		if not found_dead:
+			return None
+		return j
 
 	def _is_reg_dead_in_window(self, lines: list[str], start_idx: int, reg: str) -> bool:
 		"""Check if reg is dead (overwritten before read) in a forward window."""
