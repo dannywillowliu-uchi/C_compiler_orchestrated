@@ -53,6 +53,7 @@ class IROptimizer:
 			changed = False
 			for pass_fn in (
 				self._constant_fold,
+				self._algebraic_simplification,
 				self._convert_const_propagation,
 				self._boolean_simplification,
 				self._strength_reduction,
@@ -189,6 +190,98 @@ class IROptimizer:
 		"""Evaluate a unary operation on a float constant."""
 		if op == "-":
 			return -operand
+		return None
+
+	# -- Algebraic Simplification --
+
+	def _algebraic_simplification(self, body: list[IRInstruction]) -> list[IRInstruction]:
+		"""Simplify binary operations using algebraic identities.
+
+		Handles identity elements, absorption, and idempotent patterns where
+		one operand is a constant or both operands are the same temp.
+		"""
+		result: list[IRInstruction] = []
+		for instr in body:
+			if isinstance(instr, IRBinOp):
+				simplified = self._simplify_algebraic(instr)
+				if simplified is not None:
+					result.append(simplified)
+					continue
+			result.append(instr)
+		return result
+
+	def _simplify_algebraic(self, instr: IRBinOp) -> IRInstruction | None:
+		"""Try to simplify a binary op using algebraic identities."""
+		left, op, right = instr.left, instr.op, instr.right
+
+		# --- Identity with constant on right: x OP const ---
+		if isinstance(right, IRConst):
+			rv = right.value
+			# x + 0 -> x
+			if op == "+" and rv == 0:
+				return IRCopy(dest=instr.dest, source=left)
+			# x - 0 -> x
+			if op == "-" and rv == 0:
+				return IRCopy(dest=instr.dest, source=left)
+			# x * 1 -> x
+			if op == "*" and rv == 1:
+				return IRCopy(dest=instr.dest, source=left)
+			# x * 0 -> 0
+			if op == "*" and rv == 0:
+				return IRCopy(dest=instr.dest, source=IRConst(0))
+			# x & 0 -> 0
+			if op == "&" and rv == 0:
+				return IRCopy(dest=instr.dest, source=IRConst(0))
+			# x | 0 -> x
+			if op == "|" and rv == 0:
+				return IRCopy(dest=instr.dest, source=left)
+			# x ^ 0 -> x
+			if op == "^" and rv == 0:
+				return IRCopy(dest=instr.dest, source=left)
+			# x << 0 -> x
+			if op == "<<" and rv == 0:
+				return IRCopy(dest=instr.dest, source=left)
+			# x >> 0 -> x
+			if op == ">>" and rv == 0:
+				return IRCopy(dest=instr.dest, source=left)
+
+		# --- Identity with constant on left: const OP x ---
+		if isinstance(left, IRConst):
+			lv = left.value
+			# 0 + x -> x
+			if op == "+" and lv == 0:
+				return IRCopy(dest=instr.dest, source=right)
+			# 1 * x -> x
+			if op == "*" and lv == 1:
+				return IRCopy(dest=instr.dest, source=right)
+			# 0 * x -> 0
+			if op == "*" and lv == 0:
+				return IRCopy(dest=instr.dest, source=IRConst(0))
+			# 0 & x -> 0
+			if op == "&" and lv == 0:
+				return IRCopy(dest=instr.dest, source=IRConst(0))
+			# 0 | x -> x
+			if op == "|" and lv == 0:
+				return IRCopy(dest=instr.dest, source=right)
+			# 0 ^ x -> x
+			if op == "^" and lv == 0:
+				return IRCopy(dest=instr.dest, source=right)
+
+		# --- Same-operand patterns: x OP x ---
+		if isinstance(left, IRTemp) and isinstance(right, IRTemp) and left.name == right.name:
+			# x - x -> 0
+			if op == "-":
+				return IRCopy(dest=instr.dest, source=IRConst(0))
+			# x & x -> x
+			if op == "&":
+				return IRCopy(dest=instr.dest, source=left)
+			# x | x -> x
+			if op == "|":
+				return IRCopy(dest=instr.dest, source=left)
+			# x ^ x -> 0
+			if op == "^":
+				return IRCopy(dest=instr.dest, source=IRConst(0))
+
 		return None
 
 	# -- Redundant Convert Elimination --
