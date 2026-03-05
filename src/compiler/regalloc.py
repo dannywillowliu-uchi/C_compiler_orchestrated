@@ -10,6 +10,7 @@ from compiler.ir import (
 	IRConvert,
 	IRCopy,
 	IRFunction,
+	IRInstruction,
 	IRLoad,
 	IRProgram,
 	IRReturn,
@@ -108,50 +109,89 @@ def _collect_move_edges(func: IRFunction) -> list[tuple[str, str]]:
 	return moves
 
 
+def _get_temp_refs(instr: IRInstruction) -> list[str]:
+	"""Return all temp names referenced (defined or used) by an instruction."""
+	refs: list[str] = []
+	if isinstance(instr, IRBinOp):
+		refs.append(instr.dest.name)
+		if isinstance(instr.left, IRTemp):
+			refs.append(instr.left.name)
+		if isinstance(instr.right, IRTemp):
+			refs.append(instr.right.name)
+	elif isinstance(instr, IRUnaryOp):
+		refs.append(instr.dest.name)
+		if isinstance(instr.operand, IRTemp):
+			refs.append(instr.operand.name)
+	elif isinstance(instr, IRCopy):
+		refs.append(instr.dest.name)
+		if isinstance(instr.source, IRTemp):
+			refs.append(instr.source.name)
+	elif isinstance(instr, IRLoad):
+		refs.append(instr.dest.name)
+		if isinstance(instr.address, IRTemp):
+			refs.append(instr.address.name)
+	elif isinstance(instr, IRStore):
+		if isinstance(instr.address, IRTemp):
+			refs.append(instr.address.name)
+		if isinstance(instr.value, IRTemp):
+			refs.append(instr.value.name)
+	elif isinstance(instr, IRCall):
+		if instr.dest is not None:
+			refs.append(instr.dest.name)
+		for arg in instr.args:
+			if isinstance(arg, IRTemp):
+				refs.append(arg.name)
+	elif isinstance(instr, IRReturn):
+		if instr.value is not None and isinstance(instr.value, IRTemp):
+			refs.append(instr.value.name)
+	elif isinstance(instr, IRConvert):
+		refs.append(instr.dest.name)
+		if isinstance(instr.source, IRTemp):
+			refs.append(instr.source.name)
+	elif isinstance(instr, IRAddrOf):
+		refs.append(instr.dest.name)
+		refs.append(instr.source.name)
+	return refs
+
+
 def _count_temp_uses(func: IRFunction) -> dict[str, int]:
 	"""Count how many times each temp is referenced (defined or used) in the function."""
 	counts: dict[str, int] = {}
 	for instr in func.body:
-		if isinstance(instr, IRBinOp):
-			counts[instr.dest.name] = counts.get(instr.dest.name, 0) + 1
-			if isinstance(instr.left, IRTemp):
-				counts[instr.left.name] = counts.get(instr.left.name, 0) + 1
-			if isinstance(instr.right, IRTemp):
-				counts[instr.right.name] = counts.get(instr.right.name, 0) + 1
-		elif isinstance(instr, IRUnaryOp):
-			counts[instr.dest.name] = counts.get(instr.dest.name, 0) + 1
-			if isinstance(instr.operand, IRTemp):
-				counts[instr.operand.name] = counts.get(instr.operand.name, 0) + 1
-		elif isinstance(instr, IRCopy):
-			counts[instr.dest.name] = counts.get(instr.dest.name, 0) + 1
-			if isinstance(instr.source, IRTemp):
-				counts[instr.source.name] = counts.get(instr.source.name, 0) + 1
-		elif isinstance(instr, IRLoad):
-			counts[instr.dest.name] = counts.get(instr.dest.name, 0) + 1
-			if isinstance(instr.address, IRTemp):
-				counts[instr.address.name] = counts.get(instr.address.name, 0) + 1
-		elif isinstance(instr, IRStore):
-			if isinstance(instr.address, IRTemp):
-				counts[instr.address.name] = counts.get(instr.address.name, 0) + 1
-			if isinstance(instr.value, IRTemp):
-				counts[instr.value.name] = counts.get(instr.value.name, 0) + 1
-		elif isinstance(instr, IRCall):
-			if instr.dest is not None:
-				counts[instr.dest.name] = counts.get(instr.dest.name, 0) + 1
-			for arg in instr.args:
-				if isinstance(arg, IRTemp):
-					counts[arg.name] = counts.get(arg.name, 0) + 1
-		elif isinstance(instr, IRReturn):
-			if instr.value is not None and isinstance(instr.value, IRTemp):
-				counts[instr.value.name] = counts.get(instr.value.name, 0) + 1
-		elif isinstance(instr, IRConvert):
-			counts[instr.dest.name] = counts.get(instr.dest.name, 0) + 1
-			if isinstance(instr.source, IRTemp):
-				counts[instr.source.name] = counts.get(instr.source.name, 0) + 1
-		elif isinstance(instr, IRAddrOf):
-			counts[instr.dest.name] = counts.get(instr.dest.name, 0) + 1
-			counts[instr.source.name] = counts.get(instr.source.name, 0) + 1
+		for name in _get_temp_refs(instr):
+			counts[name] = counts.get(name, 0) + 1
 	return counts
+
+
+def _compute_weighted_uses(cfg: CFG, loop_depths: dict[str, int]) -> dict[str, float]:
+	"""Count temp uses weighted by loop depth: uses at depth d count as 10^d."""
+	weighted: dict[str, float] = {}
+	for block in cfg.blocks():
+		depth = loop_depths.get(block.label, 0)
+		weight = 10.0 ** depth
+		for instr in block.instructions:
+			for name in _get_temp_refs(instr):
+				weighted[name] = weighted.get(name, 0.0) + weight
+	return weighted
+
+
+def _compute_live_range_lengths(cfg: CFG, analyzer: LivenessAnalyzer) -> dict[str, int]:
+	"""Compute approximate live range length for each temp (number of instructions it spans)."""
+	first_seen: dict[str, int] = {}
+	last_seen: dict[str, int] = {}
+	pos = 0
+	for block in cfg.blocks():
+		for i, instr in enumerate(block.instructions):
+			live = analyzer.get_live_at_point(block, i)
+			for name in live:
+				if name not in first_seen:
+					first_seen[name] = pos
+				last_seen[name] = pos
+			pos += 1
+	lengths: dict[str, int] = {}
+	for name in first_seen:
+		lengths[name] = max(last_seen[name] - first_seen[name], 1)
+	return lengths
 
 
 class RegisterAllocator:
@@ -183,6 +223,11 @@ class RegisterAllocator:
 		move_edges = _collect_move_edges(self._func)
 		use_counts = _count_temp_uses(self._func)
 
+		# Compute loop-aware spill heuristic data
+		loop_depths = cfg.loop_depth()
+		weighted_uses = _compute_weighted_uses(cfg, loop_depths)
+		live_range_lengths = _compute_live_range_lengths(cfg, analyzer)
+
 		# Build integer-only interference subgraph (exclude address-taken temps)
 		int_temps = {t for t in interference if t not in float_temps and t not in addr_taken}
 		int_graph: dict[str, set[str]] = {}
@@ -203,12 +248,21 @@ class RegisterAllocator:
 				coalesced_call_crossing.add(rep)
 
 		coalesced_use_counts: dict[str, int] = {}
+		coalesced_weighted_uses: dict[str, float] = {}
+		coalesced_range_lengths: dict[str, int] = {}
 		for t in int_temps:
 			rep = coalesce_map.find(t)
 			coalesced_use_counts[rep] = coalesced_use_counts.get(rep, 0) + use_counts.get(t, 1)
+			coalesced_weighted_uses[rep] = coalesced_weighted_uses.get(rep, 0.0) + weighted_uses.get(t, 1.0)
+			coalesced_range_lengths[rep] = max(
+				coalesced_range_lengths.get(rep, 1), live_range_lengths.get(t, 1)
+			)
 
 		# Color the coalesced graph
-		coloring = self._color_graph(coalesced_graph, coalesced_call_crossing, coalesced_use_counts)
+		coloring = self._color_graph(
+			coalesced_graph, coalesced_call_crossing, coalesced_use_counts,
+			coalesced_weighted_uses, coalesced_range_lengths,
+		)
 
 		# Expand coloring back to all original temps
 		result: dict[str, str] = {}
@@ -323,8 +377,15 @@ class RegisterAllocator:
 		graph: dict[str, set[str]],
 		call_crossing: set[str],
 		use_counts: dict[str, int] | None = None,
+		weighted_uses: dict[str, float] | None = None,
+		range_lengths: dict[str, int] | None = None,
 	) -> dict[str, str]:
-		"""Chaitin-Briggs graph coloring with improved spill heuristic."""
+		"""Chaitin-Briggs graph coloring with improved spill heuristic.
+
+		Spill cost considers loop-depth-weighted usage frequency and live range
+		length. Temps used heavily inside loops are very expensive to spill.
+		Temps with long live ranges but few uses are cheap to spill.
+		"""
 		if not graph:
 			return {}
 
@@ -344,13 +405,20 @@ class RegisterAllocator:
 					break
 
 			if not found:
-				# Spill heuristic: degree / use_count (prefer spilling low-use, high-degree nodes)
+				# Spill heuristic: pick the node with lowest spill cost.
+				# cost = weighted_uses / (degree * range_length)
+				# Higher weighted_uses = more expensive to spill (keep in register).
+				# Higher degree = removing it frees more neighbors (good to spill).
+				# Longer range = more pressure contribution (good to spill).
 				def spill_cost(n: str) -> float:
 					degree = len(adj[n] & remaining)
-					uses = (use_counts or {}).get(n, 1)
-					return degree / max(uses, 1)
+					wu = (weighted_uses or {}).get(n, 0.0)
+					if wu == 0.0:
+						wu = float((use_counts or {}).get(n, 1))
+					rl = (range_lengths or {}).get(n, 1)
+					return wu / max(degree * rl, 1)
 
-				spill_node = max(remaining, key=spill_cost)
+				spill_node = min(remaining, key=spill_cost)
 				stack.append((spill_node, True))
 				remaining.remove(spill_node)
 
