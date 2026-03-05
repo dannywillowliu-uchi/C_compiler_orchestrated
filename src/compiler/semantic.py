@@ -1196,11 +1196,38 @@ class SemanticAnalyzer(ASTVisitor):
 				return
 		seen: set[str] = set()
 		for member in node.members:
-			if member.name in seen:
+			if member.name and member.name in seen:
 				self._error(f"duplicate member '{member.name}' in struct '{node.name}'", member)
-			else:
+			elif member.name:
 				seen.add(member.name)
+			self._validate_bitfield(member, node.name)
 		self._struct_types[node.name] = node
+
+	def _validate_bitfield(self, member: StructMember, container_name: str) -> None:
+		if member.bit_width is None:
+			return
+		if member.type_spec.pointer_count > 0:
+			self._error(f"bitfield '{member.name}' cannot be a pointer type", member)
+			return
+		if member.array_dims:
+			self._error(f"bitfield '{member.name}' cannot be an array", member)
+			return
+		base = member.type_spec.base_type
+		type_widths = {"int": 32, "unsigned int": 32, "char": 8, "short": 16, "long": 64, "_Bool": 1}
+		max_width = type_widths.get(base, 32)
+		if member.type_spec.width_modifier == "short":
+			max_width = 16
+		elif member.type_spec.width_modifier in ("long", "long long"):
+			max_width = 64
+		if member.bit_width < 0:
+			self._error(f"bitfield width cannot be negative in '{container_name}'", member)
+		elif member.bit_width == 0 and member.name:
+			self._error(f"named bitfield '{member.name}' cannot have zero width", member)
+		elif member.bit_width > max_width:
+			self._error(
+				f"bitfield '{member.name or '(unnamed)'}' width {member.bit_width} exceeds type width {max_width}",
+				member,
+			)
 
 	def visit_union_decl(self, node: UnionDecl) -> None:
 		existing = self._union_types.get(node.name)
@@ -1212,10 +1239,11 @@ class SemanticAnalyzer(ASTVisitor):
 				return
 		seen: set[str] = set()
 		for member in node.members:
-			if member.name in seen:
+			if member.name and member.name in seen:
 				self._error(f"duplicate member '{member.name}' in union '{node.name}'", member)
-			else:
+			elif member.name:
 				seen.add(member.name)
+			self._validate_bitfield(member, node.name)
 		self._union_types[node.name] = node
 
 	def visit_typedef_decl(self, node: TypedefDecl) -> None:
