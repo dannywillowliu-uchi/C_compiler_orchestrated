@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import struct
 
 from compiler.ir import (
@@ -82,6 +83,224 @@ def _escape_for_gas(s: str) -> str:
 		else:
 			result.append(f"\\{ord(ch):03o}")
 	return "".join(result)
+
+
+# ---------------------------------------------------------------------------
+# Post-regalloc copy propagation on emitted assembly
+# ---------------------------------------------------------------------------
+
+# Map sub-register names to their 64-bit parent
+_SUB_TO_64: dict[str, str] = {}
+for _base, _subs in [
+	("%rax", ["%eax", "%ax", "%al", "%ah"]),
+	("%rbx", ["%ebx", "%bx", "%bl", "%bh"]),
+	("%rcx", ["%ecx", "%cx", "%cl", "%ch"]),
+	("%rdx", ["%edx", "%dx", "%dl", "%dh"]),
+	("%rsi", ["%esi", "%si", "%sil"]),
+	("%rdi", ["%edi", "%di", "%dil"]),
+	("%rbp", ["%ebp", "%bp", "%bpl"]),
+	("%rsp", ["%esp", "%sp", "%spl"]),
+	("%r8", ["%r8d", "%r8w", "%r8b"]),
+	("%r9", ["%r9d", "%r9w", "%r9b"]),
+	("%r10", ["%r10d", "%r10w", "%r10b"]),
+	("%r11", ["%r11d", "%r11w", "%r11b"]),
+	("%r12", ["%r12d", "%r12w", "%r12b"]),
+	("%r13", ["%r13d", "%r13w", "%r13b"]),
+	("%r14", ["%r14d", "%r14w", "%r14b"]),
+	("%r15", ["%r15d", "%r15w", "%r15b"]),
+]:
+	_SUB_TO_64[_base] = _base
+	for _s in _subs:
+		_SUB_TO_64[_s] = _base
+
+_MOVQ_REG_REG_RE = re.compile(r"^\tmovq\s+(%\w+),\s*(%\w+)$")
+_GP_REG_64 = frozenset(_SUB_TO_64[k] for k in _SUB_TO_64)
+
+# Caller-saved registers clobbered by a call instruction
+_CALLER_SAVED = frozenset({"%rax", "%rcx", "%rdx", "%rsi", "%rdi", "%r8", "%r9", "%r10", "%r11"})
+
+# Read-only instructions that do not write to their explicit register operands
+# (pushq implicitly writes to %rsp, handled separately)
+_READ_ONLY_MNEMONICS = frozenset({"cmpq", "cmpl", "cmpw", "cmpb", "testq", "testl", "testw", "testb",
+	"pushq", "pushl", "pushw", "ucomiss", "ucomisd", "ucomis"})
+
+# Registers excluded from copy propagation (frame/stack pointers)
+_EXCLUDED_REGS = frozenset({"%rbp", "%rsp"})
+
+# Regex to find any GP register reference in an operand
+_ANY_GP_REG_RE = re.compile(r"%(?:r(?:ax|bx|cx|dx|si|di|bp|sp|8|9|1[0-5])|e(?:ax|bx|cx|dx|si|di|bp|sp)|"
+	r"(?:ax|bx|cx|dx|si|di|bp|sp)|[abcd][lh]|sil|dil|bpl|spl|"
+	r"r(?:8|9|1[0-5])[dwb])")
+
+
+def _to_64(reg: str) -> str | None:
+	"""Normalize a register name to its 64-bit parent, or None if not a GP reg."""
+	return _SUB_TO_64.get(reg)
+
+
+def _invalidate(copies: dict[str, str], reg64: str) -> None:
+	"""Remove all copy entries involving reg64 as source or destination."""
+	copies.pop(reg64, None)
+	to_del = [k for k, v in copies.items() if v == reg64]
+	for k in to_del:
+		del copies[k]
+
+
+def _resolve(copies: dict[str, str], reg: str) -> str:
+	"""Follow the copy chain to find the original source register."""
+	seen: set[str] = set()
+	while reg in copies and reg not in seen:
+		seen.add(reg)
+		reg = copies[reg]
+	return reg
+
+
+def _written_reg64(line: str) -> str | None:
+	"""Heuristically determine which 64-bit GP register is written by an instruction.
+
+	Returns None if no GP register is written or if it cannot be determined.
+	In AT&T syntax, the destination is the last operand for most instructions.
+	"""
+	stripped = line.lstrip("\t ")
+	if not stripped or stripped.startswith(".") or stripped.startswith("#") or stripped.endswith(":"):
+		return None
+
+	parts = stripped.split(None, 1)
+	if len(parts) < 2:
+		# Single-operand instructions like negq %rax, popq %rax, incq %rax
+		if len(parts) == 1:
+			return None
+		return None
+
+	mnemonic = parts[0]
+
+	# Read-only instructions
+	if mnemonic in _READ_ONLY_MNEMONICS:
+		return None
+
+	operands_str = parts[1]
+	operands = operands_str.split(",")
+	last_op = operands[-1].strip()
+
+	# Check for GP register in the last operand (destination in AT&T syntax)
+	m = _ANY_GP_REG_RE.search(last_op)
+	if m:
+		return _to_64(m.group())
+	return None
+
+
+def copy_propagate_asm(lines: list[str]) -> list[str]:
+	"""Perform copy propagation on assembly lines to eliminate redundant movq reg,reg."""
+	copies: dict[str, str] = {}  # dst_reg64 -> src_reg64
+	result: list[str] = []
+
+	for line in lines:
+		# Labels: reset all copy tracking (potential branch target)
+		if line and not line[0].isspace() and line.rstrip().endswith(":"):
+			copies.clear()
+			result.append(line)
+			continue
+
+		stripped = line.lstrip("\t ")
+
+		# Control flow: handle jumps and ret
+		if stripped.startswith(("jmp ", "je ", "jne ", "jl ", "jg ", "jle ", "jge ",
+			"ja ", "jb ", "jae ", "jbe ", "js ", "jns ", "ret")):
+			copies.clear()
+			result.append(line)
+			continue
+
+		# Call: clobber caller-saved registers
+		if stripped.startswith("call ") or stripped.startswith("call\t"):
+			for reg in _CALLER_SAVED:
+				_invalidate(copies, reg)
+			result.append(line)
+			continue
+
+		# Try to match movq %reg, %reg
+		m = _MOVQ_REG_REG_RE.match(line)
+		if m:
+			src_str, dst_str = m.group(1), m.group(2)
+			src64 = _to_64(src_str)
+			dst64 = _to_64(dst_str)
+
+			if src64 and dst64 and src64 != dst64:
+				# Skip frame/stack pointer registers
+				if src64 in _EXCLUDED_REGS or dst64 in _EXCLUDED_REGS:
+					result.append(line)
+					continue
+
+				# Both are GP registers
+				resolved = _resolve(copies, src64)
+
+				if resolved == dst64:
+					# After resolution, this is a self-move -- eliminate
+					continue
+
+				# Invalidate old copies involving dst
+				_invalidate(copies, dst64)
+				# Record the new copy
+				copies[dst64] = resolved
+
+				if resolved != src64:
+					# Rewrite to use the resolved source
+					result.append(f"\tmovq {resolved}, {dst_str}")
+				else:
+					result.append(line)
+				continue
+			elif src64 and dst64 and src64 == dst64:
+				# Skip excluded registers (don't eliminate frame pointer self-moves)
+				if src64 in _EXCLUDED_REGS:
+					result.append(line)
+					continue
+				# Self-move already -- eliminate
+				continue
+
+		# For all other instructions, invalidate the written register
+		written = _written_reg64(line)
+		if written:
+			_invalidate(copies, written)
+
+		# pushq/popq implicitly modify %rsp
+		if stripped.startswith(("pushq ", "pushl ", "pushw ")):
+			_invalidate(copies, "%rsp")
+
+		# Also handle single-operand writes: negq, notq, incq, decq, popq, etc.
+		if stripped.startswith(("negq ", "notq ", "incq ", "decq ", "popq ",
+			"salq ", "sarq ", "shrq ", "shlq ")):
+			parts = stripped.split(None, 1)
+			if len(parts) == 2:
+				last_part = parts[1].split(",")[-1].strip()
+				gm = _ANY_GP_REG_RE.search(last_part)
+				if gm:
+					r64 = _to_64(gm.group())
+					if r64:
+						_invalidate(copies, r64)
+
+		# setCC writes to a sub-register, invalidate the parent
+		if stripped.startswith("set"):
+			parts = stripped.split(None, 1)
+			if len(parts) == 2:
+				gm = _ANY_GP_REG_RE.search(parts[1])
+				if gm:
+					r64 = _to_64(gm.group())
+					if r64:
+						_invalidate(copies, r64)
+
+		# movzbq, movsbq, movzwq, movswq, movslq write to the destination
+		if stripped.startswith(("movzbq ", "movsbq ", "movzwq ", "movswq ", "movslq ",
+			"movzbl ", "movsbl ")):
+			parts = stripped.split(",")
+			if len(parts) == 2:
+				gm = _ANY_GP_REG_RE.search(parts[1])
+				if gm:
+					r64 = _to_64(gm.group())
+					if r64:
+						_invalidate(copies, r64)
+
+		result.append(line)
+
+	return result
 
 
 class CodeGenerator:
@@ -204,6 +423,9 @@ class CodeGenerator:
 					self._emit(f"{label}:")
 					bits = struct.unpack("<Q", struct.pack("<d", value))[0]
 					self._emit_instr(f".quad {bits}")
+
+		# Post-regalloc copy propagation to eliminate redundant mov instructions
+		self._lines = copy_propagate_asm(self._lines)
 
 		return "\n".join(self._lines) + "\n"
 
