@@ -271,9 +271,9 @@ class TestExpressions:
 		)
 		ir = IRGenerator().generate(prog)
 		body = ir.functions[0].body
-		assert isinstance(body[0], IRUnaryOp)
-		assert body[0].op == "-"
-		assert body[0].operand == IRConst(5)
+		# Constant-folded: -5 becomes IRConst(-5), returned directly
+		assert isinstance(body[0], IRReturn)
+		assert body[0].value == IRConst(-5)
 
 	def test_identifier_lookup(self) -> None:
 		prog = _make_program(
@@ -289,8 +289,9 @@ class TestExpressions:
 		ir = IRGenerator().generate(prog)
 		fn = ir.functions[0]
 		body = fn.body
-		assert isinstance(body[0], IRCopy)
-		assert body[0].source == fn.params[0]
+		# Optimized: return uses param temp directly, no intermediate copy
+		assert isinstance(body[0], IRReturn)
+		assert body[0].value == fn.params[0]
 
 	def test_nested_binary(self) -> None:
 		# (1 + 2) * 3
@@ -2071,14 +2072,13 @@ class TestIntegration:
 		fn = ir.functions[0]
 		assert fn.name == "f"
 		assert fn.return_type == IRType.INT
-		# copy from param, binop, return
-		assert len(fn.body) == 3
-		assert isinstance(fn.body[0], IRCopy)
-		assert isinstance(fn.body[1], IRBinOp)
-		assert isinstance(fn.body[2], IRReturn)
-		assert fn.body[1].left == fn.body[0].dest
-		assert fn.body[1].right == IRConst(1)
-		assert fn.body[2].value == fn.body[1].dest
+		# Optimized: param used directly in binop, no intermediate copy
+		assert len(fn.body) == 2
+		assert isinstance(fn.body[0], IRBinOp)
+		assert isinstance(fn.body[1], IRReturn)
+		assert fn.body[0].left == fn.params[0]
+		assert fn.body[0].right == IRConst(1)
+		assert fn.body[1].value == fn.body[0].dest
 
 	def test_var_decl_and_assign_then_return(self) -> None:
 		"""int f() { int x = 5; x = x + 1; return x; }"""

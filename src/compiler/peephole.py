@@ -79,6 +79,14 @@ class PeepholeOptimizer:
 		self._subq_imm_val_re = re.compile(
 			r"^\tsubq\s+\$(-?\d+),\s+(%\w+)$"
 		)
+		# leaq 0(%rA), %rB -> movq %rA, %rB
+		self._leaq_zero_offset_re = re.compile(
+			r"^\tleaq\s+0\((%\w+)\),\s+(%\w+)$"
+		)
+		# General instruction destination register extraction (for dead move detection)
+		self._instr_dst_re = re.compile(
+			r"^\t(?:movq|movl|movw|movb|leaq|xorq|xorl)\s+([^,]+),\s+(%\w+)$"
+		)
 
 	def optimize(self, assembly: str) -> str:
 		"""Apply peephole optimizations to assembly text and return optimized version."""
@@ -216,6 +224,22 @@ class PeepholeOptimizer:
 					i += 2
 					continue
 
+				# Consecutive identical register moves
+				opt = self._try_duplicate_move(lines[i], lines[i + 1])
+				if opt is not None:
+					result.extend(opt)
+					changed = True
+					i += 2
+					continue
+
+				# Dead register move: movq %rA, %rB where %rB is immediately overwritten
+				opt = self._try_dead_reg_move(lines[i], lines[i + 1])
+				if opt is not None:
+					result.extend(opt)
+					changed = True
+					i += 2
+					continue
+
 			# Dead code elimination after unconditional jmp/ret
 			consumed = self._try_dead_code_after_jump(lines, i)
 			if consumed is not None:
@@ -253,6 +277,14 @@ class PeepholeOptimizer:
 			if opt is not None:
 				if opt:
 					result.append(opt)
+				changed = True
+				i += 1
+				continue
+
+			# leaq 0(%rA), %rB -> movq %rA, %rB
+			opt = self._try_lea_zero_fold(lines[i])
+			if opt is not None:
+				result.append(opt)
 				changed = True
 				i += 1
 				continue
@@ -609,6 +641,44 @@ class PeepholeOptimizer:
 		if not found_dead:
 			return None
 		return j
+
+	def _try_duplicate_move(self, line1: str, line2: str) -> list[str] | None:
+		"""Eliminate consecutive identical register-to-register moves."""
+		if line1 != line2:
+			return None
+		m = self._movq_reg_re.match(line1)
+		if m is not None and m.group(1) != m.group(2):
+			return [line1]
+		return None
+
+	def _try_dead_reg_move(self, line1: str, line2: str) -> list[str] | None:
+		"""Eliminate movq %rA, %rB where %rB is immediately overwritten without being read."""
+		m_mov = self._movq_reg_re.match(line1)
+		if m_mov is None:
+			return None
+		src, dst = m_mov.group(1), m_mov.group(2)
+		if src == dst:
+			return None
+		# Check if next instruction overwrites dst without reading it
+		m_next = self._instr_dst_re.match(line2)
+		if m_next is None:
+			return None
+		next_dst = m_next.group(2)
+		next_src = m_next.group(1)
+		if next_dst != dst:
+			return None
+		# Ensure dst is not read in the source operand of the overwriting instruction
+		if dst in next_src:
+			return None
+		return [line2]
+
+	def _try_lea_zero_fold(self, line: str) -> str | None:
+		"""Replace 'leaq 0(%rA), %rB' with 'movq %rA, %rB'."""
+		m = self._leaq_zero_offset_re.match(line)
+		if m is None:
+			return None
+		src, dst = m.group(1), m.group(2)
+		return f"\tmovq {src}, {dst}"
 
 	def _is_reg_dead_in_window(self, lines: list[str], start_idx: int, reg: str) -> bool:
 		"""Check if reg is dead (overwritten before read) in a forward window."""
