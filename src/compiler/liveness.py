@@ -18,6 +18,10 @@ from compiler.ir import (
 	IRStore,
 	IRTemp,
 	IRUnaryOp,
+	IRVaArg,
+	IRVaCopy,
+	IRVaEnd,
+	IRVaStart,
 )
 
 
@@ -62,13 +66,27 @@ def _used_temps(instr: IRInstruction) -> set[str]:
 			used.add(instr.source.name)
 	elif isinstance(instr, IRAddrOf):
 		used.add(instr.source.name)
+	elif isinstance(instr, IRVaStart):
+		if isinstance(instr.ap_addr, IRTemp):
+			used.add(instr.ap_addr.name)
+	elif isinstance(instr, IRVaArg):
+		if isinstance(instr.ap_addr, IRTemp):
+			used.add(instr.ap_addr.name)
+	elif isinstance(instr, IRVaEnd):
+		if isinstance(instr.ap_addr, IRTemp):
+			used.add(instr.ap_addr.name)
+	elif isinstance(instr, IRVaCopy):
+		if isinstance(instr.dest_addr, IRTemp):
+			used.add(instr.dest_addr.name)
+		if isinstance(instr.src_addr, IRTemp):
+			used.add(instr.src_addr.name)
 
 	return used
 
 
 def _defined_temp(instr: IRInstruction) -> str | None:
 	"""Return the temporary variable name defined (written) by an instruction, or None."""
-	if isinstance(instr, (IRAddrOf, IRBinOp, IRUnaryOp, IRCopy, IRLoad, IRConvert, IRAlloc)):
+	if isinstance(instr, (IRAddrOf, IRBinOp, IRUnaryOp, IRCopy, IRLoad, IRConvert, IRAlloc, IRVaArg)):
 		return instr.dest.name
 	if isinstance(instr, IRCall) and instr.dest is not None:
 		return instr.dest.name

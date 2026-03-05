@@ -21,6 +21,10 @@ from compiler.ir import (
 	IRTemp,
 	IRType,
 	IRUnaryOp,
+	IRVaArg,
+	IRVaCopy,
+	IRVaEnd,
+	IRVaStart,
 )
 from compiler.liveness import LivenessAnalyzer
 
@@ -154,6 +158,21 @@ def _get_temp_refs(instr: IRInstruction) -> list[str]:
 	elif isinstance(instr, IRAddrOf):
 		refs.append(instr.dest.name)
 		refs.append(instr.source.name)
+	elif isinstance(instr, IRVaStart):
+		if isinstance(instr.ap_addr, IRTemp):
+			refs.append(instr.ap_addr.name)
+	elif isinstance(instr, IRVaArg):
+		refs.append(instr.dest.name)
+		if isinstance(instr.ap_addr, IRTemp):
+			refs.append(instr.ap_addr.name)
+	elif isinstance(instr, IRVaEnd):
+		if isinstance(instr.ap_addr, IRTemp):
+			refs.append(instr.ap_addr.name)
+	elif isinstance(instr, IRVaCopy):
+		if isinstance(instr.dest_addr, IRTemp):
+			refs.append(instr.dest_addr.name)
+		if isinstance(instr.src_addr, IRTemp):
+			refs.append(instr.src_addr.name)
 	return refs
 
 

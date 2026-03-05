@@ -45,6 +45,10 @@ from compiler.ast_nodes import (
 	TypeSpec,
 	UnaryOp,
 	UnionDecl,
+	VaCopyExpr,
+	VaArgExpr,
+	VaEndExpr,
+	VaStartExpr,
 	VarDecl,
 	WhileStmt,
 )
@@ -73,6 +77,10 @@ from compiler.ir import (
 	IRTemp,
 	IRType,
 	IRUnaryOp,
+	IRVaArg,
+	IRVaCopy,
+	IRVaEnd,
+	IRVaStart,
 	IRValue,
 )
 
@@ -178,6 +186,8 @@ class IRGenerator(ASTVisitor):
 		self._user_labels: dict[str, str] = {}  # C label name -> IR label name
 		self._static_local_map: dict[str, str] = {}  # local name -> mangled global name
 		self._temp_pointee_size: dict[str, int] = {}  # pointer temp -> element size
+		self._current_function_is_variadic: bool = False
+		self._current_function_params: list[str] = []
 		# Bitfield layout: struct_name -> {member_name: (byte_offset, bit_offset, bit_width, storage_size)}
 		self._bitfield_layouts: dict[str, dict[str, tuple[int, int, int, int]]] = {}
 
@@ -337,6 +347,8 @@ class IRGenerator(ASTVisitor):
 		old_function_name = self._current_function_name
 		old_static_local_map = self._static_local_map
 		old_pointee_size = self._temp_pointee_size
+		old_is_variadic = self._current_function_is_variadic
+		old_func_params = self._current_function_params
 		self._instructions = []
 		self._locals = {}
 		self._local_types = {}
@@ -346,6 +358,8 @@ class IRGenerator(ASTVisitor):
 		self._temp_pointee_size = {}
 		self._in_function = True
 		self._current_function_name = node.name
+		self._current_function_is_variadic = node.is_variadic
+		self._current_function_params = [p.name for p in node.params]
 		self._func_ptr_locals = set()
 		self._user_labels = {}
 		self._static_local_map = {}
@@ -379,6 +393,7 @@ class IRGenerator(ASTVisitor):
 				return_type=_resolve_ir_type(node.return_type),
 				param_types=param_types,
 				storage_class=node.storage_class,
+				is_variadic=node.is_variadic,
 			)
 		)
 
@@ -391,6 +406,8 @@ class IRGenerator(ASTVisitor):
 		self._in_function = old_in_function
 		self._current_function_name = old_function_name
 		self._func_ptr_locals = old_func_ptr_locals
+		self._current_function_is_variadic = old_is_variadic
+		self._current_function_params = old_func_params
 		self._user_labels = old_user_labels
 		self._static_local_map = old_static_local_map
 		self._temp_pointee_size = old_pointee_size
@@ -2385,6 +2402,55 @@ class IRGenerator(ASTVisitor):
 		"""Evaluate left for side effects, return right's value."""
 		self.visit(node.left)
 		return self.visit(node.right)
+
+	def visit_va_start_expr(self, node: VaStartExpr) -> IRValue:
+		ap_val = self.visit(node.ap)
+		# Count named GP params to compute initial gp_offset
+		num_named_gp = len(self._current_function_params)
+		# Allocate 24-byte va_list struct and store its address in ap
+		va_struct = self._new_temp()
+		self._set_temp_type(va_struct, IRType.POINTER)
+		self._emit(IRAlloc(dest=va_struct, size=24))
+		# Store struct address into the ap variable
+		self._emit(IRStore(address=ap_val, value=va_struct, ir_type=IRType.POINTER))
+		# Emit IRVaStart to initialize the struct
+		self._emit(IRVaStart(ap_addr=va_struct, num_named_gp=num_named_gp))
+		return IRConst(0, ir_type=IRType.VOID)
+
+	def visit_va_arg_expr(self, node: VaArgExpr) -> IRValue:
+		ap_val = self.visit(node.ap)
+		# Load the va_list struct address from ap
+		struct_addr = self._new_temp()
+		self._set_temp_type(struct_addr, IRType.POINTER)
+		self._emit(IRLoad(dest=struct_addr, address=ap_val, ir_type=IRType.POINTER))
+		dest = self._new_temp()
+		ir_type = _resolve_ir_type(node.arg_type)
+		self._set_temp_type(dest, ir_type)
+		self._emit(IRVaArg(dest=dest, ap_addr=struct_addr, ir_type=ir_type))
+		return dest
+
+	def visit_va_end_expr(self, node: VaEndExpr) -> IRValue:
+		ap_val = self.visit(node.ap)
+		struct_addr = self._new_temp()
+		self._set_temp_type(struct_addr, IRType.POINTER)
+		self._emit(IRLoad(dest=struct_addr, address=ap_val, ir_type=IRType.POINTER))
+		self._emit(IRVaEnd(ap_addr=struct_addr))
+		return IRConst(0, ir_type=IRType.VOID)
+
+	def visit_va_copy_expr(self, node: VaCopyExpr) -> IRValue:
+		dest_val = self.visit(node.dest)
+		src_val = self.visit(node.src)
+		# Load src struct address
+		src_struct = self._new_temp()
+		self._set_temp_type(src_struct, IRType.POINTER)
+		self._emit(IRLoad(dest=src_struct, address=src_val, ir_type=IRType.POINTER))
+		# Allocate new struct for dest, copy src into it
+		dest_struct = self._new_temp()
+		self._set_temp_type(dest_struct, IRType.POINTER)
+		self._emit(IRAlloc(dest=dest_struct, size=24))
+		self._emit(IRStore(address=dest_val, value=dest_struct, ir_type=IRType.POINTER))
+		self._emit(IRVaCopy(dest_addr=dest_struct, src_addr=src_struct))
+		return IRConst(0, ir_type=IRType.VOID)
 
 	def _resolve_struct_name(self, node: object) -> str:
 		"""Try to determine the struct type name from an AST node."""

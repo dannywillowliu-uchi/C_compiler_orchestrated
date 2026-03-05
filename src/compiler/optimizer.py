@@ -24,6 +24,10 @@ from compiler.ir import (
 	IRStore,
 	IRTemp,
 	IRUnaryOp,
+	IRVaArg,
+	IRVaCopy,
+	IRVaEnd,
+	IRVaStart,
 	IRValue,
 	IRLabelInstr,
 	IRType,
@@ -737,7 +741,7 @@ class IROptimizer:
 
 	def _get_dest(self, instr: IRInstruction) -> IRTemp | None:
 		"""Return the destination temp written by an instruction, if any."""
-		if isinstance(instr, (IRAddrOf, IRBinOp, IRUnaryOp, IRCopy, IRLoad, IRAlloc, IRConvert)):
+		if isinstance(instr, (IRAddrOf, IRBinOp, IRUnaryOp, IRCopy, IRLoad, IRAlloc, IRConvert, IRVaArg)):
 			return instr.dest
 		if isinstance(instr, IRCall):
 			return instr.dest
@@ -767,4 +771,12 @@ class IROptimizer:
 			return [instr.value]
 		if isinstance(instr, IRConvert):
 			return [instr.source]
+		if isinstance(instr, IRVaStart):
+			return [instr.ap_addr]
+		if isinstance(instr, IRVaArg):
+			return [instr.ap_addr]
+		if isinstance(instr, IRVaEnd):
+			return [instr.ap_addr]
+		if isinstance(instr, IRVaCopy):
+			return [instr.dest_addr, instr.src_addr]
 		return []
