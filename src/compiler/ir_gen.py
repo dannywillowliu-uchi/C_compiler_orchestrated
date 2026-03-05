@@ -58,6 +58,7 @@ from compiler.ir import (
 	IRAddrOf,
 	IRAlloc,
 	IRBinOp,
+	IRBulkCopy,
 	IRCall,
 	IRCondJump,
 	IRConst,
@@ -1992,76 +1993,17 @@ class IRGenerator(ASTVisitor):
 		return None
 
 	def _emit_aggregate_copy(self, dest_addr: IRTemp, src_addr: IRTemp, type_name: str) -> None:
-		"""Emit field-by-field load/store IR for copying a struct or union."""
+		"""Emit a bulk copy IR instruction for copying a struct or union."""
 		is_union = type_name in self._unions
 		if is_union:
-			union_size = self._compute_union_size(type_name)
-			self._emit_memcopy_by_words(dest_addr, src_addr, union_size)
-			return
-		members = self._structs.get(type_name, [])
-		offset = 0
-		for m in members:
-			align = self._resolve_type_alignment(m.type_spec)
-			offset = _align_to(offset, align)
-			src_field = self._new_temp()
-			self._emit(IRBinOp(dest=src_field, left=src_addr, op="+", right=IRConst(offset)))
-			dst_field = self._new_temp()
-			self._emit(IRBinOp(dest=dst_field, left=dest_addr, op="+", right=IRConst(offset)))
-			member_ts = m.type_spec
-			if m.array_dims:
-				elem_size = self._resolve_member_size(member_ts)
-				total_elems = 1
-				for dim in m.array_dims:
-					val = self._eval_const_expr(dim)
-					if val is not None:
-						total_elems *= val
-				ir_type = _resolve_ir_type(member_ts)
-				for i in range(total_elems):
-					src_elem = self._new_temp()
-					self._emit(IRBinOp(dest=src_elem, left=src_field, op="+", right=IRConst(i * elem_size)))
-					tmp = self._new_temp()
-					self._emit(IRLoad(dest=tmp, address=src_elem, ir_type=ir_type))
-					dst_elem = self._new_temp()
-					self._emit(IRBinOp(dest=dst_elem, left=dst_field, op="+", right=IRConst(i * elem_size)))
-					self._emit(IRStore(address=dst_elem, value=tmp, ir_type=ir_type))
-				offset += elem_size * total_elems
-			elif self._member_is_aggregate(member_ts):
-				nested_name = member_ts.base_type
-				if nested_name.startswith("struct "):
-					nested_name = nested_name[len("struct "):]
-				elif nested_name.startswith("union "):
-					nested_name = nested_name[len("union "):]
-				self._emit_aggregate_copy(dst_field, src_field, nested_name)
-				offset += self._resolve_member_size(member_ts)
-			else:
-				ir_type = _resolve_ir_type(member_ts)
-				tmp = self._new_temp()
-				self._set_temp_type(tmp, ir_type)
-				self._emit(IRLoad(dest=tmp, address=src_field, ir_type=ir_type))
-				self._emit(IRStore(address=dst_field, value=tmp, ir_type=ir_type))
-				offset += self._resolve_member_size(member_ts)
+			size = self._compute_union_size(type_name)
+		else:
+			size = self._compute_struct_size(type_name)
+		self._emit(IRBulkCopy(dest_addr=dest_addr, src_addr=src_addr, size=size))
 
 	def _emit_memcopy_by_words(self, dest_addr: IRTemp, src_addr: IRTemp, size: int) -> None:
-		"""Copy 'size' bytes from src to dest using word-sized load/store operations."""
-		offset = 0
-		while offset + 4 <= size:
-			src_off = self._new_temp()
-			self._emit(IRBinOp(dest=src_off, left=src_addr, op="+", right=IRConst(offset)))
-			tmp = self._new_temp()
-			self._emit(IRLoad(dest=tmp, address=src_off, ir_type=IRType.INT))
-			dst_off = self._new_temp()
-			self._emit(IRBinOp(dest=dst_off, left=dest_addr, op="+", right=IRConst(offset)))
-			self._emit(IRStore(address=dst_off, value=tmp, ir_type=IRType.INT))
-			offset += 4
-		while offset < size:
-			src_off = self._new_temp()
-			self._emit(IRBinOp(dest=src_off, left=src_addr, op="+", right=IRConst(offset)))
-			tmp = self._new_temp()
-			self._emit(IRLoad(dest=tmp, address=src_off, ir_type=IRType.CHAR))
-			dst_off = self._new_temp()
-			self._emit(IRBinOp(dest=dst_off, left=dest_addr, op="+", right=IRConst(offset)))
-			self._emit(IRStore(address=dst_off, value=tmp, ir_type=IRType.CHAR))
-			offset += 1
+		"""Copy 'size' bytes from src to dest using a bulk copy instruction."""
+		self._emit(IRBulkCopy(dest_addr=dest_addr, src_addr=src_addr, size=size))
 
 	def _zero_fill_struct(self, dest: IRTemp, members: list[StructMember]) -> None:
 		"""Zero-fill all members of a struct."""

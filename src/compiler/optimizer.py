@@ -9,6 +9,7 @@ from compiler.ir import (
 	IRAddrOf,
 	IRAlloc,
 	IRBinOp,
+	IRBulkCopy,
 	IRCall,
 	IRCondJump,
 	IRConst,
@@ -423,6 +424,10 @@ class IROptimizer:
 			ns = resolve(instr.source)
 			if ns is not instr.source:
 				return IRConvert(dest=instr.dest, source=ns, from_type=instr.from_type, to_type=instr.to_type)
+		elif isinstance(instr, IRBulkCopy):
+			nd, ns = resolve(instr.dest_addr), resolve(instr.src_addr)
+			if nd is not instr.dest_addr or ns is not instr.src_addr:
+				return IRBulkCopy(dest_addr=nd, src_addr=ns, size=instr.size)
 		return instr
 
 	# -- Dead Code Elimination --
@@ -1122,5 +1127,7 @@ class IROptimizer:
 		if isinstance(instr, IRVaEnd):
 			return [instr.ap_addr]
 		if isinstance(instr, IRVaCopy):
+			return [instr.dest_addr, instr.src_addr]
+		if isinstance(instr, IRBulkCopy):
 			return [instr.dest_addr, instr.src_addr]
 		return []

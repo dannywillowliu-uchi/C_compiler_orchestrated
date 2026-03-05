@@ -290,6 +290,17 @@ class IRAlloc(IRInstruction):
 
 
 @dataclass
+class IRBulkCopy(IRInstruction):
+	"""Bulk memory copy: memcpy(dest_addr, src_addr, size) for struct assignment."""
+	dest_addr: IRValue
+	src_addr: IRValue
+	size: int
+
+	def __str__(self) -> str:
+		return f"bulkcopy {self.dest_addr}, {self.src_addr}, {self.size}"
+
+
+@dataclass
 class IRVaStart(IRInstruction):
 	"""Initialize a va_list: va_start(ap, last_named_param)."""
 	ap_addr: IRValue

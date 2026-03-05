@@ -21,7 +21,7 @@ from compiler.ast_nodes import (
 	VarDecl,
 )
 from compiler.codegen import CodeGenerator
-from compiler.ir import IRAlloc, IRConst, IRLoad, IRReturn, IRStore
+from compiler.ir import IRAlloc, IRBulkCopy, IRConst, IRLoad, IRReturn, IRStore
 from compiler.ir_gen import IRGenerator
 from compiler.lexer import Lexer
 from compiler.parser import Parser
@@ -551,7 +551,7 @@ class TestNestedStructIRGen:
 
 class TestStructCopyEdgeCases:
 	def test_copy_struct_with_char_and_int(self):
-		"""Copy struct with mixed small and large fields preserves types."""
+		"""Copy struct with mixed small and large fields uses bulk copy."""
 		ir_prog = compile_to_ir("""
 			struct Mixed { char c; int x; };
 			int main() {
@@ -564,14 +564,12 @@ class TestStructCopyEdgeCases:
 			}
 		""")
 		body = get_func_body(ir_prog)
-		loads = [i for i in body if isinstance(i, IRLoad)]
-		stores = [i for i in body if isinstance(i, IRStore)]
-		# 2 init stores + 2 copy load/store pairs
-		assert len(loads) >= 2
-		assert len(stores) >= 4
+		bulk_copies = [i for i in body if isinstance(i, IRBulkCopy)]
+		assert len(bulk_copies) >= 1, "Struct copy should emit IRBulkCopy"
+		assert bulk_copies[0].size == 8  # char(1) + padding(3) + int(4) = 8
 
 	def test_copy_struct_with_pointer_member(self):
-		"""Copy struct containing a pointer member."""
+		"""Copy struct containing a pointer member uses bulk copy."""
 		ir_prog = compile_to_ir("""
 			struct WithPtr { int val; int *ptr; };
 			int main() {
@@ -583,8 +581,8 @@ class TestStructCopyEdgeCases:
 			}
 		""")
 		body = get_func_body(ir_prog)
-		loads = [i for i in body if isinstance(i, IRLoad)]
-		assert len(loads) >= 2  # both fields loaded during copy
+		bulk_copies = [i for i in body if isinstance(i, IRBulkCopy)]
+		assert len(bulk_copies) >= 1, "Struct copy should emit IRBulkCopy"
 
 	def test_self_assignment_compiles(self):
 		"""a = a (self-assignment) should compile without errors."""

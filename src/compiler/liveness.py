@@ -7,6 +7,7 @@ from compiler.ir import (
 	IRAddrOf,
 	IRAlloc,
 	IRBinOp,
+	IRBulkCopy,
 	IRCall,
 	IRCondJump,
 	IRConvert,
@@ -76,6 +77,11 @@ def _used_temps(instr: IRInstruction) -> set[str]:
 		if isinstance(instr.ap_addr, IRTemp):
 			used.add(instr.ap_addr.name)
 	elif isinstance(instr, IRVaCopy):
+		if isinstance(instr.dest_addr, IRTemp):
+			used.add(instr.dest_addr.name)
+		if isinstance(instr.src_addr, IRTemp):
+			used.add(instr.src_addr.name)
+	elif isinstance(instr, IRBulkCopy):
 		if isinstance(instr.dest_addr, IRTemp):
 			used.add(instr.dest_addr.name)
 		if isinstance(instr.src_addr, IRTemp):
