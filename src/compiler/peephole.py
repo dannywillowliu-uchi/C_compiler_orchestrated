@@ -157,6 +157,19 @@ class PeepholeOptimizer:
 		self._andl_imm_re = re.compile(
 			r"^\tandl\s+\$(\d+),\s+(%\w+)$"
 		)
+		# Sign-extension: movslq %eXX, %rXX (32->64 sign extend)
+		self._movslq_re = re.compile(
+			r"^\tmovslq\s+(%\w+),\s+(%\w+)$"
+		)
+		# cltq (sign-extend %eax -> %rax, no operands)
+		self._cltq_re = re.compile(r"^\tcltq$")
+		# Consecutive zero-extension: movzbl/movzwl applied to already zero-extended value
+		self._movzbl_re = re.compile(
+			r"^\tmovzbl\s+(%\w+),\s+(%\w+)$"
+		)
+		self._movzwl_re = re.compile(
+			r"^\tmovzwl\s+(%\w+),\s+(%\w+)$"
+		)
 
 	def optimize(self, assembly: str) -> str:
 		"""Apply peephole optimizations to assembly text and return optimized version."""
@@ -371,6 +384,30 @@ class PeepholeOptimizer:
 
 				# Redundant movzbl after zero-extending operation
 				opt = self._try_redundant_ext_after_zero_ext_op(lines[i], lines[i + 1])
+				if opt is not None:
+					result.extend(opt)
+					changed = True
+					i += 2
+					continue
+
+				# Redundant movslq after 32-bit operation (already zero-extended)
+				opt = self._try_redundant_movslq_after_32bit_op(lines[i], lines[i + 1])
+				if opt is not None:
+					result.extend(opt)
+					changed = True
+					i += 2
+					continue
+
+				# Redundant cltq after 32-bit operation
+				opt = self._try_redundant_cltq_after_32bit_op(lines[i], lines[i + 1])
+				if opt is not None:
+					result.extend(opt)
+					changed = True
+					i += 2
+					continue
+
+				# Consecutive redundant zero-extension elimination
+				opt = self._try_consecutive_zero_ext(lines[i], lines[i + 1])
 				if opt is not None:
 					result.extend(opt)
 					changed = True
@@ -1289,6 +1326,8 @@ class PeepholeOptimizer:
 		"%r13": "%r13d", "%r14": "%r14d", "%r15": "%r15d",
 	}
 
+	_reg32_to_reg64 = {v: k for k, v in _reg64_to_reg32.items()}
+
 	def _regs_same_physical(self, r1: str, r2: str) -> bool:
 		"""Check if two register names refer to the same physical register."""
 		if r1 == r2:
@@ -1409,6 +1448,95 @@ class PeepholeOptimizer:
 			if ext_op == "movzbl" and mask <= 0xFF and self._regs_same_physical(ext_src, and_dst) and and_dst == ext_dst:
 				return [line1]
 
+		return None
+
+	def _try_redundant_movslq_after_32bit_op(self, line1: str, line2: str) -> list[str] | None:
+		"""Remove movslq %eXX, %rXX when preceded by a 32-bit op on %eXX.
+
+		Any 32-bit operation implicitly zero-extends the result to 64 bits,
+		making a subsequent sign-extension from 32->64 redundant when the
+		source and destination refer to the same physical register.
+		"""
+		m_movslq = self._movslq_re.match(line2)
+		if m_movslq is None:
+			return None
+		slq_src = m_movslq.group(1)  # e.g. %eax
+		slq_dst = m_movslq.group(2)  # e.g. %rax
+
+		# Verify src is 32-bit form of dst
+		expected_32 = self._reg64_to_reg32.get(slq_dst)
+		if expected_32 is None or expected_32 != slq_src:
+			return None
+
+		# Check if line1 is a 32-bit op writing to slq_src
+		m_op = self._zero_ext_op_re.match(line1)
+		if m_op is not None and m_op.group(2) == slq_src:
+			return [line1]
+		return None
+
+	def _try_redundant_cltq_after_32bit_op(self, line1: str, line2: str) -> list[str] | None:
+		"""Remove cltq when preceded by a 32-bit op writing to %eax.
+
+		cltq sign-extends %eax -> %rax. If a 32-bit operation just wrote %eax,
+		the upper 32 bits are already zero, making sign-extension redundant.
+		"""
+		if not self._cltq_re.match(line2):
+			return None
+		m_op = self._zero_ext_op_re.match(line1)
+		if m_op is not None and m_op.group(2) == "%eax":
+			return [line1]
+		return None
+
+	def _try_consecutive_zero_ext(self, line1: str, line2: str) -> list[str] | None:
+		"""Remove consecutive zero-extensions when value is already zero-extended.
+
+		Patterns:
+		- movzbl %al, %eax; movzbl %al, %eax (exact dup, handled elsewhere too)
+		- movzbl %al, %eax; movzwl %ax, %eax (word ext after byte ext is redundant)
+		- movzwl %ax, %eax; movzbl %al, %eax (byte ext after word ext re-narrows)
+		- movzbl %al, %eax; movslq %eax, %rax (sign-ext after zero-ext of same reg)
+		"""
+		m1 = self._ext_re.match(line1)
+		if m1 is None:
+			return None
+		ext1_op = m1.group(1)
+		ext1_dst = m1.group(3)
+
+		# Pattern: zero-ext then movslq on the same register
+		m_slq = self._movslq_re.match(line2)
+		if m_slq is not None:
+			slq_src = m_slq.group(1)
+			slq_dst = m_slq.group(2)
+			expected_32 = self._reg64_to_reg32.get(slq_dst)
+			if expected_32 and expected_32 == slq_src and slq_src == ext1_dst:
+				if ext1_op in ("movzbl", "movzwl"):
+					return [line1]
+
+		# Pattern: zero-ext then another zero-ext on same register
+		m2 = self._ext_re.match(line2)
+		if m2 is None:
+			return None
+		ext2_op = m2.group(1)
+		ext2_src = m2.group(2)
+		ext2_dst = m2.group(3)
+
+		# Both must target the same 32-bit register
+		if ext1_dst != ext2_dst:
+			return None
+		# Second source must be sub-register of the first destination
+		if not self._regs_same_physical(ext2_src, ext1_dst):
+			return None
+
+		# movzbl then movzwl: byte was zero-extended, word ext is redundant
+		if ext1_op == "movzbl" and ext2_op == "movzwl":
+			return [line1]
+		# movzwl then movzwl: redundant
+		if ext1_op == "movzwl" and ext2_op == "movzwl":
+			return [line1]
+		# movzbl then movzbl: redundant
+		if ext1_op == "movzbl" and ext2_op == "movzbl":
+			return [line1]
+		# movzwl then movzbl: re-narrowing, keep both (not redundant)
 		return None
 
 	# --- Function-level prologue/epilogue optimization ---
