@@ -1339,6 +1339,10 @@ class Parser:
 		if tok.type == TokenType.STRING_LITERAL:
 			self._advance()
 			inner = interpret_c_escapes(tok.value[1:-1])
+			while self.pos < len(self.tokens) and self._current().type == TokenType.STRING_LITERAL:
+				next_tok = self._current()
+				self._advance()
+				inner += interpret_c_escapes(next_tok.value[1:-1])
 			return StringLiteral(value=inner, loc=self._loc(tok))
 
 		if tok.type == TokenType.IDENTIFIER:
