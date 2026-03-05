@@ -17,6 +17,7 @@ from compiler.ast_nodes import (
 	CharLiteral,
 	CommaExpr,
 	CompoundAssignment,
+	CompoundLiteral,
 	CompoundStmt,
 	ContinueStmt,
 	DesignatedInit,
@@ -1183,13 +1184,24 @@ class Parser:
 		return left
 
 	def _parse_unary(self) -> ASTNode:
-		"""Parse unary prefix operators: - ! ~ * & ++ -- sizeof, and cast expressions."""
+		"""Parse unary prefix operators: - ! ~ * & ++ -- sizeof, cast expressions, and compound literals."""
 		tok = self._current()
-		# Cast expression: (type)expr
+		# Cast expression or compound literal: (type)expr or (type){init_list}
 		if tok.type == TokenType.LPAREN and self._is_type_start(1):
 			self._advance()  # consume '('
 			cast_type = self._parse_type_spec()
+			# Handle array type in compound literal: (int[]){...} or (int[N]){...}
+			if self._check(TokenType.LBRACKET):
+				self._advance()  # consume '['
+				if not self._check(TokenType.RBRACKET):
+					self._parse_expression()  # consume array size
+				self._expect(TokenType.RBRACKET, "Expected ']' after array type")
 			self._expect(TokenType.RPAREN, "Expected ')' after cast type")
+			# Compound literal: (type){init_list}
+			if self._check(TokenType.LBRACE):
+				init_list = self._parse_initializer_list()
+				node: ASTNode = CompoundLiteral(type_spec=cast_type, init_list=init_list, loc=self._loc(tok))
+				return self._parse_postfix_tail(node)
 			operand = self._parse_unary()
 			return CastExpr(target_type=cast_type, operand=operand, loc=self._loc(tok))
 		if tok.type == TokenType.SIZEOF:
@@ -1234,7 +1246,10 @@ class Parser:
 	def _parse_postfix(self) -> ASTNode:
 		"""Parse postfix expressions: function calls, array subscripts, member access."""
 		node = self._parse_primary()
+		return self._parse_postfix_tail(node)
 
+	def _parse_postfix_tail(self, node: ASTNode) -> ASTNode:
+		"""Parse postfix operators on an already-parsed primary/compound-literal node."""
 		while True:
 			if self._check(TokenType.LPAREN):
 				self._advance()  # consume '('
