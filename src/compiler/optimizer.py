@@ -531,63 +531,86 @@ class IROptimizer:
 	# -- Loop-Invariant Code Motion --
 
 	def _licm(self, body: list[IRInstruction]) -> list[IRInstruction]:
-		"""Hoist loop-invariant computations above loop headers."""
-		label_pos: dict[str, int] = {}
-		for i, instr in enumerate(body):
-			if isinstance(instr, IRLabelInstr):
-				label_pos[instr.name] = i
+		"""Hoist loop-invariant computations above loop headers using CFG natural loop detection.
 
-		for i, instr in enumerate(body):
-			targets: list[str] = []
-			if isinstance(instr, IRJump):
-				targets.append(instr.target)
-			elif isinstance(instr, IRCondJump):
-				targets.extend([instr.true_label, instr.false_label])
+		A computation is loop-invariant if all its operands are either constants,
+		defined outside the loop, or themselves loop-invariant (transitive).
+		Only pure instructions (IRBinOp, IRUnaryOp, IRCopy, IRConvert) are candidates.
+		"""
+		if not body:
+			return body
 
-			for target in targets:
-				if target not in label_pos or label_pos[target] > i:
-					continue
-				header = label_pos[target]
-				back_edge = i
+		cfg = CFG(body)
+		loops = cfg.find_natural_loops()
+		if not loops:
+			return body
 
-				loop_defs: set[str] = set()
-				for j in range(header, back_edge + 1):
-					d = self._get_dest(body[j])
+		# Collect all instructions per block label
+		block_instrs: dict[str, list[IRInstruction]] = {}
+		for block in cfg.blocks():
+			block_instrs[block.label] = block.instructions
+
+		# Process one loop at a time; return early on first change to re-enter
+		for loop in loops:
+			# Gather all definitions inside the loop
+			loop_defs: dict[str, list[IRInstruction]] = {}
+			for label in loop.body:
+				for instr in block_instrs.get(label, []):
+					d = self._get_dest(instr)
 					if d is not None:
-						loop_defs.add(d.name)
+						loop_defs.setdefault(d.name, []).append(instr)
 
-				to_hoist: list[int] = []
-				for j in range(header + 1, back_edge):
-					jnstr = body[j]
-					if not isinstance(jnstr, (IRBinOp, IRUnaryOp)):
-						continue
-					d = self._get_dest(jnstr)
-					if d is not None:
-						other_defs = sum(
-							1 for k in range(header, back_edge + 1)
-							if k != j
-							and self._get_dest(body[k]) is not None
-							and self._get_dest(body[k]).name == d.name
-						)
-						if other_defs > 0:
+			# An operand is invariant if it is a constant, defined outside the loop,
+			# or defined exactly once inside the loop by a loop-invariant instruction.
+			invariant_set: set[int] = set()  # set of id(instr) for invariant instrs
+
+			def _is_operand_invariant(val: IRValue) -> bool:
+				if isinstance(val, (IRConst, IRFloatConst)):
+					return True
+				if isinstance(val, IRTemp):
+					if val.name not in loop_defs:
+						return True
+					defs = loop_defs[val.name]
+					if len(defs) == 1 and id(defs[0]) in invariant_set:
+						return True
+				return False
+
+			# Fixed-point iteration to find all loop-invariant instructions
+			changed = True
+			while changed:
+				changed = False
+				for label in loop.body:
+					for instr in block_instrs.get(label, []):
+						if id(instr) in invariant_set:
 							continue
-					operands = self._get_uses(jnstr)
-					if all(
-						isinstance(op, IRConst) or (isinstance(op, IRTemp) and op.name not in loop_defs)
-						for op in operands
-					):
-						to_hoist.append(j)
+						# Only hoist pure computations
+						if not isinstance(instr, (IRBinOp, IRUnaryOp, IRCopy, IRConvert)):
+							continue
+						# Destination must be defined exactly once in the loop
+						d = self._get_dest(instr)
+						if d is not None and len(loop_defs.get(d.name, [])) != 1:
+							continue
+						operands = self._get_uses(instr)
+						if all(_is_operand_invariant(op) for op in operands):
+							invariant_set.add(id(instr))
+							changed = True
 
-				if to_hoist:
-					hoisted = [body[j] for j in to_hoist]
-					hoist_set = set(to_hoist)
-					new_body: list[IRInstruction] = []
-					for j, b_instr in enumerate(body):
-						if j == header:
-							new_body.extend(hoisted)
-						if j not in hoist_set:
-							new_body.append(b_instr)
-					return new_body
+			if not invariant_set:
+				continue
+
+			# Hoist: place invariant instructions before the loop header label
+			header_label = loop.header
+			hoisted = [instr for instr in body if id(instr) in invariant_set]
+			hoist_ids = invariant_set
+
+			new_body: list[IRInstruction] = []
+			for instr in body:
+				if isinstance(instr, IRLabelInstr) and instr.name == header_label:
+					new_body.extend(hoisted)
+				if id(instr) not in hoist_ids:
+					new_body.append(instr)
+
+			return new_body
 
 		return body
 
