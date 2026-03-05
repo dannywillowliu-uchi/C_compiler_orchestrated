@@ -252,6 +252,35 @@ def _compute_use_density(cfg: CFG, analyzer: LivenessAnalyzer) -> dict[str, floa
 	return density
 
 
+def _compute_use_distances(cfg: CFG) -> dict[str, int]:
+	"""Compute use distance for each temp: gap between its definition and last use.
+
+	Returns the number of instructions between def and last use.  Temps with
+	a distance of 0-2 are considered "short-lived" and should be prioritised
+	for register retention (i.e. expensive to spill).
+	"""
+	def_pos: dict[str, int] = {}
+	last_use_pos: dict[str, int] = {}
+	pos = 0
+	for block in cfg.blocks():
+		for instr in block.instructions:
+			if isinstance(instr, IRLabelInstr):
+				continue
+			for name in _get_temp_refs(instr):
+				if _instr_defs_temp(instr, name) and name not in def_pos:
+					def_pos[name] = pos
+				if _instr_uses_temp(instr, name):
+					last_use_pos[name] = pos
+			pos += 1
+	distances: dict[str, int] = {}
+	for name in def_pos:
+		if name in last_use_pos:
+			distances[name] = last_use_pos[name] - def_pos[name]
+		else:
+			distances[name] = 0
+	return distances
+
+
 def _compute_live_range_lengths(cfg: CFG, analyzer: LivenessAnalyzer) -> dict[str, int]:
 	"""Compute approximate live range length for each temp (number of instructions it spans)."""
 	first_seen: dict[str, int] = {}
@@ -627,6 +656,7 @@ class RegisterAllocator:
 		live_range_lengths = _compute_live_range_lengths(cfg, analyzer)
 		remat_temps = _find_rematerializable_temps(self._func)
 		use_density = _compute_use_density(cfg, analyzer)
+		use_distances = _compute_use_distances(cfg)
 
 		# Build integer-only interference subgraph (exclude address-taken temps)
 		int_temps = {t for t in interference if t not in float_temps and t not in addr_taken}
@@ -652,6 +682,7 @@ class RegisterAllocator:
 		coalesced_range_lengths: dict[str, int] = {}
 		coalesced_remat: set[str] = set()
 		coalesced_density: dict[str, float] = {}
+		coalesced_use_distances: dict[str, int] = {}
 		for t in int_temps:
 			rep = coalesce_map.find(t)
 			coalesced_use_counts[rep] = coalesced_use_counts.get(rep, 0) + use_counts.get(t, 1)
@@ -667,12 +698,16 @@ class RegisterAllocator:
 			coalesced_density[rep] = max(
 				coalesced_density.get(rep, 0.0), use_density.get(t, 1.0)
 			)
+			# For use distances, take the minimum (shortest-lived member dominates)
+			coalesced_use_distances[rep] = min(
+				coalesced_use_distances.get(rep, 999999), use_distances.get(t, 999999)
+			)
 
 		# Color the coalesced graph
 		coloring = self._color_graph(
 			coalesced_graph, coalesced_call_crossing, coalesced_use_counts,
 			coalesced_weighted_uses, coalesced_range_lengths, coalesced_remat,
-			coalesced_density,
+			coalesced_density, coalesced_use_distances,
 		)
 
 		# Expand coloring back to all original temps
@@ -792,6 +827,7 @@ class RegisterAllocator:
 		range_lengths: dict[str, int] | None = None,
 		remat_temps: set[str] | None = None,
 		use_density: dict[str, float] | None = None,
+		use_distances: dict[str, int] | None = None,
 	) -> dict[str, str]:
 		"""Chaitin-Briggs graph coloring with improved spill heuristic.
 
@@ -800,6 +836,7 @@ class RegisterAllocator:
 		- Live range length (long ranges contribute more pressure)
 		- Rematerialization (constants can be recomputed, nearly free to spill)
 		- Use density (infrequent uses over long ranges are cheap to spill)
+		- Use distance (short-lived temps are very expensive to spill)
 		"""
 		if not graph:
 			return {}
@@ -810,6 +847,7 @@ class RegisterAllocator:
 
 		_remat = remat_temps or set()
 		_density = use_density or {}
+		_use_dist = use_distances or {}
 
 		# Simplify phase: repeatedly remove low-degree nodes, spill when stuck
 		while remaining:
@@ -825,7 +863,9 @@ class RegisterAllocator:
 			if not found:
 				# Spill heuristic: pick the node with lowest spill cost.
 				# Rematerializable temps are preferred for spilling (cost ~0).
-				# cost = weighted_uses * density_factor / (degree * range_length)
+				# Short-lived temps (use distance <= 2) get a large multiplier
+				# to avoid spilling them -- they don't benefit from spilling
+				# since they'd need immediate reload.
 				def spill_cost(n: str) -> float:
 					degree = len(adj[n] & remaining)
 					wu = (weighted_uses or {}).get(n, 0.0)
@@ -834,14 +874,24 @@ class RegisterAllocator:
 					rl = (range_lengths or {}).get(n, 1)
 
 					if n in _remat:
-						# Rematerializable temps: cheap to spill since they can
-						# be recomputed. Still respect loop weight (wu) so hot
-						# constants in loops aren't naively spilled.
 						return wu * 0.1 / max(degree, 1)
 
 					# Factor in use density: low density = cheaper to spill
 					density = _density.get(n, 1.0)
-					return (wu * (1.0 + density)) / max(degree * rl, 1)
+					base_cost = (wu * (1.0 + density)) / max(degree * rl, 1)
+
+					# Short-lived temporaries: defined and used within 1-2
+					# instructions. Spilling these is wasteful since the
+					# spill store + reload would cost more than the value's
+					# entire lifetime. Multiply cost to strongly prefer
+					# evicting longer-lived values instead.
+					dist = _use_dist.get(n, 999999)
+					if dist <= 2:
+						base_cost *= 100.0
+					elif dist <= 4:
+						base_cost *= 10.0
+
+					return base_cost
 
 				spill_node = min(remaining, key=spill_cost)
 				stack.append((spill_node, True))
