@@ -577,7 +577,15 @@ class IRGenerator(ASTVisitor):
 			return dest
 		if node.name in self._global_names:
 			dest = self._new_temp()
-			self._emit(IRLoad(dest=dest, address=IRGlobalRef(node.name)))
+			global_ts = self._global_types.get(node.name)
+			if global_ts is not None:
+				ir_type = _resolve_ir_type(global_ts)
+				self._set_temp_type(dest, ir_type)
+				if global_ts.signedness == "unsigned":
+					self._temp_unsigned[dest.name] = True
+				self._emit(IRLoad(dest=dest, address=IRGlobalRef(node.name), ir_type=ir_type))
+			else:
+				self._emit(IRLoad(dest=dest, address=IRGlobalRef(node.name)))
 			return dest
 		return IRTemp(node.name)
 
@@ -794,12 +802,35 @@ class IRGenerator(ASTVisitor):
 				if target is not None:
 					ir_type = self._resolve_local_ir_type(node.operand.name)
 					current = self._new_temp()
-					self._emit(IRCopy(dest=current, source=target))
+					self._set_temp_type(current, ir_type)
+					self._emit(IRCopy(dest=current, source=target, ir_type=ir_type))
 					result = self._new_temp()
+					self._set_temp_type(result, ir_type)
 					delta_op = "+" if node.op == "++" else "-"
-					delta_val = IRConst(self._local_pointee_size(node.operand.name)) if ir_type == IRType.POINTER else IRConst(1)
-					self._emit(IRBinOp(dest=result, left=current, op=delta_op, right=delta_val))
-					self._emit(IRCopy(dest=target, source=result))
+					if ir_type == IRType.POINTER:
+						delta_val: IRValue = IRConst(self._local_pointee_size(node.operand.name))
+					elif self._is_float_type(ir_type):
+						delta_val = IRFloatConst(1.0, ir_type=ir_type)
+					else:
+						delta_val = IRConst(1)
+					self._emit(IRBinOp(dest=result, left=current, op=delta_op, right=delta_val, ir_type=ir_type))
+					self._emit(IRCopy(dest=target, source=result, ir_type=ir_type))
+					return result
+				# Global variable prefix ++/--
+				if node.operand.name in self._global_names:
+					ir_type = _resolve_ir_type(self._global_types.get(node.operand.name, TypeSpec(base_type="int")))
+					current = self._new_temp()
+					self._set_temp_type(current, ir_type)
+					self._emit(IRLoad(dest=current, address=IRGlobalRef(node.operand.name), ir_type=ir_type))
+					result = self._new_temp()
+					self._set_temp_type(result, ir_type)
+					delta_op = "+" if node.op == "++" else "-"
+					if self._is_float_type(ir_type):
+						delta_val2: IRValue = IRFloatConst(1.0, ir_type=ir_type)
+					else:
+						delta_val2 = IRConst(1)
+					self._emit(IRBinOp(dest=result, left=current, op=delta_op, right=delta_val2, ir_type=ir_type))
+					self._emit(IRStore(address=IRGlobalRef(node.operand.name), value=result, ir_type=ir_type))
 					return result
 			if isinstance(node.operand, MemberAccess):
 				addr = self._compute_member_addr(node.operand)
@@ -857,8 +888,8 @@ class IRGenerator(ASTVisitor):
 			return val if isinstance(val, IRTemp) else self._new_temp()
 		if isinstance(node.target, ArraySubscript):
 			addr = self._compute_array_addr(node.target)
-			val_type = self._value_ir_type(val)
-			self._emit(IRStore(address=addr, value=val, ir_type=val_type))
+			elem_type = self._array_element_ir_type(node.target)
+			self._emit(IRStore(address=addr, value=val, ir_type=elem_type))
 			return val if isinstance(val, IRTemp) else self._new_temp()
 		if isinstance(node.target, UnaryOp) and node.target.op == "*":
 			addr = self.visit(node.target.operand)
@@ -979,6 +1010,26 @@ class IRGenerator(ASTVisitor):
 		))
 		return dest
 
+	def _array_element_ir_type(self, node: ArraySubscript) -> IRType:
+		"""Determine the IR type of an array element for correct load/store sizing."""
+		current: ASTNode = node
+		while isinstance(current, ArraySubscript):
+			current = current.array
+		if isinstance(current, CastExpr):
+			ts = current.target_type
+			if ts.pointer_count > 0:
+				deref = TypeSpec(base_type=ts.base_type, width_modifier=ts.width_modifier, signedness=ts.signedness, pointer_count=ts.pointer_count - 1)
+				return _resolve_ir_type(deref)
+		if isinstance(current, Identifier):
+			ts = self._local_types.get(current.name) or self._global_types.get(current.name)
+			if ts is not None:
+				if ts.pointer_count > 0:
+					# Pointer subscript: element type is the pointee type
+					deref = TypeSpec(base_type=ts.base_type, width_modifier=ts.width_modifier, signedness=ts.signedness, pointer_count=ts.pointer_count - 1)
+					return _resolve_ir_type(deref)
+				return _resolve_ir_type(ts)
+		return IRType.INT
+
 	def _compute_array_addr(self, node: ArraySubscript) -> IRTemp:
 		"""Compute the address of an array element, handling multi-dimensional arrays.
 
@@ -993,16 +1044,32 @@ class IRGenerator(ASTVisitor):
 			current = current.array
 		index_nodes.reverse()
 
-		base = self.visit(current)
+		# For global arrays, get the address instead of loading the value
+		is_global_array = isinstance(current, Identifier) and current.name in self._global_array
+		if is_global_array:
+			base = self._new_temp()
+			self._set_temp_type(base, IRType.POINTER)
+			self._emit(IRCopy(dest=base, source=IRGlobalRef(current.name), ir_type=IRType.POINTER))
+		else:
+			base = self.visit(current)
 
 		# Determine element size and array dimensions from the base identifier
 		element_size = 4  # default int
 		dims: list[int] = []
-		if isinstance(current, Identifier):
-			ts = self._local_types.get(current.name)
+		if isinstance(current, CastExpr):
+			# Cast expression as array base: use cast target type for element size
+			cast_ts = current.target_type
+			if cast_ts.pointer_count > 0:
+				element_size = self._pointee_size_from_type(cast_ts)
+		elif isinstance(current, Identifier):
+			ts = self._local_types.get(current.name) or self._global_types.get(current.name)
 			if ts is not None:
-				element_size = self._resolve_member_size(ts)
-			dims = self._local_array.get(current.name, [])
+				if ts.pointer_count > 0:
+					# Pointer subscript: element size is pointee size
+					element_size = self._pointee_size_from_type(ts)
+				else:
+					element_size = self._resolve_member_size(ts)
+			dims = self._local_array.get(current.name) or self._global_array.get(current.name, [])
 
 		addr = base
 		for d, idx_node in enumerate(index_nodes):
@@ -1020,8 +1087,10 @@ class IRGenerator(ASTVisitor):
 
 	def visit_array_subscript(self, node: ArraySubscript) -> IRTemp:
 		addr = self._compute_array_addr(node)
+		elem_type = self._array_element_ir_type(node)
 		dest = self._new_temp()
-		self._emit(IRLoad(dest=dest, address=addr))
+		self._set_temp_type(dest, elem_type)
+		self._emit(IRLoad(dest=dest, address=addr, ir_type=elem_type))
 		return dest
 
 	# ------------------------------------------------------------------
@@ -1476,12 +1545,35 @@ class IRGenerator(ASTVisitor):
 			if target is not None:
 				ir_type = self._resolve_local_ir_type(node.operand.name)
 				old_val = self._new_temp()
-				self._emit(IRCopy(dest=old_val, source=target))
+				self._set_temp_type(old_val, ir_type)
+				self._emit(IRCopy(dest=old_val, source=target, ir_type=ir_type))
 				new_val = self._new_temp()
+				self._set_temp_type(new_val, ir_type)
 				delta_op = "+" if node.op == "++" else "-"
-				delta_val = IRConst(self._local_pointee_size(node.operand.name)) if ir_type == IRType.POINTER else IRConst(1)
-				self._emit(IRBinOp(dest=new_val, left=old_val, op=delta_op, right=delta_val))
-				self._emit(IRCopy(dest=target, source=new_val))
+				if ir_type == IRType.POINTER:
+					delta_val: IRValue = IRConst(self._local_pointee_size(node.operand.name))
+				elif self._is_float_type(ir_type):
+					delta_val = IRFloatConst(1.0, ir_type=ir_type)
+				else:
+					delta_val = IRConst(1)
+				self._emit(IRBinOp(dest=new_val, left=old_val, op=delta_op, right=delta_val, ir_type=ir_type))
+				self._emit(IRCopy(dest=target, source=new_val, ir_type=ir_type))
+				return old_val
+			# Global variable postfix ++/--
+			if node.operand.name in self._global_names:
+				ir_type = _resolve_ir_type(self._global_types.get(node.operand.name, TypeSpec(base_type="int")))
+				old_val = self._new_temp()
+				self._set_temp_type(old_val, ir_type)
+				self._emit(IRLoad(dest=old_val, address=IRGlobalRef(node.operand.name), ir_type=ir_type))
+				new_val = self._new_temp()
+				self._set_temp_type(new_val, ir_type)
+				delta_op = "+" if node.op == "++" else "-"
+				if self._is_float_type(ir_type):
+					delta_val2: IRValue = IRFloatConst(1.0, ir_type=ir_type)
+				else:
+					delta_val2 = IRConst(1)
+				self._emit(IRBinOp(dest=new_val, left=old_val, op=delta_op, right=delta_val2, ir_type=ir_type))
+				self._emit(IRStore(address=IRGlobalRef(node.operand.name), value=new_val, ir_type=ir_type))
 				return old_val
 		if isinstance(node.operand, ArraySubscript):
 			addr = self._compute_array_addr(node.operand)
