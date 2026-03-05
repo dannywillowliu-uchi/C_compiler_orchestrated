@@ -210,7 +210,8 @@ class TestVoidReturnErrors:
 		}
 		int main() { foo(); return 0; }
 		"""
-		assert_semantic_error(source, "void function should not return a value")
+		analyzer, _ast = analyze(source)
+		assert any("void function should not return a value" in w for w in analyzer.warnings)
 
 	def test_void_func_bare_return_is_valid(self) -> None:
 		source = """

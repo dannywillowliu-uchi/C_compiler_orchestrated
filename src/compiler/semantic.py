@@ -408,6 +408,8 @@ class SemanticAnalyzer(ASTVisitor):
 		existing = self.symbols.lookup_current_scope(node.name)
 		if existing is not None and existing.is_function and existing.is_prototype and node.body is not None:
 			existing.is_prototype = False
+			existing.param_types = param_types
+			existing.is_variadic = node.is_variadic
 		elif node.body is None:
 			sym = Symbol(
 				name=node.name,
@@ -691,9 +693,10 @@ class SemanticAnalyzer(ASTVisitor):
 			and self._current_function.return_type.base_type == "void"
 			and self._current_function.return_type.pointer_count == 0
 		)
-		# Check: void function must not return a value
+		# In C, returning a value from a void function is allowed (just a warning)
 		if is_void_func and node.has_expression:
-			self._error("void function should not return a value", node)
+			self.warnings.append("void function should not return a value")
+			self.visit(node.expression)
 			return
 		# Bare return in void function is fine; skip type check
 		if is_void_func and not node.has_expression:
@@ -1012,6 +1015,9 @@ class SemanticAnalyzer(ASTVisitor):
 		if not sym.is_function:
 			self._error(f"'{node.name}' is not a function", node)
 			return None
+		# In C, a prototype `int f()` means unspecified params (accept any args)
+		# A definition `int f() { ... }` with zero params means zero args
+		has_unspecified_params = sym.is_prototype and len(sym.param_types) == 0 and not sym.is_variadic
 		if sym.is_variadic:
 			if len(node.arguments) < len(sym.param_types):
 				self._error(
@@ -1019,6 +1025,8 @@ class SemanticAnalyzer(ASTVisitor):
 					f"{len(sym.param_types)} arguments, got {len(node.arguments)}",
 					node,
 				)
+		elif has_unspecified_params:
+			pass  # Unprototyped function: accept any number of arguments
 		elif len(node.arguments) != len(sym.param_types):
 			self._error(
 				f"function '{node.name}' expects {len(sym.param_types)} arguments, "
@@ -1040,6 +1048,9 @@ class SemanticAnalyzer(ASTVisitor):
 			sym = self.symbols.lookup(node.array.name)
 			if sym is not None:
 				is_base_array = sym.is_array
+		elif isinstance(node.array, ArraySubscript):
+			# Nested subscript (multi-dim array): result of inner subscript is still subscriptable
+			is_base_array = True
 		if not is_base_array and not _is_pointer(base_type):
 			self._error("subscript requires array or pointer type", node)
 			return None

@@ -54,8 +54,8 @@ class TestVoidReturn:
 			),
 		], loc=loc())
 		analyzer = SemanticAnalyzer()
-		with pytest.raises(SemanticError, match="void function should not return a value"):
-			analyzer.analyze(prog)
+		analyzer.analyze(prog)
+		assert any("void function should not return a value" in w for w in analyzer.warnings)
 
 	def test_void_function_bare_return_ok(self) -> None:
 		"""void f() { return; } should be accepted."""
