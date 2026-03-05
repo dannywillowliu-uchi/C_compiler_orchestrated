@@ -204,17 +204,17 @@ class TestRedundantConsecutiveLoads:
 		asm = "\tmovl -4(%rbp), %eax\n\tmovl -4(%rbp), %eax"
 		assert _opt(asm) == "\tmovl -4(%rbp), %eax"
 
-	def test_different_offsets_preserved(self) -> None:
+	def test_different_offsets_dead_load_eliminated(self) -> None:
 		asm = "\tmovq -8(%rbp), %rax\n\tmovq -16(%rbp), %rax"
-		assert _opt(asm) == asm
+		assert _opt(asm) == "\tmovq -16(%rbp), %rax"
 
 	def test_different_dest_regs_preserved(self) -> None:
 		asm = "\tmovq -8(%rbp), %rax\n\tmovq -8(%rbp), %rcx"
 		assert _opt(asm) == asm
 
-	def test_different_base_regs_preserved(self) -> None:
+	def test_different_base_regs_dead_load_eliminated(self) -> None:
 		asm = "\tmovq -8(%rbp), %rax\n\tmovq -8(%rsp), %rax"
-		assert _opt(asm) == asm
+		assert _opt(asm) == "\tmovq -8(%rsp), %rax"
 
 	def test_redundant_load_in_context(self) -> None:
 		lines = [

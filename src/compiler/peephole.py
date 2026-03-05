@@ -194,6 +194,14 @@ class PeepholeOptimizer:
 					i += 2
 					continue
 
+				# Dead load elimination: load to register immediately overwritten
+				opt = self._try_dead_load(lines[i], lines[i + 1])
+				if opt is not None:
+					result.extend(opt)
+					changed = True
+					i += 2
+					continue
+
 			# cmpq $0, %reg -> testq %reg, %reg
 			opt = self._try_cmp_zero_to_test(lines[i])
 			if opt is not None:
@@ -507,6 +515,25 @@ class PeepholeOptimizer:
 		m = re.match(r"^\tmov[lqwb]\s+-?\d+\(%\w+\),\s+%\w+$", line1)
 		if m is not None:
 			return [line1]
+		return None
+
+	def _try_dead_load(self, line1: str, line2: str) -> list[str] | None:
+		"""Remove a load whose destination register is immediately overwritten."""
+		# Check if line1 is a load (mov from memory to register)
+		m_load = self._movq_load_re.match(line1)
+		if m_load is None:
+			return None
+		loaded_reg = m_load.group(2)
+		# Check if line2 overwrites the same register without reading it
+		# movq (from immediate or other non-reading source), leaq (never reads dest)
+		m_overwrite = re.match(r"^\t(movq|leaq)\s+([^,]+),\s+(%\w+)$", line2)
+		if m_overwrite is not None:
+			if m_overwrite.group(3) == loaded_reg and loaded_reg not in m_overwrite.group(2):
+				return [line2]
+		# xorq %reg, %reg is a zeroing idiom (pure overwrite)
+		m_xor = re.match(r"^\txorq\s+(%\w+),\s+(%\w+)$", line2)
+		if m_xor is not None and m_xor.group(1) == m_xor.group(2) == loaded_reg:
+			return [line2]
 		return None
 
 	def _is_reg_dead_in_window(self, lines: list[str], start_idx: int, reg: str) -> bool:
