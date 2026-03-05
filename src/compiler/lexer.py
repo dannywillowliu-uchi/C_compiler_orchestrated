@@ -196,13 +196,46 @@ class Lexer:
 		ch = self._peek()
 
 		if ch == "0" and self._peek(1) in ("x", "X"):
-			# Hex literal
+			# Hex literal (integer or float)
 			self._advance()  # 0
 			self._advance()  # x/X
-			if not self._is_hex_digit(self._peek()):
-				raise LexerError("Invalid hex literal", start_line, start_col)
+			has_digits = self._is_hex_digit(self._peek())
 			while not self._at_end() and self._is_hex_digit(self._peek()):
 				self._advance()
+
+			is_hex_float = False
+			if not self._at_end() and self._peek() == ".":
+				is_hex_float = True
+				self._advance()  # .
+				while not self._at_end() and self._is_hex_digit(self._peek()):
+					self._advance()
+					has_digits = True
+
+			if not has_digits:
+				raise LexerError("Invalid hex literal", start_line, start_col)
+
+			if not self._at_end() and self._peek() in ("p", "P"):
+				is_hex_float = True
+				self._advance()  # p/P
+				if not self._at_end() and self._peek() in ("+", "-"):
+					self._advance()
+				if self._at_end() or not self._peek().isdigit():
+					raise LexerError("Invalid hex float literal exponent", start_line, start_col)
+				while not self._at_end() and self._peek().isdigit():
+					self._advance()
+			elif is_hex_float:
+				raise LexerError("Hex float literal requires exponent", start_line, start_col)
+
+			if is_hex_float:
+				if not self._at_end() and self._peek() in ("f", "F", "l", "L"):
+					self._advance()
+				return self._make_token(
+					TokenType.FLOAT_LITERAL,
+					self.source[start_pos:self.pos],
+					start_line,
+					start_col,
+				)
+
 			num_end = self.pos
 			suffix = self._consume_integer_suffix()
 			return self._make_token(
