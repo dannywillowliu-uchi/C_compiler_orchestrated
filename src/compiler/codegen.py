@@ -303,6 +303,192 @@ def copy_propagate_asm(lines: list[str]) -> list[str]:
 	return result
 
 
+# ---------------------------------------------------------------------------
+# Post-regalloc dead code elimination on emitted assembly
+# ---------------------------------------------------------------------------
+
+# Mnemonic prefixes where the destination register is PURELY written (not also read).
+# In AT&T syntax, the last operand is the dest. For these, the dest is only written.
+_PURE_DEST_PREFIXES = (
+	"mov", "lea", "set", "cvt",
+)
+
+# Mnemonics that are NOT safe to eliminate (side effects beyond register writes)
+_SIDE_EFFECT_MNEMONICS = frozenset({
+	"call", "pushq", "pushl", "pushw", "popq", "popl", "popw",
+	"ret", "leave", "syscall", "int",
+	"cmpq", "cmpl", "cmpw", "cmpb", "testq", "testl", "testw", "testb",
+	"ucomiss", "ucomisd",
+	"cqto", "cqo", "cdq", "cwd", "cbw",
+	"divq", "divl", "idivq", "idivl",
+	"rep", "repne",
+})
+
+_IS_LABEL_RE = re.compile(r"^[A-Za-z_.][A-Za-z0-9_.]*:$")
+
+
+def _is_label(stripped: str) -> bool:
+	"""Check if a stripped line is a label (including .L* labels)."""
+	return bool(_IS_LABEL_RE.match(stripped))
+
+
+def _is_pure_dest_write(line: str) -> tuple[str | None, bool]:
+	"""Determine if an instruction purely writes a GP register (no read of dest).
+
+	Returns (reg64, can_eliminate) where reg64 is the 64-bit parent of the written
+	register and can_eliminate indicates if the instruction is safe to remove when
+	the dest is dead.
+	"""
+	stripped = line.lstrip("\t ")
+	if not stripped or stripped.startswith(".") or stripped.startswith("#") or _is_label(stripped):
+		return None, False
+
+	parts = stripped.split(None, 1)
+	if not parts or len(parts) < 2:
+		return None, False
+
+	mnemonic = parts[0]
+
+	if mnemonic in _SIDE_EFFECT_MNEMONICS:
+		return None, False
+
+	# Check for pure-dest-write mnemonics
+	if not mnemonic.startswith(_PURE_DEST_PREFIXES):
+		# Handle xor zeroing idiom: xorq %rax, %rax
+		if mnemonic.startswith("xor"):
+			operands = parts[1].split(",")
+			if len(operands) == 2:
+				src_op = operands[0].strip()
+				dst_op = operands[1].strip()
+				src64 = _to_64(src_op)
+				dst64 = _to_64(dst_op)
+				if src64 and dst64 and src64 == dst64 and "(" not in dst_op:
+					return dst64, False  # It's a pure write (zeroing), but we track it as "next writes dest"
+		return None, False
+
+	operands = parts[1].split(",")
+	last_op = operands[-1].strip()
+
+	# Destination must be a plain register (not memory)
+	if "(" in last_op:
+		return None, False
+
+	m = _ANY_GP_REG_RE.match(last_op)
+	if m and m.group() == last_op:
+		reg64 = _to_64(last_op)
+		if reg64:
+			return reg64, True
+	return None, False
+
+
+def _next_instr_purely_writes(reachable: list[str], start: int, reg64: str) -> bool:
+	"""Check if the next meaningful instruction purely overwrites reg64 without reading it."""
+	idx = start
+	while idx < len(reachable):
+		next_line = reachable[idx].lstrip("\t ")
+		if not next_line or next_line.startswith("#"):
+			idx += 1
+			continue
+		break
+	else:
+		return False
+
+	next_stripped = reachable[idx].lstrip("\t ")
+
+	# Labels, jumps, ret, call -- not a pure overwrite
+	if _is_label(next_stripped) or next_stripped.startswith(("jmp", "je ", "jne ", "jl ", "jg ",
+		"jle ", "jge ", "ja ", "jb ", "jae ", "jbe ", "js ", "jns ", "ret", "call")):
+		return False
+
+	# Check if it's a pure write to the same register
+	next_dest, is_pure = _is_pure_dest_write(reachable[idx])
+	if next_dest != reg64:
+		return False
+
+	if is_pure:
+		# Pure dest write (mov, lea, set, cvt) -- check source operands don't reference the reg
+		parts = next_stripped.split(None, 1)
+		if len(parts) >= 2:
+			operands = parts[1].split(",")
+			# All operands except last are sources
+			source_str = ",".join(operands[:-1])
+			for reg_name, parent in _SUB_TO_64.items():
+				if parent == reg64 and reg_name in source_str:
+					return False
+			# Also check memory references in dest operand
+			dest_op = operands[-1].strip()
+			if "(" in dest_op:
+				for reg_name, parent in _SUB_TO_64.items():
+					if parent == reg64 and reg_name in dest_op:
+						return False
+		return True
+
+	# xor zeroing idiom -- the next instruction purely writes without needing old value
+	parts = next_stripped.split(None, 1)
+	if parts and parts[0].startswith("xor") and len(parts) >= 2:
+		operands = parts[1].split(",")
+		if len(operands) == 2:
+			src64 = _to_64(operands[0].strip())
+			dst64 = _to_64(operands[1].strip())
+			if src64 == dst64 == reg64:
+				return True
+
+	return False
+
+
+def dead_code_eliminate_asm(lines: list[str]) -> list[str]:
+	"""Eliminate dead stores and unreachable code from assembly lines.
+
+	1. Remove instructions after unconditional jumps (jmp) until the next label.
+	2. Remove register writes that are immediately overwritten by the next instruction
+	   purely writing to the same register (without reading it first).
+	"""
+	# Pass 1: Remove unreachable code after unconditional jumps
+	reachable: list[str] = []
+	in_dead_zone = False
+
+	for line in lines:
+		stripped = line.lstrip("\t ")
+
+		# Labels (including .L* labels) end dead zones
+		if _is_label(stripped):
+			in_dead_zone = False
+			reachable.append(line)
+			continue
+
+		# Keep important directives even in dead zones
+		if stripped.startswith("."):
+			if in_dead_zone:
+				if stripped.startswith((".size", ".globl", ".type", ".section")):
+					in_dead_zone = False
+					reachable.append(line)
+				continue
+			reachable.append(line)
+			continue
+
+		if in_dead_zone:
+			continue
+
+		reachable.append(line)
+
+		# Unconditional jump starts a dead zone
+		if stripped.startswith("jmp ") or stripped.startswith("jmp\t"):
+			in_dead_zone = True
+
+	# Pass 2: Eliminate dead register stores (pure write immediately overwritten)
+	result: list[str] = []
+
+	for i, line in enumerate(reachable):
+		dest, can_eliminate = _is_pure_dest_write(line)
+		if dest and can_eliminate and dest not in _EXCLUDED_REGS:
+			if _next_instr_purely_writes(reachable, i + 1, dest):
+				continue
+
+		result.append(line)
+
+	return result
+
+
 class CodeGenerator:
 	"""Generates x86-64 assembly (AT&T syntax) from an IRProgram."""
 
@@ -426,6 +612,9 @@ class CodeGenerator:
 
 		# Post-regalloc copy propagation to eliminate redundant mov instructions
 		self._lines = copy_propagate_asm(self._lines)
+
+		# Dead code elimination: dead stores + unreachable code after jumps
+		self._lines = dead_code_eliminate_asm(self._lines)
 
 		return "\n".join(self._lines) + "\n"
 
