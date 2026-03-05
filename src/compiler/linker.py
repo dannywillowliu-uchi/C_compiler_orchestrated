@@ -86,10 +86,19 @@ def transform_asm_for_macos(asm: str) -> str:
 	`.size`, etc.). macOS's clang assembler requires Mach-O directives and
 	underscore-prefixed C symbols.
 	"""
-	# Collect global symbol names to know which labels need underscore prefix
+	# Collect symbol names that need underscore prefix:
+	# 1. Global symbols (from .globl directives)
+	# 2. Call targets (static functions still need _ prefix on macOS)
 	globals_set: set[str] = set()
 	for m in re.finditer(r"\.globl\s+(\w+)", asm):
 		globals_set.add(m.group(1))
+
+	# Also collect all call targets so static function labels get _ prefix too
+	call_targets: set[str] = set()
+	for m in re.finditer(r"\bcall\s+(\w+)\s*$", asm, re.MULTILINE):
+		call_targets.add(m.group(1))
+	# All symbols that need _ prefix (globals + call targets that have labels)
+	all_c_symbols = globals_set | call_targets
 
 	lines = asm.splitlines()
 	out: list[str] = []
@@ -123,9 +132,9 @@ def transform_asm_for_macos(asm: str) -> str:
 			out.append(f".globl _{m.group(1)}")
 			continue
 
-		# Prefix function label definitions (global symbols)
+		# Prefix function label definitions (global symbols and call targets)
 		m = re.match(r"^(\w+):$", stripped)
-		if m and m.group(1) in globals_set:
+		if m and m.group(1) in all_c_symbols:
 			out.append(f"_{m.group(1)}:")
 			continue
 
@@ -136,9 +145,9 @@ def transform_asm_for_macos(asm: str) -> str:
 			out.append(f"{indent}call _{target}")
 			continue
 
-		# Prefix lea references to global symbols (e.g. leaq symbol(%rip), %reg)
+		# Prefix lea references to C symbols (e.g. leaq symbol(%rip), %reg)
 		m = re.match(r"(\s*lea[qlwb]?\s+)(\w+)(\(%rip\).*)$", line)
-		if m and m.group(2) in globals_set:
+		if m and m.group(2) in all_c_symbols:
 			out.append(f"{m.group(1)}_{m.group(2)}{m.group(3)}")
 			continue
 
@@ -274,6 +283,10 @@ def compile_and_link(
 	intermediates = [asm_file, obj_file]
 
 	try:
+		# If no main function is defined, add a stub that returns 0
+		if not re.search(r"^main:|^_main:", asm_source, re.MULTILINE):
+			asm_source += "\n.globl main\nmain:\n\txorl %eax, %eax\n\tret\n"
+
 		# Write assembly (transform for macOS if needed)
 		asm_text = transform_asm_for_macos(asm_source) if toolchain.system == "Darwin" else asm_source
 		Path(asm_file).write_text(asm_text)
