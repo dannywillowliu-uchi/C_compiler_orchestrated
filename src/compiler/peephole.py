@@ -95,6 +95,10 @@ class PeepholeOptimizer:
 		# Push different reg pop: pushq %rA; popq %rB -> movq %rA, %rB
 		self._pushq_any_re = self._pushq_re
 		self._popq_any_re = self._popq_re
+		# addq $imm, %reg pattern for lea folding
+		self._addq_imm_to_reg_re = re.compile(
+			r"^\taddq\s+\$(-?\d+),\s+(%\w+)$"
+		)
 
 	def optimize(self, assembly: str) -> str:
 		"""Apply peephole optimizations to assembly text and return optimized version."""
@@ -146,6 +150,22 @@ class PeepholeOptimizer:
 
 				# LEA strength reduction
 				opt = self._try_lea_reduction(lines[i], lines[i + 1])
+				if opt is not None:
+					result.extend(opt)
+					changed = True
+					i += 2
+					continue
+
+				# LEA folding: movq %rA, %rB + addq $imm, %rB -> leaq imm(%rA), %rB
+				opt = self._try_mov_addimm_to_lea(lines, i)
+				if opt is not None:
+					result.extend(opt)
+					changed = True
+					i += 2
+					continue
+
+				# LEA folding: movq %rA, %rB + addq %rC, %rB -> leaq (%rA,%rC), %rB
+				opt = self._try_mov_addreg_to_lea(lines, i)
 				if opt is not None:
 					result.extend(opt)
 					changed = True
@@ -767,6 +787,53 @@ class PeepholeOptimizer:
 		if src == dst:
 			return None  # Same-register case handled by _try_push_pop
 		return [f"\tmovq {src}, {dst}"]
+
+	def _try_mov_addimm_to_lea(self, lines: list[str], idx: int) -> list[str] | None:
+		"""Fold 'movq %rA, %rB; addq $imm, %rB' into 'leaq imm(%rA), %rB'.
+
+		Only fires when %rA != %rB and %rA is not used after (dead in window).
+		"""
+		m_mov = self._movq_reg_re.match(lines[idx])
+		if m_mov is None:
+			return None
+		ra, rb = m_mov.group(1), m_mov.group(2)
+		if ra == rb:
+			return None
+		m_add = self._addq_imm_to_reg_re.match(lines[idx + 1])
+		if m_add is None:
+			return None
+		imm = int(m_add.group(1))
+		add_dst = m_add.group(2)
+		if add_dst != rb:
+			return None
+		if not (-2147483648 <= imm <= 2147483647):
+			return None
+		if not self._is_reg_dead_in_window(lines, idx + 2, ra):
+			return None
+		return [f"\tleaq {imm}({ra}), {rb}"]
+
+	def _try_mov_addreg_to_lea(self, lines: list[str], idx: int) -> list[str] | None:
+		"""Fold 'movq %rA, %rB; addq %rC, %rB' into 'leaq (%rA,%rC), %rB'.
+
+		Only fires when all three registers are distinct and %rA is dead after.
+		"""
+		m_mov = self._movq_reg_re.match(lines[idx])
+		if m_mov is None:
+			return None
+		ra, rb = m_mov.group(1), m_mov.group(2)
+		if ra == rb:
+			return None
+		m_add = self._addq_reg_reg_re.match(lines[idx + 1])
+		if m_add is None:
+			return None
+		rc, add_dst = m_add.group(1), m_add.group(2)
+		if add_dst != rb:
+			return None
+		if rc == rb:
+			return None
+		if not self._is_reg_dead_in_window(lines, idx + 2, ra):
+			return None
+		return [f"\tleaq ({ra},{rc}), {rb}"]
 
 	def _is_reg_dead_in_window(self, lines: list[str], start_idx: int, reg: str) -> bool:
 		"""Check if reg is dead (overwritten before read) in a forward window."""
