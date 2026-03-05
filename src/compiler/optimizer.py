@@ -1,9 +1,10 @@
 """IR optimization passes: constant folding, dead code elimination, copy propagation,
 strength reduction, jump threading, unreachable code elimination, common subexpression
-elimination, and loop-invariant code motion."""
+elimination, loop-invariant code motion, and dead store elimination."""
 
 from __future__ import annotations
 
+from compiler.cfg import CFG
 from compiler.ir import (
 	IRAddrOf,
 	IRAlloc,
@@ -34,6 +35,7 @@ from compiler.ir import (
 	ir_type_byte_width,
 	ir_type_is_integer,
 )
+from compiler.liveness import LivenessAnalyzer, _defined_temp, _used_temps
 
 
 class IROptimizer:
@@ -58,6 +60,7 @@ class IROptimizer:
 				self._convert_elimination,
 				self._cse,
 				self._constant_condjump_folding,
+				self._dead_store_elimination,
 				self._dead_code_elimination,
 				self._jump_threading,
 				self._unreachable_elimination,
@@ -756,6 +759,78 @@ class IROptimizer:
 		if op == "||" and left_val == 1:
 			return IRCopy(dest=instr.dest, source=IRConst(1))
 		return None
+
+	# -- Dead Store Elimination --
+
+	def _dead_store_elimination(self, body: list[IRInstruction]) -> list[IRInstruction]:
+		"""Eliminate stores/copies whose destination is dead (not live after the instruction).
+
+		Uses CFG-based liveness analysis for precise per-instruction liveness, and
+		within-block forward analysis to find IRStore instructions that are overwritten
+		before being read.
+		"""
+		if not body:
+			return body
+
+		cfg = CFG(body)
+		analyzer = LivenessAnalyzer(cfg)
+		liveness = analyzer.compute_liveness()
+
+		dead_ids: set[int] = set()
+
+		# Phase 1: Liveness-based elimination of pure definitions.
+		# A definition is dead if the dest temp is not live after the instruction.
+		for block in cfg.blocks():
+			instrs = block.instructions
+			live = set(liveness[block.label][1])  # live_out
+
+			for i in range(len(instrs) - 1, -1, -1):
+				instr = instrs[i]
+				defined = _defined_temp(instr)
+				used = _used_temps(instr)
+
+				if defined is not None and defined not in live:
+					if isinstance(instr, (IRCopy, IRBinOp, IRUnaryOp, IRConvert)):
+						dead_ids.add(id(instr))
+						continue
+
+				if defined is not None:
+					live.discard(defined)
+				live |= used
+
+		# Phase 2: Within-block IRStore elimination.
+		# If the same address is stored to again without an intervening load, call,
+		# or address-taking operation, the earlier store is dead.
+
+		# Find temps whose address is taken (aliased) anywhere in the function.
+		aliased: set[str] = set()
+		for instr in body:
+			if isinstance(instr, IRAddrOf) and isinstance(instr.source, IRTemp):
+				aliased.add(instr.source.name)
+
+		for block in cfg.blocks():
+			instrs = block.instructions
+			pending_stores: dict[str, int] = {}
+
+			for i, instr in enumerate(instrs):
+				if isinstance(instr, IRStore) and isinstance(instr.address, IRTemp):
+					addr = instr.address.name
+					if addr not in aliased and addr in pending_stores:
+						dead_ids.add(id(instrs[pending_stores[addr]]))
+					if addr not in aliased:
+						pending_stores[addr] = i
+				elif isinstance(instr, IRLoad):
+					if isinstance(instr.address, IRTemp):
+						pending_stores.pop(instr.address.name, None)
+					else:
+						pending_stores.clear()
+				elif isinstance(instr, (IRCall, IRVaStart, IRVaArg, IRVaEnd, IRVaCopy, IRAddrOf)):
+					pending_stores.clear()
+
+		if not dead_ids:
+			return body
+
+		return [instr for instr in body if id(instr) not in dead_ids]
 
 	# -- Helpers --
 
