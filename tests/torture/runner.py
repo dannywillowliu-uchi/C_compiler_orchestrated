@@ -75,6 +75,14 @@ def categorize(test_name: str, source: str = "") -> str:
 	return "misc"
 
 
+def _truncate(s: str, maxlen: int = 300) -> str:
+	"""Truncate a string, adding ellipsis if needed."""
+	s = s.strip()
+	if len(s) <= maxlen:
+		return s
+	return s[:maxlen] + "..."
+
+
 def run_single_test(c_file: Path) -> dict:
 	"""Run a single torture test case and return its result."""
 	from compiler.__main__ import compile_source
@@ -88,10 +96,14 @@ def run_single_test(c_file: Path) -> dict:
 	try:
 		asm = compile_source(source)
 	except Exception as e:
+		error_str = str(e)
+		# Extract the first line as a short label for grouping
+		first_line = error_str.split("\n")[0].strip()
 		return {
 			"status": "SKIP",
 			"category": category,
-			"error_msg": f"compile_source failed: {e}",
+			"error_msg": f"compile_source failed: {first_line}",
+			"diagnostic": _truncate(error_str),
 			"exit_code": None,
 		}
 
@@ -103,10 +115,13 @@ def run_single_test(c_file: Path) -> dict:
 		try:
 			compile_and_link(asm, exe_path)
 		except Exception as e:
+			error_str = str(e)
+			first_line = error_str.split("\n")[0].strip()
 			return {
 				"status": "SKIP",
 				"category": category,
-				"error_msg": f"compile_and_link failed: {e}",
+				"error_msg": f"compile_and_link failed: {first_line}",
+				"diagnostic": _truncate(error_str),
 				"exit_code": None,
 			}
 
@@ -122,14 +137,18 @@ def run_single_test(c_file: Path) -> dict:
 				"status": "FAIL",
 				"category": category,
 				"error_msg": "timeout",
+				"diagnostic": "Binary did not exit within 5 seconds (possible infinite loop)",
 				"exit_code": None,
 			}
+
+		stderr_text = _truncate(result.stderr.decode(errors="replace"), 200) if result.stderr else ""
 
 		if result.returncode < 0:
 			return {
 				"status": "FAIL",
 				"category": category,
 				"error_msg": f"crash (signal {-result.returncode})",
+				"diagnostic": f"Process killed by signal {-result.returncode}" + (f": {stderr_text}" if stderr_text else ""),
 				"exit_code": result.returncode,
 			}
 		elif result.returncode == 0:
@@ -137,6 +156,7 @@ def run_single_test(c_file: Path) -> dict:
 				"status": "PASS",
 				"category": category,
 				"error_msg": None,
+				"diagnostic": None,
 				"exit_code": 0,
 			}
 		else:
@@ -144,6 +164,7 @@ def run_single_test(c_file: Path) -> dict:
 				"status": "FAIL",
 				"category": category,
 				"error_msg": f"wrong_output (exit code {result.returncode})",
+				"diagnostic": f"Test assertion failed with exit code {result.returncode}" + (f": {stderr_text}" if stderr_text else ""),
 				"exit_code": result.returncode,
 			}
 	finally:
@@ -179,13 +200,90 @@ def compute_deltas(current_tests: dict, baseline_tests: dict) -> dict:
 	}
 
 
+def compute_skip_analysis(tests: dict) -> dict:
+	"""Group SKIP tests by common error patterns for planner visibility.
+
+	Returns a dict like:
+	  {"unsupported: long long": {"count": 45, "examples": ["gcc_foo", "gcc_bar"]}, ...}
+	"""
+	import re
+
+	pattern_groups: dict[str, list[str]] = {}
+	for name, t in sorted(tests.items()):
+		if t["status"] != "SKIP":
+			continue
+		error = t.get("error_msg", "") or ""
+		diag = t.get("diagnostic", "") or error
+		# Extract the most meaningful error line from the diagnostic
+		key_line = _extract_error_line(diag)
+		pattern = _normalize_skip_pattern(key_line)
+		pattern_groups.setdefault(pattern, []).append(name)
+
+	result = {}
+	for pattern, names in sorted(pattern_groups.items(), key=lambda x: -len(x[1])):
+		result[pattern] = {
+			"count": len(names),
+			"examples": names[:5],
+		}
+	return result
+
+
+def _extract_error_line(diagnostic: str) -> str:
+	"""Extract the most meaningful error line from a diagnostic string.
+
+	For multiline diagnostics (e.g. assembler errors), finds the line
+	containing 'error:' rather than using the first line.
+	"""
+	import re
+
+	lines = diagnostic.strip().split("\n")
+	# Look for a line containing "error:" (common in compiler/assembler output)
+	for line in lines:
+		if "error:" in line.lower():
+			# Strip file path prefix (e.g. "/tmp/foo.s:5:14: error: ...")
+			match = re.match(r".*?error:\s*(.*)", line, re.IGNORECASE)
+			if match:
+				return match.group(1).strip()
+			return line.strip()
+	# Fall back to the first non-empty line
+	for line in lines:
+		stripped = line.strip()
+		if stripped:
+			return stripped
+	return "unknown error"
+
+
+def _normalize_skip_pattern(error_line: str) -> str:
+	"""Normalize an error line into a groupable pattern.
+
+	Examples:
+		"unsupported type specifier 'long long'" -> "unsupported type specifier"
+		"unexpected token in '.section' directive" -> "unexpected token in directive"
+		"unexpected token '<<=' at line 5" -> "unexpected token"
+	"""
+	import re
+
+	# Strip the "compile_source failed: " or "compile_and_link failed: " prefix
+	line = re.sub(r"^compile_\w+ failed:\s*", "", error_line)
+	# Strip trailing "at line N" / "on line N" / "at N:N"
+	line = re.sub(r"\s+(?:at|on)\s+line\s+\d+", "", line)
+	line = re.sub(r"\s+at\s+\d+:\d+", "", line)
+	# Strip quoted specifics like 'long long' or "foo" but keep the error class
+	line = re.sub(r"['\"][^'\"]*['\"]", "", line).strip()
+	# Strip trailing punctuation and extra spaces
+	line = re.sub(r"\s+", " ", line).strip().rstrip(".:,;")
+	return line if line else "unknown error"
+
+
 def write_results_json(output_path: Path, summary: dict, tests: dict, deltas: dict) -> None:
 	"""Write the results JSON file."""
+	skip_analysis = compute_skip_analysis(tests)
 	data = {
 		"timestamp": datetime.now(timezone.utc).isoformat(),
 		"summary": summary,
 		"tests": {k: tests[k] for k in sorted(tests)},
 		"deltas": deltas,
+		"skip_analysis": skip_analysis,
 	}
 	output_path.parent.mkdir(parents=True, exist_ok=True)
 	output_path.write_text(json.dumps(data, indent=2) + "\n")
