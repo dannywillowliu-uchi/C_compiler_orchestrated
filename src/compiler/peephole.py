@@ -422,6 +422,15 @@ class PeepholeOptimizer:
 					i += opt[1]
 					continue
 
+			# Simple branch-over-mov to cmov (3-line: jCC + movq + label)
+			if i + 2 < len(lines):
+				opt = self._try_simple_branch_over_mov(lines, i)
+				if opt is not None:
+					result.extend(opt[0])
+					changed = True
+					i += opt[1]
+					continue
+
 			# Push/pop to different register: pushq %rA; popq %rB -> movq %rA, %rB
 			if i + 1 < len(lines):
 				opt = self._try_push_pop_move(lines[i], lines[i + 1])
@@ -1199,6 +1208,54 @@ class PeepholeOptimizer:
 				return (result, 6)
 
 		return None
+
+	def _try_simple_branch_over_mov(self, lines: list[str], idx: int) -> tuple[list[str], int] | None:
+		"""Convert branch-over-single-mov to cmov.
+
+		Pattern (3 lines):
+		  jCC .Lskip
+		  movq %rA, %rDst    (src must be register or memory, not immediate)
+		  .Lskip:
+
+		Becomes:
+		  cmovINV_CCq %rA, %rDst
+		  .Lskip:
+
+		The movq executes when CC is NOT met, so cmov uses the inverted condition.
+		"""
+		# Line 0: jCC .Lskip
+		m_jcc = self._jcc_re.match(lines[idx])
+		if m_jcc is None:
+			return None
+		cc = m_jcc.group(1)
+		skip_label = m_jcc.group(2)
+
+		# Line 1: movq src, %rDst
+		m_mov = re.match(r"^\tmovq\s+([^,]+),\s+(%\w+)$", lines[idx + 1])
+		if m_mov is None:
+			return None
+		src = m_mov.group(1).strip()
+		dst = m_mov.group(2)
+
+		# cmov cannot use immediate source
+		if src.startswith("$"):
+			return None
+
+		# Line 2: .Lskip:
+		m_label = self._label_re.match(lines[idx + 2])
+		if m_label is None or m_label.group(1) != skip_label:
+			return None
+
+		# Get inverted cmov condition
+		cmov_cc = self._jcc_to_cmov.get(cc)
+		if cmov_cc is None:
+			return None
+
+		result = [
+			f"\t{cmov_cc}q {src}, {dst}",
+			lines[idx + 2],  # keep the label
+		]
+		return (result, 3)
 
 	# --- Register name mapping helpers for extension patterns ---
 
