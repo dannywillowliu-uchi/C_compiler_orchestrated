@@ -95,6 +95,10 @@ class PeepholeOptimizer:
 		self._imulq_imm_re = re.compile(
 			r"^\timulq\s+\$(\d+),\s+(%\w+)$"
 		)
+		# 3-operand: imulq $imm, %src, %dst
+		self._imulq_imm3_re = re.compile(
+			r"^\timulq\s+\$(\d+),\s+(%\w+),\s+(%\w+)$"
+		)
 		# testq %reg, %reg pattern for redundant cmpq elimination
 		self._testq_reg_re = re.compile(
 			r"^\ttestq\s+(%\w+),\s+(%\w+)$"
@@ -475,7 +479,7 @@ class PeepholeOptimizer:
 				i += 1
 				continue
 
-			# Strength reduction: imulq by power of 2 -> shlq
+			# Strength reduction: imulq by constant -> lea/shlq
 			opt = self._try_strength_reduction_mul(lines[i])
 			if opt is not None:
 				if opt:
@@ -693,24 +697,51 @@ class PeepholeOptimizer:
 			return [line1]
 		return None
 
+	# LEA scale factors valid for x86 SIB addressing: 1, 2, 4, 8
+	_lea_scales = {2, 4, 8}
+	# Multiply constants expressible as (1 + scale): leaq (%src,%src,scale), %dst
+	_lea_mul_map: dict[int, int] = {3: 2, 5: 4, 9: 8}
+
 	def _try_strength_reduction_mul(self, line: str) -> str | None:
-		"""Replace imulq by power of 2 with shlq. Returns '' to eliminate imulq $1."""
+		"""Replace imulq by constant with shlq or leaq. Returns '' to eliminate imulq $1."""
+		# Try 3-operand form first: imulq $imm, %src, %dst
+		m3 = self._imulq_imm3_re.match(line)
+		if m3 is not None:
+			imm = int(m3.group(1))
+			src = m3.group(2)
+			dst = m3.group(3)
+			return self._mul_to_lea_or_shift(imm, src, dst)
+		# 2-operand form: imulq $imm, %reg (src == dst)
 		m = self._imulq_imm_re.match(line)
 		if m is None:
 			return None
 		imm = int(m.group(1))
 		reg = m.group(2)
+		return self._mul_to_lea_or_shift(imm, reg, reg)
+
+	def _mul_to_lea_or_shift(self, imm: int, src: str, dst: str) -> str | None:
+		"""Convert multiply-by-constant to lea or shift instructions."""
 		if imm == 0:
-			reg32 = self._reg64_to_reg32.get(reg)
+			reg32 = self._reg64_to_reg32.get(dst)
 			if reg32 is not None:
 				return f"\txorl {reg32}, {reg32}"
-			return f"\txorq {reg}, {reg}"
+			return f"\txorq {dst}, {dst}"
 		if imm == 1:
-			return ""
-		if imm & (imm - 1) != 0:
-			return None
-		shift = imm.bit_length() - 1
-		return f"\tshlq ${shift}, {reg}"
+			if src == dst:
+				return ""
+			return f"\tmovq {src}, {dst}"
+		# LEA for 2, 4, 8: leaq (,%src,scale), %dst
+		if imm in self._lea_scales:
+			return f"\tleaq (,{src},{imm}), {dst}"
+		# LEA for 3, 5, 9: leaq (%src,%src,scale), %dst
+		scale = self._lea_mul_map.get(imm)
+		if scale is not None:
+			return f"\tleaq ({src},{src},{scale}), {dst}"
+		# Power of 2 -> shift (only when src == dst)
+		if src == dst and imm & (imm - 1) == 0:
+			shift = imm.bit_length() - 1
+			return f"\tshlq ${shift}, {dst}"
+		return None
 
 	def _try_combine_add_sub(self, line1: str, line2: str) -> list[str] | None:
 		"""Combine adjacent addq/subq $imm to same register into single instruction."""
