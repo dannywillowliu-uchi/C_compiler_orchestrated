@@ -467,6 +467,7 @@ class IRGenerator(ASTVisitor):
 			init_val: int | None = None
 			float_init: float | None = None
 			string_label: str | None = None
+			symbol_init: str | None = None
 			if node.initializer is not None:
 				if isinstance(node.initializer, FloatLiteral):
 					float_init = node.initializer.value
@@ -475,16 +476,29 @@ class IRGenerator(ASTVisitor):
 					self._string_counter += 1
 					self._string_data.append(IRStringData(label=label, value=node.initializer.value))
 					string_label = label
+				elif isinstance(node.initializer, UnaryOp) and node.initializer.op == "&" and isinstance(node.initializer.operand, Identifier):
+					symbol_init = node.initializer.operand.name
 				elif isinstance(node.initializer, UnaryOp) and node.initializer.op == "-" and isinstance(node.initializer.operand, FloatLiteral):
 					float_init = -node.initializer.operand.value
 				else:
 					const_val = self._eval_const_expr(node.initializer)
 					if const_val is not None:
 						init_val = const_val
+			total_size = 0
+			if node.array_sizes:
+				element_size = _resolve_size(node.type_spec)
+				total_elements = 1
+				for se in node.array_sizes:
+					val = self._eval_const_expr(se)
+					if val is not None:
+						total_elements *= val
+				total_size = total_elements * element_size
 			self._globals.append(IRGlobalVar(
 				name=name, ir_type=ir_type, initializer=init_val,
+				total_size=total_size,
 				storage_class=sc, float_initializer=float_init,
 				string_label=string_label,
+				symbol_initializer=symbol_init,
 			))
 		self._global_names.add(name)
 
@@ -793,7 +807,21 @@ class IRGenerator(ASTVisitor):
 			# Pointer dereference: load from the pointer value
 			ptr = self.visit(node.operand)
 			dest = self._new_temp()
-			self._emit(IRLoad(dest=dest, address=ptr))
+			# Infer load type from the pointer's pointee type
+			load_type = IRType.INT
+			operand_ts = self._infer_expr_type(node.operand)
+			if operand_ts is not None and operand_ts.pointer_count > 1:
+				load_type = IRType.POINTER
+				self._set_temp_type(dest, IRType.POINTER)
+			elif operand_ts is not None and operand_ts.pointer_count == 1:
+				load_type = _resolve_ir_type(TypeSpec(
+					base_type=operand_ts.base_type,
+					pointer_count=0,
+					width_modifier=operand_ts.width_modifier,
+					signedness=operand_ts.signedness,
+				))
+				self._set_temp_type(dest, load_type)
+			self._emit(IRLoad(dest=dest, address=ptr, ir_type=load_type))
 			return dest
 		if node.op == "&":
 			# Address-of a function -> get function address
@@ -811,6 +839,15 @@ class IRGenerator(ASTVisitor):
 				return dest
 			# Address-of: emit IRAddrOf to get the stack address of the variable
 			if isinstance(node.operand, Identifier):
+				# Address-of global variable -> return IRGlobalRef (the address itself)
+				if node.operand.name in self._global_names:
+					dest = self._new_temp()
+					self._set_temp_type(dest, IRType.POINTER)
+					global_ts = self._global_types.get(node.operand.name)
+					if global_ts is not None:
+						self._temp_pointee_size[dest.name] = self._resolve_member_size(global_ts)
+					self._emit(IRCopy(dest=dest, source=IRGlobalRef(node.operand.name), ir_type=IRType.POINTER))
+					return dest
 				src = self._locals.get(node.operand.name)
 				if src is not None:
 					dest = self._new_temp()
@@ -1336,6 +1373,19 @@ class IRGenerator(ASTVisitor):
 			self._set_temp_type(result, ir_type)
 			self._emit(IRBinOp(dest=result, left=current, op=arith_op, right=rhs, ir_type=ir_type))
 			self._emit(IRStore(address=IRGlobalRef(mangled), value=result, ir_type=ir_type))
+		elif isinstance(node.target, Identifier) and node.target.name in self._global_names:
+			ir_type = IRType.INT
+			global_ts = self._global_types.get(node.target.name)
+			if global_ts is not None:
+				ir_type = _resolve_ir_type(global_ts)
+			current = self._new_temp()
+			self._set_temp_type(current, ir_type)
+			self._emit(IRLoad(dest=current, address=IRGlobalRef(node.target.name), ir_type=ir_type))
+			rhs = self._visit_rvalue(node.value)
+			result = self._new_temp()
+			self._set_temp_type(result, ir_type)
+			self._emit(IRBinOp(dest=result, left=current, op=arith_op, right=rhs, ir_type=ir_type))
+			self._emit(IRStore(address=IRGlobalRef(node.target.name), value=result, ir_type=ir_type))
 		elif isinstance(node.target, Identifier):
 			target_temp = self._locals.get(node.target.name)
 			if target_temp is None:
@@ -2340,6 +2390,8 @@ class IRGenerator(ASTVisitor):
 		if self._is_float_type(target_ir_type) != self._is_float_type(val_type):
 			self._emit(IRConvert(dest=dest, source=val, from_type=val_type, to_type=target_ir_type))
 		elif self._is_float_type(target_ir_type) and self._is_float_type(val_type) and target_ir_type != val_type:
+			self._emit(IRConvert(dest=dest, source=val, from_type=val_type, to_type=target_ir_type))
+		elif val_type != target_ir_type:
 			self._emit(IRConvert(dest=dest, source=val, from_type=val_type, to_type=target_ir_type))
 		else:
 			self._emit(IRCopy(dest=dest, source=val, ir_type=target_ir_type))

@@ -520,6 +520,7 @@ class CodeGenerator:
 			g for g in program.globals
 			if g.initializer is not None or g.initializer_values
 			or g.float_initializer is not None or g.string_label is not None
+			or g.symbol_initializer is not None
 		]
 		if initialized:
 			self._emit(".section .data")
@@ -545,6 +546,8 @@ class CodeGenerator:
 						self._emit_instr(f".quad {bits}")
 				elif g.string_label is not None:
 					self._emit_instr(f".quad {g.string_label}")
+				elif g.symbol_initializer is not None:
+					self._emit_instr(f".quad {g.symbol_initializer}")
 				elif g.ir_type in (IRType.CHAR, IRType.BOOL):
 					self._emit_instr(f".byte {g.initializer}")
 				elif g.ir_type == IRType.SHORT:
@@ -572,6 +575,7 @@ class CodeGenerator:
 			g for g in program.globals
 			if g.initializer is None and not g.initializer_values
 			and g.float_initializer is None and g.string_label is None
+			and g.symbol_initializer is None
 			and g.storage_class != "extern"
 		]
 		if uninitialized:

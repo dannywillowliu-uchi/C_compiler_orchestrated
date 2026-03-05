@@ -151,6 +151,12 @@ def transform_asm_for_macos(asm: str) -> str:
 			out.append(f"{m.group(1)}_{m.group(2)}{m.group(3)}")
 			continue
 
+		# Prefix symbol references in data directives (e.g. .quad symbol)
+		m = re.match(r"(\s*\.quad\s+)(\w+)$", line)
+		if m and m.group(2) in all_c_symbols:
+			out.append(f"{m.group(1)}_{m.group(2)}")
+			continue
+
 		out.append(line)
 
 	return "\n".join(out) + "\n"
