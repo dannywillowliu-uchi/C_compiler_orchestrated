@@ -95,12 +95,12 @@ class TestDeadRegMove:
 
 
 class TestMovZeroToXor:
-	"""Pattern: movq $0, %rA -> xorq %rA, %rA (already existed, verifying it works)."""
+	"""Pattern: movq $0, %rA -> xorl %eA, %eA (shorter encoding, implicit zero-extend)."""
 
 	def test_movq_zero_to_xor(self, opt: PeepholeOptimizer) -> None:
 		asm = "\tmovq $0, %rax"
 		result = opt.optimize(asm)
-		assert result == "\txorq %rax, %rax"
+		assert result == "\txorl %eax, %eax"
 
 	def test_movq_nonzero_not_changed(self, opt: PeepholeOptimizer) -> None:
 		asm = "\tmovq $1, %rax"
@@ -108,10 +108,15 @@ class TestMovZeroToXor:
 		assert result == "\tmovq $1, %rax"
 
 	def test_movq_zero_various_regs(self, opt: PeepholeOptimizer) -> None:
+		reg_map = {
+			"%rax": "%eax", "%rbx": "%ebx", "%rcx": "%ecx",
+			"%rdx": "%edx", "%rdi": "%edi", "%rsi": "%esi",
+		}
 		for reg in ["%rax", "%rbx", "%rcx", "%rdx", "%rdi", "%rsi"]:
 			asm = f"\tmovq $0, {reg}"
 			result = opt.optimize(asm)
-			assert result == f"\txorq {reg}, {reg}"
+			reg32 = reg_map[reg]
+			assert result == f"\txorl {reg32}, {reg32}"
 
 
 class TestPatternInteractions:
@@ -124,16 +129,14 @@ class TestPatternInteractions:
 		assert result == ""
 
 	def test_duplicate_move_with_zero(self, opt: PeepholeOptimizer) -> None:
-		"""movq $0, %rax; movq $0, %rax -> both become xorq; second is dead move."""
+		"""movq $0, %rax; movq $0, %rax -> both become xorl; second is dead move."""
 		asm = "\tmovq $0, %rax\n\tmovq $0, %rax"
 		result = opt.optimize(asm)
-		# Both become xorq %rax, %rax; xorq has %rax in src so dead move won't fire,
-		# but duplicate move pattern doesn't apply to xorq either.
-		# The self-move check also doesn't apply. So we get two xorq lines.
-		assert "\txorq %rax, %rax" in result
+		# Both become xorl %eax, %eax
+		assert "\txorl %eax, %eax" in result
 
 	def test_dead_move_before_zero(self, opt: PeepholeOptimizer) -> None:
 		"""movq %rcx, %rax; movq $0, %rax -> movq $0 fires, dead move eliminated."""
 		asm = "\tmovq %rcx, %rax\n\tmovq $0, %rax"
 		result = opt.optimize(asm)
-		assert result == "\txorq %rax, %rax"
+		assert result == "\txorl %eax, %eax"

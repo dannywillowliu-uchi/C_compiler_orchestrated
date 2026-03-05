@@ -47,8 +47,8 @@ class TestMultiplyStrengthReduction:
 		expected = "\n".join(["\tmovq $42, %rax", "\tret"])
 		assert result == expected
 
-	def test_imulq_0_to_xorq(self) -> None:
-		assert _opt("\timulq $0, %rax") == "\txorq %rax, %rax"
+	def test_imulq_0_to_xorl(self) -> None:
+		assert _opt("\timulq $0, %rax") == "\txorl %eax, %eax"
 
 	def test_imulq_in_context(self) -> None:
 		lines = [

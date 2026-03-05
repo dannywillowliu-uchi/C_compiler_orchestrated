@@ -91,10 +91,10 @@ class TestMovlZeroToXorl:
 		asm = "\tmovl $-1, %eax"
 		assert _opt(asm) == asm
 
-	def test_movq_zero_still_uses_xorq(self) -> None:
-		"""Existing movq $0 -> xorq pattern still works."""
+	def test_movq_zero_still_uses_xorl(self) -> None:
+		"""Existing movq $0 -> xorl pattern still works (shorter encoding)."""
 		asm = "\tmovq $0, %rax"
-		assert _opt(asm) == "\txorq %rax, %rax"
+		assert _opt(asm) == "\txorl %eax, %eax"
 
 	def test_movl_zero_in_context(self) -> None:
 		lines = [
@@ -326,7 +326,7 @@ class TestCombinedExtraPatterns:
 		lines = [
 			# Existing: movq self-move
 			"\tmovq %rax, %rax",
-			# Existing: movq $0 -> xorq
+			# Existing: movq $0 -> xorl (shorter encoding)
 			"\tmovq $0, %rbx",
 			# Existing: addq $0 elimination
 			"\taddq $0, %rcx",
@@ -334,7 +334,7 @@ class TestCombinedExtraPatterns:
 		]
 		result = _opt("\n".join(lines))
 		expected = "\n".join([
-			"\txorq %rbx, %rbx",
+			"\txorl %ebx, %ebx",
 			"\tret",
 		])
 		assert result == expected
