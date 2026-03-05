@@ -59,6 +59,7 @@ class IROptimizer:
 				self._boolean_simplification,
 				self._strength_reduction,
 				self._copy_propagation,
+				self._global_copy_propagation,
 				self._convert_elimination,
 				self._cse,
 				self._constant_condjump_folding,
@@ -429,6 +430,154 @@ class IROptimizer:
 			if nd is not instr.dest_addr or ns is not instr.src_addr:
 				return IRBulkCopy(dest_addr=nd, src_addr=ns, size=instr.size)
 		return instr
+
+	# -- Global Copy Propagation --
+
+	def _global_copy_propagation(self, body: list[IRInstruction]) -> list[IRInstruction]:
+		"""Propagate copies across basic blocks using CFG dataflow analysis.
+
+		A copy `dest = source` is available at a point if it reaches that point along
+		ALL paths and neither dest nor source has been redefined. Uses an intersection-based
+		forward dataflow analysis to compute available copies at each block boundary.
+		"""
+		if not body:
+			return body
+
+		cfg = CFG(body)
+		blocks = cfg.blocks()
+		if len(blocks) <= 1:
+			return body
+
+		# Represent copies as (dest_name, source) tuples.
+		# For each block, compute gen and kill sets.
+		# gen: copies generated in the block (last copy for each dest, if source not killed)
+		# kill: dest names or source names that are redefined in the block
+
+		# Collect all copies in the function as the universe
+		all_copies: set[tuple[str, str]] = set()
+		for block in blocks:
+			for instr in block.instructions:
+				if isinstance(instr, IRCopy) and isinstance(instr.source, IRTemp):
+					all_copies.add((instr.dest.name, instr.source.name))
+
+		if not all_copies:
+			return body
+
+		# Compute gen/kill per block
+		block_gen: dict[str, set[tuple[str, str]]] = {}
+		block_kill: dict[str, set[tuple[str, str]]] = {}
+
+		for block in blocks:
+			gen: set[tuple[str, str]] = set()
+			kill: set[tuple[str, str]] = set()
+
+			for instr in block.instructions:
+				dest = self._get_dest(instr)
+				if dest is not None:
+					dname = dest.name
+					# Kill any copy where dest or source matches the defined name
+					newly_killed = {
+						c for c in all_copies
+						if c[0] == dname or c[1] == dname
+					}
+					kill |= newly_killed
+					# Remove from gen any copy killed by this def
+					gen = {c for c in gen if c[0] != dname and c[1] != dname}
+
+				# If this is a temp-to-temp copy, add to gen
+				if isinstance(instr, IRCopy) and isinstance(instr.source, IRTemp):
+					copy_pair = (instr.dest.name, instr.source.name)
+					gen.add(copy_pair)
+
+				# Calls can't redefine temps but we already handle dest above
+
+			block_gen[block.label] = gen
+			block_kill[block.label] = kill
+
+		# Forward dataflow: available_in[B] = intersection of available_out[P] for all preds P
+		# available_out[B] = (available_in[B] - kill[B]) | gen[B]
+		entry = cfg.entry_block
+		reachable = cfg.reachable_blocks()
+
+		avail_in: dict[str, set[tuple[str, str]]] = {}
+		avail_out: dict[str, set[tuple[str, str]]] = {}
+
+		for block in blocks:
+			if block not in reachable:
+				avail_in[block.label] = set()
+				avail_out[block.label] = set()
+			elif block is entry:
+				avail_in[block.label] = set()
+				avail_out[block.label] = set(block_gen[block.label])
+			else:
+				avail_in[block.label] = set(all_copies)
+				avail_out[block.label] = set(all_copies)
+
+		# Iterate to fixed point
+		changed = True
+		while changed:
+			changed = False
+			for block in blocks:
+				if block is entry or block not in reachable:
+					continue
+
+				# Only consider reachable predecessors
+				preds = [p for p in block.predecessors if p in reachable]
+				if preds:
+					new_in = set(avail_out[preds[0].label])
+					for pred in preds[1:]:
+						new_in &= avail_out[pred.label]
+				else:
+					new_in = set()
+
+				new_out = (new_in - block_kill[block.label]) | block_gen[block.label]
+
+				if new_in != avail_in[block.label] or new_out != avail_out[block.label]:
+					avail_in[block.label] = new_in
+					avail_out[block.label] = new_out
+					changed = True
+
+		# Apply: walk original body, resetting copy maps at labels from avail_in
+		new_body: list[IRInstruction] = []
+		copies: dict[str, IRTemp] = {}
+		# Initialize with entry block's avail_in (empty for entry)
+		if entry is not None:
+			for dest_name, src_name in avail_in.get(entry.label, set()):
+				copies[dest_name] = IRTemp(src_name)
+
+		for instr in body:
+			if isinstance(instr, IRLabelInstr):
+				# Reset copy map to this block's available copies
+				copies = {}
+				for dest_name, src_name in avail_in.get(instr.name, set()):
+					copies[dest_name] = IRTemp(src_name)
+				new_body.append(instr)
+				continue
+
+			# Substitute uses
+			new_instr = self._substitute(instr, copies)
+
+			# Kill mappings for any redefined temp
+			dest = self._get_dest(new_instr)
+			if dest is not None:
+				copies.pop(dest.name, None)
+				to_remove = [
+					k for k, v in copies.items()
+					if isinstance(v, IRTemp) and v.name == dest.name
+				]
+				for k in to_remove:
+					del copies[k]
+
+			# Track new copy relationships
+			if isinstance(new_instr, IRCopy) and isinstance(new_instr.source, IRTemp):
+				source = new_instr.source
+				if source.name in copies:
+					source = copies[source.name]
+				copies[new_instr.dest.name] = source
+
+			new_body.append(new_instr)
+
+		return new_body
 
 	# -- Dead Code Elimination --
 
