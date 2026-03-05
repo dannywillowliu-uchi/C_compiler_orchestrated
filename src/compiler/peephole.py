@@ -149,6 +149,9 @@ class PeepholeOptimizer:
 	def optimize(self, assembly: str) -> str:
 		"""Apply peephole optimizations to assembly text and return optimized version."""
 		lines = assembly.split("\n")
+		# Function-level prologue/epilogue passes
+		lines = self._apply_function_passes(lines)
+		# Line-level passes
 		changed = True
 		while changed:
 			lines, changed = self._apply_pass(lines)
@@ -1273,6 +1276,244 @@ class PeepholeOptimizer:
 				return [line1]
 
 		return None
+
+	# --- Function-level prologue/epilogue optimization ---
+
+	# Callee-saved registers (excluding %rbp which is the frame pointer)
+	_CALLEE_SAVED = {"%rbx", "%r12", "%r13", "%r14", "%r15"}
+
+	def _apply_function_passes(self, lines: list[str]) -> list[str]:
+		"""Apply function-level prologue/epilogue optimizations."""
+		functions = self._find_function_ranges(lines)
+		if not functions:
+			return lines
+		result = list(lines)
+		# Process in reverse to keep indices stable
+		for start, end in reversed(functions):
+			func_lines = result[start:end]
+			func_lines = self._eliminate_unused_callee_saved_pushpop(func_lines)
+			func_lines = self._fold_adjacent_rsp_ops(func_lines)
+			func_lines = self._remove_leaf_frame_pointer(func_lines)
+			func_lines = self._combine_consecutive_pushes(func_lines)
+			result[start:end] = func_lines
+		return result
+
+	def _find_function_ranges(self, lines: list[str]) -> list[tuple[int, int]]:
+		"""Find (start, end) index pairs for each function in the assembly."""
+		functions: list[tuple[int, int]] = []
+		i = 0
+		while i < len(lines):
+			# Look for label: pattern that looks like a function entry
+			# (preceded by .globl or .type, or just a bare label followed by pushq %rbp)
+			stripped = lines[i].strip()
+			if stripped.endswith(":") and not stripped.startswith("."):
+				func_start = i
+				# Scan backwards to include .globl and .type directives
+				while func_start > 0 and lines[func_start - 1].strip().startswith((".globl", ".type")):
+					func_start -= 1
+				# Find function end: next function start or end of assembly
+				j = i + 1
+				while j < len(lines):
+					s = lines[j].strip()
+					if s.startswith(".size "):
+						j += 1
+						break
+					# Another function label (non-local, non-dot label)
+					if s.endswith(":") and not s.startswith(".") and j + 1 < len(lines):
+						# Check if preceded by .globl/.type
+						if any(lines[k].strip().startswith((".globl", ".type")) for k in range(max(func_start, j - 3), j)):
+							break
+					j += 1
+				functions.append((func_start, j))
+				i = j
+			else:
+				i += 1
+		return functions
+
+	def _eliminate_unused_callee_saved_pushpop(self, func_lines: list[str]) -> list[str]:
+		"""Remove push/pop pairs for callee-saved registers not used in the function body.
+
+		Handles both pushq/popq style and movq save/restore to frame offsets.
+		"""
+		# Find pushq/popq pairs for callee-saved regs
+		push_indices: dict[str, int] = {}
+		pop_indices: dict[str, int] = {}
+		# Also handle movq %reg, offset(%rbp) / movq offset(%rbp), %reg style saves
+		save_indices: dict[str, int] = {}
+		restore_indices: dict[str, int] = {}
+		save_offsets: dict[str, str] = {}
+
+		for i, line in enumerate(func_lines):
+			m = self._pushq_re.match(line)
+			if m and m.group(1) in self._CALLEE_SAVED:
+				push_indices[m.group(1)] = i
+				continue
+			m = self._popq_re.match(line)
+			if m and m.group(1) in self._CALLEE_SAVED:
+				pop_indices[m.group(1)] = i
+				continue
+			# movq %reg, offset(%rbp) - callee save
+			m = self._movq_store_re.match(line)
+			if m and m.group(1) in self._CALLEE_SAVED:
+				save_indices[m.group(1)] = i
+				save_offsets[m.group(1)] = m.group(2)
+				continue
+			# movq offset(%rbp), %reg - callee restore
+			m = self._movq_load_re.match(line)
+			if m and m.group(2) in self._CALLEE_SAVED:
+				restore_indices[m.group(2)] = i
+				continue
+
+		to_remove: set[int] = set()
+
+		# Check pushq/popq pairs
+		for reg in push_indices:
+			if reg not in pop_indices:
+				continue
+			pi, qi = push_indices[reg], pop_indices[reg]
+			# Check if reg is used in the body between push and pop
+			body = func_lines[pi + 1:qi]
+			if not self._reg_used_in_lines(reg, body):
+				to_remove.add(pi)
+				to_remove.add(qi)
+
+		# Check movq save/restore pairs
+		for reg in save_indices:
+			if reg not in restore_indices:
+				continue
+			si, ri = save_indices[reg], restore_indices[reg]
+			# Ensure the restore loads from the same offset
+			expected_offset = save_offsets[reg]
+			m = self._movq_load_re.match(func_lines[ri])
+			if m and m.group(1) == expected_offset:
+				body = func_lines[si + 1:ri]
+				if not self._reg_used_in_lines(reg, body):
+					to_remove.add(si)
+					to_remove.add(ri)
+
+		if not to_remove:
+			return func_lines
+		return [line for i, line in enumerate(func_lines) if i not in to_remove]
+
+	def _reg_used_in_lines(self, reg: str, lines: list[str]) -> bool:
+		"""Check if a register name appears in any of the given lines."""
+		for line in lines:
+			if reg in line:
+				return True
+		return False
+
+	def _fold_adjacent_rsp_ops(self, func_lines: list[str]) -> list[str]:
+		"""Fold adjacent subq/addq $imm, %rsp into single operations."""
+		result: list[str] = []
+		i = 0
+		while i < len(func_lines):
+			if i + 1 < len(func_lines):
+				val1, reg1 = self._parse_add_sub_imm(func_lines[i])
+				if val1 is not None and reg1 == "%rsp":
+					val2, reg2 = self._parse_add_sub_imm(func_lines[i + 1])
+					if val2 is not None and reg2 == "%rsp":
+						combined = val1 + val2
+						if combined == 0:
+							i += 2
+							continue
+						elif combined > 0:
+							result.append(f"\taddq ${combined}, %rsp")
+						else:
+							result.append(f"\tsubq ${-combined}, %rsp")
+						i += 2
+						continue
+			result.append(func_lines[i])
+			i += 1
+		return result
+
+	def _remove_leaf_frame_pointer(self, func_lines: list[str]) -> list[str]:
+		"""Remove redundant frame pointer setup/teardown in leaf functions.
+
+		A leaf function (no call instructions) that only uses %rbp for frame
+		pointer (pushq %rbp / movq %rsp, %rbp ... movq %rbp, %rsp / popq %rbp)
+		can have the frame pointer eliminated if %rbp is not used for anything else.
+		"""
+		# Check if this is a leaf function (no call instructions)
+		has_call = False
+		for line in func_lines:
+			stripped = line.strip()
+			if stripped.startswith("call ") or stripped.startswith("callq "):
+				has_call = True
+				break
+		if has_call:
+			return func_lines
+
+		# Find frame pointer setup/teardown pattern
+		setup_push_idx = None
+		setup_mov_idx = None
+		teardown_mov_idx = None
+		teardown_pop_idx = None
+
+		for i, line in enumerate(func_lines):
+			stripped = line.strip()
+			if stripped == "pushq %rbp":
+				setup_push_idx = i
+			elif stripped == "movq %rsp, %rbp":
+				setup_mov_idx = i
+			elif stripped == "movq %rbp, %rsp":
+				teardown_mov_idx = i
+			elif stripped == "popq %rbp":
+				teardown_pop_idx = i
+
+		if any(x is None for x in [setup_push_idx, setup_mov_idx, teardown_mov_idx, teardown_pop_idx]):
+			return func_lines
+
+		# Check that %rbp is not used outside the setup/teardown
+		frame_indices = {setup_push_idx, setup_mov_idx, teardown_mov_idx, teardown_pop_idx}
+		for i, line in enumerate(func_lines):
+			if i in frame_indices:
+				continue
+			if "%rbp" in line:
+				return func_lines  # %rbp is used elsewhere, keep frame pointer
+
+		# Remove frame pointer setup/teardown
+		return [line for i, line in enumerate(func_lines) if i not in frame_indices]
+
+	def _combine_consecutive_pushes(self, func_lines: list[str]) -> list[str]:
+		"""Combine 3+ consecutive pushq instructions into subq + mov sequence.
+
+		pushq %rA; pushq %rB; pushq %rC becomes:
+		  subq $24, %rsp
+		  movq %rA, 16(%rsp)
+		  movq %rB, 8(%rsp)
+		  movq %rC, (%rsp)
+
+		Only applies when there are 3 or more consecutive pushes (otherwise
+		the push instructions are more compact).
+		"""
+		result: list[str] = []
+		i = 0
+		while i < len(func_lines):
+			# Collect consecutive pushq instructions
+			pushes: list[str] = []
+			j = i
+			while j < len(func_lines):
+				m = self._pushq_re.match(func_lines[j])
+				if m:
+					pushes.append(m.group(1))
+					j += 1
+				else:
+					break
+
+			if len(pushes) >= 3:
+				total = len(pushes) * 8
+				result.append(f"\tsubq ${total}, %rsp")
+				for k, reg in enumerate(pushes):
+					offset = (len(pushes) - 1 - k) * 8
+					if offset == 0:
+						result.append(f"\tmovq {reg}, (%rsp)")
+					else:
+						result.append(f"\tmovq {reg}, {offset}(%rsp)")
+				i = j
+			else:
+				result.append(func_lines[i])
+				i += 1
+		return result
 
 	def _is_reg_dead_in_window(self, lines: list[str], start_idx: int, reg: str) -> bool:
 		"""Check if reg is dead (overwritten before read) in a forward window."""

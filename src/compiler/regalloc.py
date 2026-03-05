@@ -6,6 +6,7 @@ from compiler.cfg import CFG
 from compiler.ir import (
 	IRAddrOf,
 	IRBinOp,
+	IRBulkCopy,
 	IRCall,
 	IRConst,
 	IRConvert,
@@ -170,6 +171,11 @@ def _get_temp_refs(instr: IRInstruction) -> list[str]:
 		if isinstance(instr.ap_addr, IRTemp):
 			refs.append(instr.ap_addr.name)
 	elif isinstance(instr, IRVaCopy):
+		if isinstance(instr.dest_addr, IRTemp):
+			refs.append(instr.dest_addr.name)
+		if isinstance(instr.src_addr, IRTemp):
+			refs.append(instr.src_addr.name)
+	elif isinstance(instr, IRBulkCopy):
 		if isinstance(instr.dest_addr, IRTemp):
 			refs.append(instr.dest_addr.name)
 		if isinstance(instr.src_addr, IRTemp):
@@ -879,6 +885,13 @@ class RegisterAllocator:
 					# Factor in use density: low density = cheaper to spill
 					density = _density.get(n, 1.0)
 					base_cost = (wu * (1.0 + density)) / max(degree * rl, 1)
+
+					# Single-use temporaries: temps referenced only once or
+					# twice (def + one use) are cheap to spill because
+					# only one reload is needed.  Discount their cost.
+					uc = (use_counts or {}).get(n, 1)
+					if uc <= 2:
+						base_cost *= 0.5
 
 					# Short-lived temporaries: defined and used within 1-2
 					# instructions. Spilling these is wasteful since the
