@@ -880,6 +880,13 @@ class RegisterAllocator:
 					density = _density.get(n, 1.0)
 					base_cost = (wu * (1.0 + density)) / max(degree * rl, 1)
 
+					# Single-use temporaries: temps referenced only once or
+					# twice (def + one use) are cheap to spill because
+					# only one reload is needed.  Discount their cost.
+					uc = (use_counts or {}).get(n, 1)
+					if uc <= 2:
+						base_cost *= 0.5
+
 					# Short-lived temporaries: defined and used within 1-2
 					# instructions. Spilling these is wasteful since the
 					# spill store + reload would cost more than the value's
