@@ -39,6 +39,7 @@ from compiler.ast_nodes import (
 	Program,
 	ReturnStmt,
 	SizeofExpr,
+	StaticAssertDecl,
 	StringLiteral,
 	StructDecl,
 	StructMember,
@@ -1229,6 +1230,8 @@ class SemanticAnalyzer(ASTVisitor):
 				seen.add(member.name)
 			self._validate_bitfield(member, node.name)
 		self._struct_types[node.name] = node
+		for sa in node.static_asserts:
+			self.visit_static_assert_decl(sa)
 
 	def _validate_bitfield(self, member: StructMember, container_name: str) -> None:
 		if member.bit_width is None:
@@ -1272,6 +1275,8 @@ class SemanticAnalyzer(ASTVisitor):
 				seen.add(member.name)
 			self._validate_bitfield(member, node.name)
 		self._union_types[node.name] = node
+		for sa in node.static_asserts:
+			self.visit_static_assert_decl(sa)
 
 	def visit_typedef_decl(self, node: TypedefDecl) -> None:
 		if node.struct_decl is not None:
@@ -1335,6 +1340,109 @@ class SemanticAnalyzer(ASTVisitor):
 			f"struct {base_name} has no member {node.member}",
 			node,
 		)
+		return None
+
+	def visit_static_assert_decl(self, node: StaticAssertDecl) -> None:
+		val = self._try_eval_constant(node.expression)
+		if val is None:
+			self._error("_Static_assert expression is not a constant expression", node)
+			return
+		if val == 0:
+			msg = node.message
+			from compiler.lexer import interpret_c_escapes
+			msg = interpret_c_escapes(msg)
+			self._error(f"static assertion failed: \"{msg}\"", node)
+
+	def _try_eval_constant(self, node: ASTNode) -> int | None:
+		"""Try to evaluate an AST expression as a compile-time integer constant."""
+		if isinstance(node, IntLiteral):
+			return node.value
+		if isinstance(node, CharLiteral):
+			from compiler.lexer import interpret_c_escapes
+			ch = interpret_c_escapes(node.value)
+			return ord(ch[0]) if ch else 0
+		if isinstance(node, Identifier):
+			if node.name in self._enum_constants:
+				return self._enum_constants[node.name]
+			return None
+		if isinstance(node, UnaryOp) and node.prefix:
+			operand = self._try_eval_constant(node.operand)
+			if operand is None:
+				return None
+			if node.op == "-":
+				return -operand
+			if node.op == "+":
+				return operand
+			if node.op == "~":
+				return ~operand
+			if node.op == "!":
+				return 0 if operand else 1
+			return None
+		if isinstance(node, BinaryOp):
+			left = self._try_eval_constant(node.left)
+			right = self._try_eval_constant(node.right)
+			if left is None or right is None:
+				return None
+			op = node.op
+			if op == "+":
+				return left + right
+			if op == "-":
+				return left - right
+			if op == "*":
+				return left * right
+			if op == "/" and right != 0:
+				return int(left / right)
+			if op == "%" and right != 0:
+				return left % right
+			if op == "<<":
+				return left << right
+			if op == ">>":
+				return left >> right
+			if op == "&":
+				return left & right
+			if op == "|":
+				return left | right
+			if op == "^":
+				return left ^ right
+			if op == "==":
+				return 1 if left == right else 0
+			if op == "!=":
+				return 1 if left != right else 0
+			if op == "<":
+				return 1 if left < right else 0
+			if op == ">":
+				return 1 if left > right else 0
+			if op == "<=":
+				return 1 if left <= right else 0
+			if op == ">=":
+				return 1 if left >= right else 0
+			if op == "&&":
+				return 1 if left and right else 0
+			if op == "||":
+				return 1 if left or right else 0
+			return None
+		if isinstance(node, TernaryExpr):
+			cond = self._try_eval_constant(node.condition)
+			if cond is None:
+				return None
+			return self._try_eval_constant(node.true_expr if cond else node.false_expr)
+		if isinstance(node, SizeofExpr):
+			return self._eval_sizeof(node)
+		if isinstance(node, CastExpr):
+			return self._try_eval_constant(node.operand)
+		return None
+
+	def _eval_sizeof(self, node: SizeofExpr) -> int | None:
+		"""Evaluate sizeof for constant expression contexts."""
+		_SIZE_MAP = {
+			"char": 1, "short": 2, "int": 4, "long": 8,
+			"float": 4, "double": 8, "void": 1, "_Bool": 1,
+		}
+		if node.type_operand is not None:
+			ts = node.type_operand
+			if ts.pointer_count > 0:
+				return 8
+			return _SIZE_MAP.get(ts.base_type)
 		return None
 
 	def visit_type_spec(self, node: TypeSpec) -> TypeSpec:

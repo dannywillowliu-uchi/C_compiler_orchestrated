@@ -38,6 +38,7 @@ from compiler.ast_nodes import (
 	Program,
 	ReturnStmt,
 	SizeofExpr,
+	StaticAssertDecl,
 	StringLiteral,
 	StructDecl,
 	StructMember,
@@ -1811,6 +1812,9 @@ class IRGenerator(ASTVisitor):
 					next_value = evaluated
 			self._enum_constants[const.name] = next_value
 			next_value += 1
+
+	def visit_static_assert_decl(self, node: StaticAssertDecl) -> None:
+		pass  # compile-time only; already checked by semantic analyzer
 
 	def visit_typedef_decl(self, node: TypedefDecl) -> None:
 		if node.struct_decl is not None:

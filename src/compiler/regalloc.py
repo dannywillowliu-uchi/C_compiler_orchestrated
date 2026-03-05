@@ -14,6 +14,7 @@ from compiler.ir import (
 	IRFunction,
 	IRGlobalRef,
 	IRInstruction,
+	IRLabelInstr,
 	IRLoad,
 	IRProgram,
 	IRReturn,
@@ -270,6 +271,323 @@ def _compute_live_range_lengths(cfg: CFG, analyzer: LivenessAnalyzer) -> dict[st
 	return lengths
 
 
+def _replace_temp_in_value(val: object, old_name: str, new_name: str) -> object:
+	"""Replace a temp name in an IRValue, returning the (possibly new) value."""
+	if isinstance(val, IRTemp) and val.name == old_name:
+		return IRTemp(new_name)
+	return val
+
+
+def _replace_temp_uses_in_instr(instr: IRInstruction, old_name: str, new_name: str) -> IRInstruction:
+	"""Return a copy of instr with uses (not defs) of old_name replaced by new_name."""
+	if isinstance(instr, IRBinOp):
+		return IRBinOp(
+			dest=instr.dest,
+			left=_replace_temp_in_value(instr.left, old_name, new_name),
+			op=instr.op,
+			right=_replace_temp_in_value(instr.right, old_name, new_name),
+			ir_type=instr.ir_type,
+			is_unsigned=instr.is_unsigned,
+		)
+	elif isinstance(instr, IRUnaryOp):
+		return IRUnaryOp(
+			dest=instr.dest,
+			op=instr.op,
+			operand=_replace_temp_in_value(instr.operand, old_name, new_name),
+			ir_type=instr.ir_type,
+		)
+	elif isinstance(instr, IRCopy):
+		return IRCopy(
+			dest=instr.dest,
+			source=_replace_temp_in_value(instr.source, old_name, new_name),
+			ir_type=instr.ir_type,
+		)
+	elif isinstance(instr, IRLoad):
+		return IRLoad(
+			dest=instr.dest,
+			address=_replace_temp_in_value(instr.address, old_name, new_name),
+			ir_type=instr.ir_type,
+		)
+	elif isinstance(instr, IRStore):
+		return IRStore(
+			address=_replace_temp_in_value(instr.address, old_name, new_name),
+			value=_replace_temp_in_value(instr.value, old_name, new_name),
+			ir_type=instr.ir_type,
+		)
+	elif isinstance(instr, IRCall):
+		new_args = [_replace_temp_in_value(a, old_name, new_name) for a in instr.args]
+		new_fv = _replace_temp_in_value(instr.func_value, old_name, new_name) if instr.func_value else instr.func_value
+		return IRCall(
+			dest=instr.dest,
+			function_name=instr.function_name,
+			args=new_args,
+			arg_types=list(instr.arg_types),
+			return_type=instr.return_type,
+			indirect=instr.indirect,
+			func_value=new_fv,
+		)
+	elif isinstance(instr, IRReturn):
+		return IRReturn(
+			value=_replace_temp_in_value(instr.value, old_name, new_name) if instr.value else instr.value,
+			ir_type=instr.ir_type,
+		)
+	elif isinstance(instr, IRConvert):
+		return IRConvert(
+			dest=instr.dest,
+			source=_replace_temp_in_value(instr.source, old_name, new_name),
+			from_type=instr.from_type,
+			to_type=instr.to_type,
+		)
+	elif isinstance(instr, IRAddrOf):
+		new_src = instr.source
+		if instr.source.name == old_name:
+			new_src = IRTemp(new_name)
+		return IRAddrOf(dest=instr.dest, source=new_src)
+	elif isinstance(instr, IRVaStart):
+		return IRVaStart(
+			ap_addr=_replace_temp_in_value(instr.ap_addr, old_name, new_name),
+			num_named_gp=instr.num_named_gp,
+		)
+	elif isinstance(instr, IRVaArg):
+		return IRVaArg(
+			dest=instr.dest,
+			ap_addr=_replace_temp_in_value(instr.ap_addr, old_name, new_name),
+			ir_type=instr.ir_type,
+		)
+	elif isinstance(instr, IRVaEnd):
+		return IRVaEnd(
+			ap_addr=_replace_temp_in_value(instr.ap_addr, old_name, new_name),
+		)
+	elif isinstance(instr, IRVaCopy):
+		return IRVaCopy(
+			dest_addr=_replace_temp_in_value(instr.dest_addr, old_name, new_name),
+			src_addr=_replace_temp_in_value(instr.src_addr, old_name, new_name),
+		)
+	return instr
+
+
+def _instr_uses_temp(instr: IRInstruction, name: str) -> bool:
+	"""Check if an instruction uses (reads) a temp by name."""
+	if isinstance(instr, IRBinOp):
+		return (isinstance(instr.left, IRTemp) and instr.left.name == name) or \
+			(isinstance(instr.right, IRTemp) and instr.right.name == name)
+	elif isinstance(instr, IRUnaryOp):
+		return isinstance(instr.operand, IRTemp) and instr.operand.name == name
+	elif isinstance(instr, IRCopy):
+		return isinstance(instr.source, IRTemp) and instr.source.name == name
+	elif isinstance(instr, IRLoad):
+		return isinstance(instr.address, IRTemp) and instr.address.name == name
+	elif isinstance(instr, IRStore):
+		return (isinstance(instr.address, IRTemp) and instr.address.name == name) or \
+			(isinstance(instr.value, IRTemp) and instr.value.name == name)
+	elif isinstance(instr, IRCall):
+		return any(isinstance(a, IRTemp) and a.name == name for a in instr.args)
+	elif isinstance(instr, IRReturn):
+		return instr.value is not None and isinstance(instr.value, IRTemp) and instr.value.name == name
+	elif isinstance(instr, IRConvert):
+		return isinstance(instr.source, IRTemp) and instr.source.name == name
+	elif isinstance(instr, IRAddrOf):
+		return instr.source.name == name
+	elif isinstance(instr, IRVaArg):
+		return isinstance(instr.ap_addr, IRTemp) and instr.ap_addr.name == name
+	elif isinstance(instr, IRVaStart):
+		return isinstance(instr.ap_addr, IRTemp) and instr.ap_addr.name == name
+	elif isinstance(instr, IRVaEnd):
+		return isinstance(instr.ap_addr, IRTemp) and instr.ap_addr.name == name
+	elif isinstance(instr, IRVaCopy):
+		return (isinstance(instr.dest_addr, IRTemp) and instr.dest_addr.name == name) or \
+			(isinstance(instr.src_addr, IRTemp) and instr.src_addr.name == name)
+	return False
+
+
+def _instr_defs_temp(instr: IRInstruction, name: str) -> bool:
+	"""Check if an instruction defines (writes) a temp by name."""
+	if isinstance(instr, (IRBinOp, IRUnaryOp, IRCopy, IRLoad, IRConvert, IRAddrOf, IRVaArg)):
+		return instr.dest.name == name
+	if isinstance(instr, IRCall) and instr.dest is not None:
+		return instr.dest.name == name
+	return False
+
+
+def split_live_ranges(func: IRFunction) -> IRFunction:
+	"""Split long live ranges to reduce register pressure.
+
+	For temps with long live ranges that span many instructions but are only
+	used in a few spots, insert spill/reload copies to break the range into
+	shorter segments. This makes it easier for the graph colorer to find a
+	valid K-coloring without actual stack spills.
+	"""
+	body = list(func.body)
+	cfg = CFG(body)
+	analyzer = LivenessAnalyzer(cfg)
+
+	# Compute per-instruction pressure on the flat body
+	# We work on the flat instruction list for simplicity
+	pressure: list[int] = []
+	block_map: list[str] = []
+	flat_idx = 0
+	block_instr_map: dict[int, tuple[str, int]] = {}
+	for block in cfg.blocks():
+		for i in range(len(block.instructions)):
+			live = analyzer.get_live_at_point(block, i)
+			pressure.append(len(live))
+			block_map.append(block.label)
+			block_instr_map[flat_idx] = (block.label, i)
+			flat_idx += 1
+
+	if not pressure:
+		return func
+
+	max_pressure = max(pressure)
+	if max_pressure <= K:
+		return func
+
+	# Identify address-taken temps (never split these)
+	addr_taken: set[str] = set()
+	for instr in body:
+		if isinstance(instr, IRAddrOf):
+			addr_taken.add(instr.source.name)
+
+	float_temps = _collect_float_temps(func)
+
+	# Build flat instruction index for the body (including labels)
+	# Map each instruction in body to its position
+	def_positions: dict[str, list[int]] = {}
+	use_positions: dict[str, list[int]] = {}
+	for idx, instr in enumerate(body):
+		if isinstance(instr, IRLabelInstr):
+			continue
+		for name in _get_temp_refs(instr):
+			if _instr_defs_temp(instr, name):
+				def_positions.setdefault(name, []).append(idx)
+			if _instr_uses_temp(instr, name):
+				use_positions.setdefault(name, []).append(idx)
+
+	# Find candidates: temps with long ranges and sparse uses, not float/addr-taken
+	all_temps = set(def_positions.keys()) | set(use_positions.keys())
+	candidates: list[tuple[str, int, int]] = []  # (name, range_len, num_uses)
+	for name in all_temps:
+		if name in addr_taken or name in float_temps:
+			continue
+		defs = def_positions.get(name, [])
+		uses = use_positions.get(name, [])
+		if not defs or not uses:
+			continue
+		# Only split temps with a single definition (SSA-like)
+		if len(defs) != 1:
+			continue
+		first = defs[0]
+		last = max(uses)
+		range_len = last - first
+		if range_len < 4:
+			continue
+		num_uses = len(uses)
+		# Only split if the density is low (few uses over long range)
+		if num_uses > range_len // 2:
+			continue
+		candidates.append((name, range_len, num_uses))
+
+	# Sort by range length descending (split longest ranges first)
+	candidates.sort(key=lambda x: -x[1])
+
+	# Limit splits to avoid excessive IR growth
+	split_counter = 0
+	max_splits = len(body) // 2
+
+	# Track insertions: list of (position, instruction) to insert
+	insertions: list[tuple[int, IRInstruction]] = []
+	# Track use replacements: (position, old_name, new_name)
+	replacements: list[tuple[int, str, str]] = []
+
+	for name, range_len, num_uses in candidates:
+		if split_counter >= max_splits:
+			break
+
+		defs = def_positions[name]
+		uses = sorted(use_positions.get(name, []))
+		def_pos = defs[0]
+
+		if len(uses) < 2:
+			continue
+
+		# Find gaps between consecutive use points where we could split
+		# A "gap" is a span between two consecutive uses that's long enough
+		# and where pressure is high
+		all_points = sorted([def_pos] + uses)
+
+		for gap_idx in range(len(all_points) - 1):
+			if split_counter >= max_splits:
+				break
+
+			start = all_points[gap_idx]
+			end = all_points[gap_idx + 1]
+			gap_len = end - start
+
+			if gap_len < 3:
+				continue
+
+			# Check if pressure is high in this gap
+			# Use the flat pressure array - but we need to map body indices
+			# to pressure indices. Since labels can shift things, use a
+			# simpler heuristic: check if any instruction in the gap has
+			# high pressure by scanning the CFG-based pressure.
+			high_pressure = False
+			for block in cfg.blocks():
+				for bi in range(len(block.instructions)):
+					if bi < len(pressure) and pressure[bi] >= K:
+						high_pressure = True
+						break
+				if high_pressure:
+					break
+
+			if not high_pressure:
+				continue
+
+			# Insert spill after `start` and reload before `end`
+			spill_name = f"_split_{name}_{split_counter}"
+			split_counter += 1
+
+			# Spill: _split_X = name (copy right after start instruction)
+			spill_instr = IRCopy(dest=IRTemp(spill_name), source=IRTemp(name))
+			insertions.append((start + 1, spill_instr))
+
+			# Reload: name_reload = _split_X (copy right before end instruction)
+			reload_name = f"_reload_{name}_{split_counter}"
+			reload_instr = IRCopy(dest=IRTemp(reload_name), source=IRTemp(spill_name))
+			insertions.append((end, reload_instr))
+
+			# Replace uses of `name` at position `end` with `reload_name`
+			replacements.append((end, name, reload_name))
+
+			# Only split the first qualifying gap per temp to keep things simple
+			break
+
+	if not insertions and not replacements:
+		return func
+
+	# Apply replacements first (before insertions shift indices)
+	new_body = list(body)
+	for pos, old_name, new_name in replacements:
+		if 0 <= pos < len(new_body):
+			new_body[pos] = _replace_temp_uses_in_instr(new_body[pos], old_name, new_name)
+
+	# Sort insertions by position (descending) to maintain correct indices
+	insertions.sort(key=lambda x: -x[0])
+	for pos, instr in insertions:
+		new_body.insert(pos, instr)
+
+	return IRFunction(
+		name=func.name,
+		params=list(func.params),
+		body=new_body,
+		return_type=func.return_type,
+		param_types=list(func.param_types),
+		storage_class=func.storage_class,
+		is_prototype=func.is_prototype,
+		is_variadic=func.is_variadic,
+	)
+
+
 class RegisterAllocator:
 	"""Chaitin-Briggs graph-coloring register allocator with move coalescing."""
 
@@ -281,6 +599,10 @@ class RegisterAllocator:
 
 		Temps not in the returned mapping should use stack slots (spilled or float).
 		"""
+		# Apply live range splitting before allocation
+		split_func = split_live_ranges(self._func)
+		self._func = split_func
+
 		cfg = CFG(self._func.body)
 		analyzer = LivenessAnalyzer(cfg)
 		interference = analyzer.interference_graph()
