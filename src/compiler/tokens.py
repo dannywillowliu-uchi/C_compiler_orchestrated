@@ -61,6 +61,7 @@ class TokenType(Enum):
 	VOID = auto()
 	VOLATILE = auto()
 	WHILE = auto()
+	INLINE = auto()        # inline (C99)
 	STATIC_ASSERT = auto()  # _Static_assert (C11)
 
 	# Operators
@@ -155,6 +156,9 @@ KEYWORDS: dict[str, TokenType] = {
 	"void": TokenType.VOID,
 	"volatile": TokenType.VOLATILE,
 	"while": TokenType.WHILE,
+	"inline": TokenType.INLINE,
+	"__inline": TokenType.INLINE,
+	"__inline__": TokenType.INLINE,
 	"_Static_assert": TokenType.STATIC_ASSERT,
 }
 

@@ -137,7 +137,7 @@ _TYPE_KEYWORDS: set[TokenType] = {
 _QUALIFIER_KEYWORDS: set[TokenType] = {TokenType.CONST, TokenType.VOLATILE}
 
 _STORAGE_CLASS_KEYWORDS: set[TokenType] = {
-	TokenType.STATIC, TokenType.EXTERN, TokenType.AUTO, TokenType.REGISTER,
+	TokenType.STATIC, TokenType.EXTERN, TokenType.AUTO, TokenType.REGISTER, TokenType.INLINE,
 }
 
 _TYPE_SPECIFIER_START: set[TokenType] = _TYPE_KEYWORDS | _QUALIFIER_KEYWORDS | _STORAGE_CLASS_KEYWORDS
@@ -435,8 +435,8 @@ class Parser:
 			loc=self._loc(loc_tok),
 		)
 
-	def _parse_struct_decl(self) -> StructDecl:
-		"""Parse 'struct name { type member; ... };' or forward declaration 'struct name;'."""
+	def _parse_struct_decl(self) -> ASTNode | list[ASTNode]:
+		"""Parse 'struct name { ... };' or 'struct name { ... } var, *ptr;' or forward decl."""
 		tok = self._advance()  # consume 'struct'
 		name_tok = self._expect(TokenType.IDENTIFIER, "Expected struct name")
 		if self._match(TokenType.SEMICOLON):
@@ -450,13 +450,16 @@ class Parser:
 				continue
 			members.append(self._parse_struct_member())
 		self._expect(TokenType.RBRACE, "Expected '}' after struct members")
-		self._expect(TokenType.SEMICOLON, "Expected ';' after struct definition")
-		return StructDecl(name=name_tok.value, members=members, static_asserts=sa_list, loc=self._loc(tok))
+		struct_node = StructDecl(name=name_tok.value, members=members, static_asserts=sa_list, loc=self._loc(tok))
+		if self._match(TokenType.SEMICOLON):
+			return struct_node
+		# Trailing declarators: struct S { ... } var, *ptr = init;
+		return self._parse_trailing_declarators(struct_node, f"struct {name_tok.value}", tok)
 
 	# -- Union declaration ---------------------------------------------------
 
-	def _parse_union_decl(self) -> UnionDecl:
-		"""Parse 'union name { type member; ... };' or forward declaration 'union name;'."""
+	def _parse_union_decl(self) -> ASTNode | list[ASTNode]:
+		"""Parse 'union name { ... };' or 'union name { ... } var, *ptr;' or forward decl."""
 		tok = self._advance()  # consume 'union'
 		name_tok = self._expect(TokenType.IDENTIFIER, "Expected union name")
 		if self._match(TokenType.SEMICOLON):
@@ -470,8 +473,36 @@ class Parser:
 				continue
 			members.append(self._parse_struct_member())
 		self._expect(TokenType.RBRACE, "Expected '}' after union members")
-		self._expect(TokenType.SEMICOLON, "Expected ';' after union definition")
-		return UnionDecl(name=name_tok.value, members=members, static_asserts=sa_list, loc=self._loc(tok))
+		union_node = UnionDecl(name=name_tok.value, members=members, static_asserts=sa_list, loc=self._loc(tok))
+		if self._match(TokenType.SEMICOLON):
+			return union_node
+		# Trailing declarators: union U { ... } var, *ptr = init;
+		return self._parse_trailing_declarators(union_node, f"union {name_tok.value}", tok)
+
+	def _parse_trailing_declarators(self, type_decl: ASTNode, base_type: str, start_tok: Token) -> list[ASTNode]:
+		"""Parse variable declarators after a struct/union definition body."""
+		result: list[ASTNode] = [type_decl]
+		type_spec = TypeSpec(base_type=base_type, pointer_count=0, qualifiers=[], loc=self._loc(start_tok))
+		while True:
+			pointer_count = 0
+			while self._match(TokenType.STAR):
+				pointer_count += 1
+			decl_type = TypeSpec(
+				base_type=base_type, pointer_count=pointer_count, qualifiers=[],
+				signedness=type_spec.signedness, width_modifier=type_spec.width_modifier,
+				loc=self._loc(start_tok),
+			)
+			name_tok = self._expect(TokenType.IDENTIFIER, "Expected variable name after struct/union definition")
+			array_sizes = self._parse_array_dimensions()
+			initializer = self._parse_optional_initializer()
+			result.append(VarDecl(
+				type_spec=decl_type, name=name_tok.value, initializer=initializer,
+				array_sizes=array_sizes, loc=self._loc(name_tok),
+			))
+			if not self._match(TokenType.COMMA):
+				break
+		self._expect(TokenType.SEMICOLON, "Expected ';' after variable declaration")
+		return result
 
 	# -- Enum declaration ----------------------------------------------------
 
@@ -767,6 +798,10 @@ class Parser:
 
 	def _parse_statement(self) -> ASTNode:
 		"""Parse a single statement."""
+		# Empty statement (bare ;)
+		if self._check(TokenType.SEMICOLON):
+			tok = self._advance()
+			return ExprStmt(expression=IntLiteral(value=0, loc=self._loc(tok)), loc=self._loc(tok))
 		if self._check(TokenType.STATIC_ASSERT):
 			return self._parse_static_assert()
 		if self._check(TokenType.LBRACE):
@@ -830,7 +865,11 @@ class Parser:
 			if self._is_var_decl_start():
 				stmts.extend(self._parse_var_decl_list())
 			else:
-				stmts.append(self._parse_statement())
+				result = self._parse_statement()
+				if isinstance(result, list):
+					stmts.extend(result)
+				else:
+					stmts.append(result)
 		self._expect(TokenType.RBRACE, "Expected '}'")
 		return CompoundStmt(statements=stmts, loc=self._loc(tok))
 
