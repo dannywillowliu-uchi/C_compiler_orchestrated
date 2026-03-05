@@ -373,15 +373,15 @@ class TestMovZeroToXor:
 		assert result == expected
 
 	def test_mov_zero_paired_with_cmpq_uses_pair_pattern(self) -> None:
-		"""movq $0 + cmpq $0 same reg uses the existing pair pattern."""
+		"""movq $0 + cmpq $0 same reg folds to xorq (testq eliminated as redundant)."""
 		lines = [
 			"\tmovq $0, %rax",
 			"\tcmpq $0, %rax",
 		]
 		result = _opt("\n".join(lines))
-		# Pair pattern produces xorq + testq
+		# Pair pattern produces xorq, then testq is eliminated (xorq sets flags)
 		assert "\txorq %rax, %rax" in result
-		assert "\ttestq %rax, %rax" in result
+		assert "\ttestq %rax, %rax" not in result
 
 	def test_multiple_mov_zeros(self) -> None:
 		"""Multiple movq $0 instructions all transform."""

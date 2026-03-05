@@ -531,8 +531,8 @@ class TestMultiPatternInteraction:
 		assert _opt("\tmovq %rax, -8(%rbp)\n\tmovq -8(%rbp), %rax") == "\tmovq %rax, -8(%rbp)"
 		# Self-move
 		assert _opt("\tmovq %rax, %rax") == ""
-		# Zero-cmp
-		assert _opt("\tmovq $0, %rax\n\tcmpq $0, %rax") == "\txorq %rax, %rax\n\ttestq %rax, %rax"
+		# Zero-cmp (xorq sets flags so testq is eliminated as redundant)
+		assert _opt("\tmovq $0, %rax\n\tcmpq $0, %rax") == "\txorq %rax, %rax"
 		# Noop arith
 		assert _opt("\taddq $0, %rax") == ""
 		assert _opt("\tsubq $0, %rsp") == ""
