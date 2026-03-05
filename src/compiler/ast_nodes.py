@@ -174,6 +174,9 @@ class ASTVisitor:
 	def visit_va_copy_expr(self, node: VaCopyExpr) -> Any:
 		return None
 
+	def visit_compound_literal(self, node: CompoundLiteral) -> Any:
+		return None
+
 
 # --- Type node ---
 
@@ -451,6 +454,17 @@ class VaCopyExpr(ASTNode):
 
 	def accept(self, visitor: ASTVisitor) -> Any:
 		return visitor.visit_va_copy_expr(self)
+
+
+@dataclass
+class CompoundLiteral(ASTNode):
+	"""Compound literal (C99): (type){init_list}."""
+
+	type_spec: TypeSpec = field(default_factory=TypeSpec)
+	init_list: InitializerList = field(default_factory=lambda: InitializerList())
+
+	def accept(self, visitor: ASTVisitor) -> Any:
+		return visitor.visit_compound_literal(self)
 
 
 # --- Statement nodes ---
