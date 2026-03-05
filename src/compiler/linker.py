@@ -110,6 +110,9 @@ def transform_asm_for_macos(asm: str) -> str:
 		if stripped == ".section .data":
 			out.append(".data")
 			continue
+		if stripped == ".section .bss":
+			out.append(".bss")
+			continue
 		if stripped == ".section .rodata":
 			out.append(".section __TEXT,__const")
 			continue
