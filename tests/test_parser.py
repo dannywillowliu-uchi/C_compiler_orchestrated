@@ -693,9 +693,31 @@ class TestErrorCases:
 		with pytest.raises(ParseError, match="Expected declaration name"):
 			parse("int () { return 0; }")
 
-	def test_missing_param_name(self) -> None:
-		with pytest.raises(ParseError, match="Expected parameter name"):
-			parse("int f(int) { return 0; }")
+	def test_unnamed_param_allowed(self) -> None:
+		"""Type-only params (no name) are valid in prototypes and definitions."""
+		func = parse_single_func("int f(int) { return 0; }")
+		assert len(func.params) == 1
+		assert func.params[0].type_spec.base_type == "int"
+		assert func.params[0].name == ""
+
+	def test_unnamed_params_prototype(self) -> None:
+		"""extern void abort(void) should parse as a prototype with no params."""
+		prog = parse("extern void abort(void);")
+		assert len(prog.declarations) == 1
+		func = prog.declarations[0]
+		assert isinstance(func, FunctionDecl)
+		assert func.name == "abort"
+		assert func.body is None
+		assert len(func.params) == 0
+
+	def test_unnamed_params_multiple(self) -> None:
+		"""Multiple unnamed params in a prototype."""
+		prog = parse("int foo(int, char *, void *);")
+		func = prog.declarations[0]
+		assert len(func.params) == 3
+		assert func.params[0].name == ""
+		assert func.params[1].name == ""
+		assert func.params[2].name == ""
 
 	def test_error_has_line_col(self) -> None:
 		with pytest.raises(ParseError) as exc_info:
