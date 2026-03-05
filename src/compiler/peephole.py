@@ -120,6 +120,27 @@ class PeepholeOptimizer:
 		self._addq_imm_to_reg_re = re.compile(
 			r"^\taddq\s+\$(-?\d+),\s+(%\w+)$"
 		)
+		# Extension instruction patterns (movzbl, movsbl, movzwl, movswl, movzbw, movsbw)
+		self._ext_re = re.compile(
+			r"^\t(movzbl|movsbl|movzwl|movswl|movzbw|movsbw)\s+(%\w+),\s+(%\w+)$"
+		)
+		# Truncation patterns: movb/movw from register to register
+		self._trunc_re = re.compile(
+			r"^\tmov([bw])\s+(%\w+),\s+(%\w+)$"
+		)
+		# testl %reg, %reg
+		self._testl_self_re = re.compile(
+			r"^\ttestl\s+(%\w+),\s+\1$"
+		)
+		# Operations that implicitly zero-extend their 32-bit result into 64-bit register:
+		# movl, addl, subl, andl, orl, xorl, imull, shll, shrl, sarl
+		self._zero_ext_op_re = re.compile(
+			r"^\t(movl|addl|subl|andl|orl|xorl|imull|shll|shrl|sarl)\s+[^,]+,\s+(%\w+)$"
+		)
+		# andl with 8-bit or 16-bit mask (value fits in byte/word range)
+		self._andl_imm_re = re.compile(
+			r"^\tandl\s+\$(\d+),\s+(%\w+)$"
+		)
 
 	def optimize(self, assembly: str) -> str:
 		"""Apply peephole optimizations to assembly text and return optimized version."""
@@ -291,6 +312,38 @@ class PeepholeOptimizer:
 
 				# Redundant cmp/test after shift
 				opt = self._try_redundant_cmp_after_shift(lines[i], lines[i + 1])
+				if opt is not None:
+					result.extend(opt)
+					changed = True
+					i += 2
+					continue
+
+				# Duplicate extension elimination
+				opt = self._try_duplicate_extension(lines[i], lines[i + 1])
+				if opt is not None:
+					result.extend(opt)
+					changed = True
+					i += 2
+					continue
+
+				# Extension after truncation elimination
+				opt = self._try_ext_after_trunc(lines[i], lines[i + 1])
+				if opt is not None:
+					result.extend(opt)
+					changed = True
+					i += 2
+					continue
+
+				# movzbl + testl -> testb folding
+				opt = self._try_movzbl_testl_fold(lines[i], lines[i + 1])
+				if opt is not None:
+					result.extend(opt)
+					changed = True
+					i += 2
+					continue
+
+				# Redundant movzbl after zero-extending operation
+				opt = self._try_redundant_ext_after_zero_ext_op(lines[i], lines[i + 1])
 				if opt is not None:
 					result.extend(opt)
 					changed = True
@@ -1024,6 +1077,152 @@ class PeepholeOptimizer:
 				# Keep the end label (other code may jump to it)
 				result.append(lines[idx + 5])
 				return (result, 6)
+
+		return None
+
+	# --- Register name mapping helpers for extension patterns ---
+
+	# Map from 32-bit register to its 8-bit low counterpart
+	_reg32_to_reg8 = {
+		"%eax": "%al", "%ebx": "%bl", "%ecx": "%cl", "%edx": "%dl",
+		"%esi": "%sil", "%edi": "%dil", "%r8d": "%r8b", "%r9d": "%r9b",
+		"%r10d": "%r10b", "%r11d": "%r11b", "%r12d": "%r12b",
+		"%r13d": "%r13b", "%r14d": "%r14b", "%r15d": "%r15b",
+	}
+
+	# Map from 32-bit register to its 16-bit counterpart
+	_reg32_to_reg16 = {
+		"%eax": "%ax", "%ebx": "%bx", "%ecx": "%cx", "%edx": "%dx",
+		"%esi": "%si", "%edi": "%di", "%r8d": "%r8w", "%r9d": "%r9w",
+		"%r10d": "%r10w", "%r11d": "%r11w", "%r12d": "%r12w",
+		"%r13d": "%r13w", "%r14d": "%r14w", "%r15d": "%r15w",
+	}
+
+	# Map from 8-bit register to its 32-bit counterpart
+	_reg8_to_reg32 = {v: k for k, v in _reg32_to_reg8.items()}
+
+	# Map from 16-bit register to its 32-bit counterpart
+	_reg16_to_reg32 = {v: k for k, v in _reg32_to_reg16.items()}
+
+	def _regs_same_physical(self, r1: str, r2: str) -> bool:
+		"""Check if two register names refer to the same physical register."""
+		if r1 == r2:
+			return True
+		# Normalize both to 32-bit form for comparison
+		n1 = self._reg8_to_reg32.get(r1, self._reg16_to_reg32.get(r1, r1))
+		n2 = self._reg8_to_reg32.get(r2, self._reg16_to_reg32.get(r2, r2))
+		return n1 == n2
+
+	def _try_duplicate_extension(self, line1: str, line2: str) -> list[str] | None:
+		"""Remove duplicate extension where the same register is extended twice.
+
+		e.g. movzbl %al, %eax; movzbl %al, %eax -> movzbl %al, %eax
+		Also handles case where first extension writes to dest, second re-extends same.
+		"""
+		m1 = self._ext_re.match(line1)
+		if m1 is None:
+			return None
+		m2 = self._ext_re.match(line2)
+		if m2 is None:
+			return None
+		# Exact duplicate
+		if line1 == line2:
+			return [line1]
+		# Same opcode, same dest, second src is sub-register of first dest
+		op1, _, dst1 = m1.group(1), m1.group(2), m1.group(3)
+		op2, src2, dst2 = m2.group(1), m2.group(2), m2.group(3)
+		if op1 == op2 and dst1 == dst2 and self._regs_same_physical(src2, dst1):
+			return [line1]
+		return None
+
+	def _try_ext_after_trunc(self, line1: str, line2: str) -> list[str] | None:
+		"""Remove extension immediately after truncation to the same width.
+
+		e.g. movb %al, %cl; movzbl %cl, %ecx -> movzbl %al, %ecx
+		e.g. movw %ax, %cx; movzwl %cx, %ecx -> movzwl %ax, %ecx
+		"""
+		m_trunc = self._trunc_re.match(line1)
+		if m_trunc is None:
+			return None
+		trunc_size = m_trunc.group(1)  # 'b' or 'w'
+		trunc_src = m_trunc.group(2)
+		trunc_dst = m_trunc.group(3)
+
+		m_ext = self._ext_re.match(line2)
+		if m_ext is None:
+			return None
+		ext_op = m_ext.group(1)
+		ext_src = m_ext.group(2)
+		ext_dst = m_ext.group(3)
+
+		# The extension source must be the truncation destination
+		if ext_src != trunc_dst:
+			return None
+
+		# Match truncation width to extension type
+		if trunc_size == "b" and ext_op in ("movzbl", "movsbl"):
+			# Replace with single extension from original source
+			return [f"\t{ext_op} {trunc_src}, {ext_dst}"]
+		if trunc_size == "w" and ext_op in ("movzwl", "movswl"):
+			return [f"\t{ext_op} {trunc_src}, {ext_dst}"]
+		return None
+
+	def _try_movzbl_testl_fold(self, line1: str, line2: str) -> list[str] | None:
+		"""Fold movzbl %al, %eax + testl %eax, %eax -> testb %al, %al.
+
+		Zero-extending and testing the 32-bit result is equivalent to
+		testing the original byte register directly.
+		"""
+		m_ext = self._ext_re.match(line1)
+		if m_ext is None:
+			return None
+		if m_ext.group(1) != "movzbl":
+			return None
+		ext_src = m_ext.group(2)
+		ext_dst = m_ext.group(3)
+
+		m_test = self._testl_self_re.match(line2)
+		if m_test is None:
+			return None
+		test_reg = m_test.group(1)
+		if test_reg != ext_dst:
+			return None
+		return [f"\ttestb {ext_src}, {ext_src}"]
+
+	def _try_redundant_ext_after_zero_ext_op(self, line1: str, line2: str) -> list[str] | None:
+		"""Remove movzbl when source was already zero-extended by a prior 32-bit operation.
+
+		Any 32-bit operation (movl, addl, xorl, etc.) implicitly zero-extends its
+		result to 64 bits. A subsequent movzbl on the low byte of that result is
+		redundant if the destination is the same register.
+
+		Also handles andl with a byte mask followed by movzbl.
+		"""
+		m_ext = self._ext_re.match(line2)
+		if m_ext is None:
+			return None
+		ext_op = m_ext.group(1)
+		ext_src = m_ext.group(2)
+		ext_dst = m_ext.group(3)
+
+		# Check for 32-bit operation on the same register
+		m_op = self._zero_ext_op_re.match(line1)
+		if m_op is not None:
+			op_dst = m_op.group(2)
+			# The extension source must be the low sub-register of the 32-bit op dest
+			if ext_op == "movzbl" and self._regs_same_physical(ext_src, op_dst) and op_dst == ext_dst:
+				return [line1]
+			# movzwl is also redundant after a 32-bit op
+			if ext_op == "movzwl" and self._regs_same_physical(ext_src, op_dst) and op_dst == ext_dst:
+				return [line1]
+
+		# andl with byte-range mask already zeros upper bits
+		m_and = self._andl_imm_re.match(line1)
+		if m_and is not None:
+			mask = int(m_and.group(1))
+			and_dst = m_and.group(2)
+			if ext_op == "movzbl" and mask <= 0xFF and self._regs_same_physical(ext_src, and_dst) and and_dst == ext_dst:
+				return [line1]
 
 		return None
 
