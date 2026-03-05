@@ -182,6 +182,87 @@ class LivenessAnalyzer:
 
 		return live
 
+	def find_critical_edges(self) -> list[tuple[str, str]]:
+		"""Find critical edges in the CFG.
+
+		A critical edge goes from a block with multiple successors to a
+		block with multiple predecessors. These edges complicate liveness
+		because inserting code (e.g. for phi resolution) requires splitting.
+		"""
+		edges: list[tuple[str, str]] = []
+		for block in self._cfg.blocks():
+			if len(block.successors) > 1:
+				for succ in block.successors:
+					if len(succ.predecessors) > 1:
+						edges.append((block.label, succ.label))
+		return edges
+
+	def variables_live_across_calls(self) -> dict[str, set[str]]:
+		"""Find variables that are live across function call instructions.
+
+		Returns a dict mapping block labels to the set of variable names
+		that are live across at least one IRCall in that block. These
+		variables would need caller-saved registers or spilling.
+		"""
+		self._ensure_computed()
+		result: dict[str, set[str]] = {}
+
+		for block in self._cfg.blocks():
+			across_calls: set[str] = set()
+			instrs = block.instructions
+			live = set(self._live_out[block.label])
+
+			for instr in reversed(instrs):
+				defined = _defined_temp(instr)
+				if defined is not None:
+					live.discard(defined)
+				live |= _used_temps(instr)
+
+				if isinstance(instr, IRCall):
+					# Variables live *after* the call (minus the call's dest)
+					# are the ones that must survive the call.
+					post_call_live = set(live)
+					# The call args are consumed by the call, not live across it.
+					for arg in instr.args:
+						if isinstance(arg, IRTemp):
+							post_call_live.discard(arg.name)
+					# The dest is defined by the call, not live across it.
+					if instr.dest is not None:
+						post_call_live.discard(instr.dest.name)
+					across_calls |= post_call_live
+
+			if across_calls:
+				result[block.label] = across_calls
+
+		return result
+
+	def merge_point_live_ins(self) -> dict[str, dict[str, list[str]]]:
+		"""Analyze variables live-in at merge points (blocks with >1 predecessor).
+
+		Returns a dict mapping merge block labels to a dict of variable
+		name -> list of predecessor labels that contribute that variable
+		as live-out. This identifies phi-like merge requirements.
+		"""
+		self._ensure_computed()
+		result: dict[str, dict[str, list[str]]] = {}
+
+		for block in self._cfg.blocks():
+			if len(block.predecessors) <= 1:
+				continue
+			live_in = self._live_in[block.label]
+			if not live_in:
+				continue
+			var_sources: dict[str, list[str]] = {}
+			for var in live_in:
+				sources: list[str] = []
+				for pred in block.predecessors:
+					if var in self._live_out[pred.label]:
+						sources.append(pred.label)
+				var_sources[var] = sources
+			result[block.label] = var_sources
+
+		return result
+
 	def interference_graph(self) -> dict[str, set[str]]:
 		"""Build an interference graph: maps each variable to its set of interfering variables.
 
