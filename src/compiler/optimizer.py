@@ -61,6 +61,7 @@ class IROptimizer:
 				self._convert_elimination,
 				self._cse,
 				self._constant_condjump_folding,
+				self._redundant_load_elimination,
 				self._dead_store_elimination,
 				self._unused_variable_elimination,
 				self._dead_code_elimination,
@@ -896,6 +897,73 @@ class IROptimizer:
 		if op == "||" and left_val == 1:
 			return IRCopy(dest=instr.dest, source=IRConst(1))
 		return None
+
+	# -- Redundant Load Elimination --
+
+	def _redundant_load_elimination(self, body: list[IRInstruction]) -> list[IRInstruction]:
+		"""Eliminate consecutive loads from the same address when no intervening store exists.
+
+		Tracks IRLoad instructions by address. If a subsequent IRLoad reads from the
+		same address as a prior load (with no intervening IRStore to that address or
+		IRCall), replace the second load with a copy from the first load's dest.
+		"""
+		result: list[IRInstruction] = []
+		# Map from address temp name -> dest temp of the last load from that address
+		load_map: dict[str, IRTemp] = {}
+
+		for instr in body:
+			# Labels are control flow join points - invalidate everything
+			if isinstance(instr, IRLabelInstr):
+				load_map.clear()
+				result.append(instr)
+				continue
+
+			if isinstance(instr, IRLoad) and isinstance(instr.address, IRTemp):
+				addr_name = instr.address.name
+				if addr_name in load_map:
+					# Replace this load with a copy from the previous load's dest
+					result.append(IRCopy(dest=instr.dest, source=load_map[addr_name]))
+					# Update the map so future loads can copy from this dest too
+					load_map[addr_name] = instr.dest
+					continue
+				# Track this load
+				load_map[addr_name] = instr.dest
+				result.append(instr)
+				continue
+
+			if isinstance(instr, IRStore):
+				if isinstance(instr.address, IRTemp):
+					# Invalidate only the stored-to address
+					load_map.pop(instr.address.name, None)
+				else:
+					# Non-temp address: conservatively invalidate all
+					load_map.clear()
+				result.append(instr)
+				continue
+
+			# Calls may have side effects on memory - invalidate all
+			if isinstance(instr, (IRCall, IRVaStart, IRVaArg, IRVaEnd, IRVaCopy)):
+				load_map.clear()
+				result.append(instr)
+				continue
+
+			# If an instruction redefines a temp that is an address key or a load dest
+			# in the map, we need to invalidate those entries
+			dest = self._get_dest(instr)
+			if dest is not None:
+				# If dest is used as an address in the map, the address changed
+				load_map.pop(dest.name, None)
+				# If dest overwrites a previous load result, remove entries pointing to it
+				to_remove = [
+					k for k, v in load_map.items()
+					if v.name == dest.name
+				]
+				for k in to_remove:
+					del load_map[k]
+
+			result.append(instr)
+
+		return result
 
 	# -- Dead Store Elimination --
 

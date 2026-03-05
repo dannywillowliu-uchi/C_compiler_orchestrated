@@ -53,7 +53,7 @@ class TestStrengthReductionMul:
 	def test_mul_by_0_becomes_xor(self) -> None:
 		asm = make_asm("\timulq $0, %rax")
 		result = self.opt.optimize(asm)
-		assert "\txorq %rax, %rax" in result
+		assert "\txorl %eax, %eax" in result
 
 	def test_mul_by_non_power_of_2_unchanged(self) -> None:
 		asm = make_asm("\timulq $3, %rax")
