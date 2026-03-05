@@ -254,6 +254,36 @@ class IRGenerator(ASTVisitor):
 			return self._pointee_size_from_type(ts)
 		return 1
 
+	def _read_simple_rvalue(self, node: ASTNode) -> IRValue | None:
+		"""Return a direct IRValue for simple expressions without emitting instructions.
+
+		Returns the value directly for literals, enum constants, and local variable
+		temporaries. Returns None for complex expressions that require codegen.
+		"""
+		if isinstance(node, IntLiteral):
+			return self.visit_int_literal(node)
+		if isinstance(node, CharLiteral):
+			return self.visit_char_literal(node)
+		if isinstance(node, FloatLiteral):
+			return self.visit_float_literal(node)
+		if isinstance(node, Identifier):
+			if node.name in self._enum_constants:
+				return IRConst(self._enum_constants[node.name])
+			# Static locals and globals need IRLoad instructions; skip them.
+			if node.name in self._static_local_map or node.name in self._global_names:
+				return None
+			src = self._locals.get(node.name)
+			if src is not None:
+				return src
+		return None
+
+	def _visit_rvalue(self, node: ASTNode) -> IRValue:
+		"""Visit an expression, avoiding unnecessary copies for simple values."""
+		simple = self._read_simple_rvalue(node)
+		if simple is not None:
+			return simple
+		return self.visit(node)
+
 	# ------------------------------------------------------------------
 	# Public entry point
 	# ------------------------------------------------------------------
@@ -334,6 +364,8 @@ class IRGenerator(ASTVisitor):
 				p_ir_type = _resolve_ir_type(param.type_spec)
 			param_types.append(p_ir_type)
 			self._set_temp_type(p_temp, p_ir_type)
+			if param.type_spec.signedness == "unsigned":
+				self._temp_unsigned[p_temp.name] = True
 			if p_ir_type == IRType.POINTER and param.type_spec.pointer_count > 0:
 				self._temp_pointee_size[p_temp.name] = self._pointee_size_from_type(param.type_spec)
 
@@ -470,6 +502,8 @@ class IRGenerator(ASTVisitor):
 		else:
 			var_ir_type = _resolve_ir_type(node.type_spec)
 		self._set_temp_type(dest, var_ir_type)
+		if node.type_spec.signedness == "unsigned":
+			self._temp_unsigned[dest.name] = True
 		if var_ir_type == IRType.POINTER and node.type_spec.pointer_count > 0:
 			self._temp_pointee_size[dest.name] = self._pointee_size_from_type(node.type_spec)
 		if node.array_sizes is not None and len(node.array_sizes) > 0:
@@ -501,7 +535,7 @@ class IRGenerator(ASTVisitor):
 				val = self._emit_func_ptr_value(node.initializer)
 				self._emit(IRCopy(dest=dest, source=val, ir_type=IRType.POINTER))
 			else:
-				val = self.visit(node.initializer)
+				val = self._visit_rvalue(node.initializer)
 				# Check for struct/union initialization from another variable
 				agg_name = self._is_local_aggregate(node.name)
 				if agg_name is not None:
@@ -596,8 +630,8 @@ class IRGenerator(ASTVisitor):
 			return self._emit_short_circuit_and(node)
 		if node.op == "||":
 			return self._emit_short_circuit_or(node)
-		left = self.visit(node.left)
-		right = self.visit(node.right)
+		left = self._visit_rvalue(node.left)
+		right = self._visit_rvalue(node.right)
 		left_type = self._value_ir_type(left)
 		right_type = self._value_ir_type(right)
 		# Determine result type: promote to float/double if either operand is float
@@ -858,7 +892,16 @@ class IRGenerator(ASTVisitor):
 			delta_op = "+" if node.op == "++" else "-"
 			self._emit(IRBinOp(dest=result, left=operand, op=delta_op, right=IRConst(1)))
 			return result
-		operand = self.visit(node.operand)
+		operand = self._visit_rvalue(node.operand)
+		# Constant-fold unary minus on literals
+		if node.op == "-" and isinstance(operand, IRConst):
+			return IRConst(-operand.value, ir_type=operand.ir_type, is_unsigned=operand.is_unsigned)
+		if node.op == "-" and isinstance(operand, IRFloatConst):
+			return IRFloatConst(-operand.value, ir_type=operand.ir_type)
+		if node.op == "~" and isinstance(operand, IRConst):
+			return IRConst(~operand.value, ir_type=operand.ir_type, is_unsigned=operand.is_unsigned)
+		if node.op == "!" and isinstance(operand, IRConst):
+			return IRConst(int(operand.value == 0), ir_type=IRType.INT)
 		op_type = self._value_ir_type(operand)
 		dest = self._new_temp()
 		if self._is_float_type(op_type):
@@ -876,7 +919,7 @@ class IRGenerator(ASTVisitor):
 			if target_temp is not None:
 				self._emit(IRCopy(dest=target_temp, source=val, ir_type=IRType.POINTER))
 				return target_temp
-		val = self.visit(node.value)
+		val = self._visit_rvalue(node.value)
 		# Static local assignment: store to mangled global
 		if isinstance(node.target, Identifier) and node.target.name in self._static_local_map:
 			mangled = self._static_local_map[node.target.name]
@@ -1115,7 +1158,7 @@ class IRGenerator(ASTVisitor):
 		self.visit(node.expression)
 
 	def visit_return_stmt(self, node: ReturnStmt) -> None:
-		val = self.visit(node.expression)
+		val = self._visit_rvalue(node.expression)
 		val_type = self._value_ir_type(val)
 		self._emit(IRReturn(value=val, ir_type=val_type))
 
@@ -1124,7 +1167,7 @@ class IRGenerator(ASTVisitor):
 			self.visit(stmt)
 
 	def visit_if_stmt(self, node: IfStmt) -> None:
-		cond = self.visit(node.condition)
+		cond = self._visit_rvalue(node.condition)
 		then_label = self._new_label("if_then")
 		else_label = self._new_label("if_else")
 		end_label = self._new_label("if_end")
@@ -1150,7 +1193,7 @@ class IRGenerator(ASTVisitor):
 
 		self._loop_stack.append((loop_start, loop_end))
 		self._emit(IRLabelInstr(name=loop_start))
-		cond = self.visit(node.condition)
+		cond = self._visit_rvalue(node.condition)
 		self._emit(IRCondJump(condition=cond, true_label=loop_body, false_label=loop_end))
 		self._emit(IRLabelInstr(name=loop_body))
 		self.visit(node.body)
@@ -1174,7 +1217,7 @@ class IRGenerator(ASTVisitor):
 		self._loop_stack.append((loop_update, loop_end))
 		self._emit(IRLabelInstr(name=loop_start))
 		if node.condition is not None:
-			cond = self.visit(node.condition)
+			cond = self._visit_rvalue(node.condition)
 			self._emit(IRCondJump(condition=cond, true_label=loop_body, false_label=loop_end))
 		self._emit(IRLabelInstr(name=loop_body))
 		self.visit(node.body)
@@ -1194,7 +1237,7 @@ class IRGenerator(ASTVisitor):
 		self._emit(IRLabelInstr(name=loop_body))
 		self.visit(node.body)
 		self._emit(IRLabelInstr(name=loop_cond))
-		cond = self.visit(node.condition)
+		cond = self._visit_rvalue(node.condition)
 		self._emit(IRCondJump(condition=cond, true_label=loop_body, false_label=loop_end))
 		self._emit(IRLabelInstr(name=loop_end))
 		self._loop_stack.pop()
@@ -1229,7 +1272,7 @@ class IRGenerator(ASTVisitor):
 			current = self._new_temp()
 			self._emit(IRLoad(dest=current, address=addr))
 			# Compute new value
-			rhs = self.visit(node.value)
+			rhs = self._visit_rvalue(node.value)
 			result = self._new_temp()
 			self._emit(IRBinOp(dest=result, left=current, op=arith_op, right=rhs))
 			# Store back (recompute address since addr temp may have been clobbered)
@@ -1239,7 +1282,7 @@ class IRGenerator(ASTVisitor):
 			bf_info = self._get_bitfield_info(node.target)
 			if bf_info is not None:
 				current = self._bitfield_read(node.target, bf_info)
-				rhs = self.visit(node.value)
+				rhs = self._visit_rvalue(node.value)
 				result = self._new_temp()
 				self._emit(IRBinOp(dest=result, left=current, op=arith_op, right=rhs))
 				self._bitfield_write(node.target, bf_info, result)
@@ -1248,7 +1291,7 @@ class IRGenerator(ASTVisitor):
 				member_type = self._member_ir_type(node.target)
 				current = self._new_temp()
 				self._emit(IRLoad(dest=current, address=addr, ir_type=member_type))
-				rhs = self.visit(node.value)
+				rhs = self._visit_rvalue(node.value)
 				result = self._new_temp()
 				self._emit(IRBinOp(dest=result, left=current, op=arith_op, right=rhs))
 				addr2 = self._compute_member_addr(node.target)
@@ -1257,7 +1300,7 @@ class IRGenerator(ASTVisitor):
 			addr = self.visit(node.target.operand)
 			current = self._new_temp()
 			self._emit(IRLoad(dest=current, address=addr))
-			rhs = self.visit(node.value)
+			rhs = self._visit_rvalue(node.value)
 			result = self._new_temp()
 			self._emit(IRBinOp(dest=result, left=current, op=arith_op, right=rhs))
 			addr2 = self.visit(node.target.operand)
@@ -1268,7 +1311,7 @@ class IRGenerator(ASTVisitor):
 			current = self._new_temp()
 			self._set_temp_type(current, ir_type)
 			self._emit(IRLoad(dest=current, address=IRGlobalRef(mangled), ir_type=ir_type))
-			rhs = self.visit(node.value)
+			rhs = self._visit_rvalue(node.value)
 			result = self._new_temp()
 			self._set_temp_type(result, ir_type)
 			self._emit(IRBinOp(dest=result, left=current, op=arith_op, right=rhs, ir_type=ir_type))
@@ -1281,7 +1324,7 @@ class IRGenerator(ASTVisitor):
 			current = self._new_temp()
 			self._emit(IRCopy(dest=current, source=target_temp))
 			# Compute new value
-			rhs = self.visit(node.value)
+			rhs = self._visit_rvalue(node.value)
 			result = self._new_temp()
 			self._emit(IRBinOp(dest=result, left=current, op=arith_op, right=rhs))
 			# Write back
