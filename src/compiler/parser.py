@@ -688,7 +688,10 @@ class Parser:
 		if self._is_func_ptr_start():
 			fp_type, name_tok = self._parse_func_ptr_type(type_spec)
 			return ParamDecl(type_spec=fp_type, name=name_tok.value, loc=self._loc(name_tok))
-		name_tok = self._expect(TokenType.IDENTIFIER, "Expected parameter name")
+		# Parameter name is optional (prototypes / extern declarations)
+		if not self._check(TokenType.IDENTIFIER):
+			return ParamDecl(type_spec=type_spec, name="", loc=type_spec.loc)
+		name_tok = self._advance()
 		# Array parameter syntax: type name[] or type name[size] -> convert to pointer
 		if self._match(TokenType.LBRACKET):
 			if not self._check(TokenType.RBRACKET):

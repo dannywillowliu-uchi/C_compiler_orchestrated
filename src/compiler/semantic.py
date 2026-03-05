@@ -455,6 +455,8 @@ class SemanticAnalyzer(ASTVisitor):
 	def visit_param_decl(self, node: ParamDecl) -> TypeSpec:
 		node.type_spec = self._resolve_type(node.type_spec)
 		self._check_type_modifiers(node.type_spec, node)
+		if not node.name:
+			return node.type_spec
 		if node.type_spec.is_function_pointer:
 			sym = Symbol(
 				name=node.name,
