@@ -172,6 +172,10 @@ class Preprocessor:
 		self._line_offset: int = 0
 		self._file_override: str | None = None
 
+		# Built-in assert macro (available without #include <assert.h>)
+		# Use if-abort pattern to avoid ternary void cast issues
+		self.macros["assert"] = Macro(name="assert", body="do { if (!(expr)) abort(); } while(0)", params=["expr"])
+
 		if predefined_macros:
 			for name, body in predefined_macros.items():
 				self.macros[name] = Macro(name=name, body=body)
