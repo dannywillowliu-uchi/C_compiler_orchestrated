@@ -96,6 +96,18 @@ _TYPE_MAP: dict[str, IRType] = {
 	"float": IRType.FLOAT,
 	"double": IRType.DOUBLE,
 	"_Bool": IRType.BOOL,
+	"uint8_t": IRType.CHAR,
+	"int8_t": IRType.CHAR,
+	"uint16_t": IRType.SHORT,
+	"int16_t": IRType.SHORT,
+	"uint32_t": IRType.INT,
+	"int32_t": IRType.INT,
+	"uint64_t": IRType.LONG,
+	"int64_t": IRType.LONG,
+	"size_t": IRType.LONG,
+	"uintptr_t": IRType.LONG,
+	"intptr_t": IRType.LONG,
+	"ptrdiff_t": IRType.LONG,
 }
 
 _SIZE_MAP: dict[str, int] = {
@@ -107,6 +119,18 @@ _SIZE_MAP: dict[str, int] = {
 	"float": 4,
 	"double": 8,
 	"_Bool": 1,
+	"uint8_t": 1,
+	"int8_t": 1,
+	"uint16_t": 2,
+	"int16_t": 2,
+	"uint32_t": 4,
+	"int32_t": 4,
+	"uint64_t": 8,
+	"int64_t": 8,
+	"size_t": 8,
+	"uintptr_t": 8,
+	"intptr_t": 8,
+	"ptrdiff_t": 8,
 }
 
 _ALIGN_MAP: dict[str, int] = {
@@ -118,6 +142,18 @@ _ALIGN_MAP: dict[str, int] = {
 	"float": 4,
 	"double": 8,
 	"_Bool": 1,
+	"uint8_t": 1,
+	"int8_t": 1,
+	"uint16_t": 2,
+	"int16_t": 2,
+	"uint32_t": 4,
+	"int32_t": 4,
+	"uint64_t": 8,
+	"int64_t": 8,
+	"size_t": 8,
+	"uintptr_t": 8,
+	"intptr_t": 8,
+	"ptrdiff_t": 8,
 }
 
 _FLOAT_TYPES = {IRType.FLOAT, IRType.DOUBLE}
@@ -204,6 +240,7 @@ class IRGenerator(ASTVisitor):
 		self._enum_constants: dict[str, int] = {}
 		self._func_ptr_locals: set[str] = set()
 		self._known_functions: set[str] = set()
+		self._func_return_types: dict[str, IRType] = {}
 		self._user_labels: dict[str, str] = {}  # C label name -> IR label name
 		self._static_local_map: dict[str, str] = {}  # local name -> mangled global name
 		self._temp_pointee_size: dict[str, int] = {}  # pointer temp -> element size
@@ -244,6 +281,17 @@ class IRGenerator(ASTVisitor):
 
 	def _is_float_type(self, ir_type: IRType) -> bool:
 		return ir_type in _FLOAT_TYPES
+
+	_INT_WIDTH_ORDER = {
+		IRType.BOOL: 0, IRType.CHAR: 1, IRType.SHORT: 2,
+		IRType.INT: 3, IRType.LONG: 4, IRType.POINTER: 5,
+	}
+
+	def _wider_int_type(self, a: IRType, b: IRType) -> IRType:
+		"""Return the wider of two integer IR types (for integer promotion)."""
+		aw = self._INT_WIDTH_ORDER.get(a, 3)
+		bw = self._INT_WIDTH_ORDER.get(b, 3)
+		return a if aw >= bw else b
 
 	def _emit_bool_normalize(self, val: IRValue) -> IRValue:
 		"""Normalize a value for _Bool storage: any non-zero becomes 1 (C99 6.3.1.2)."""
@@ -342,6 +390,7 @@ class IRGenerator(ASTVisitor):
 
 	def visit_function_decl(self, node: FunctionDecl) -> None:
 		self._known_functions.add(node.name)
+		self._func_return_types[node.name] = _resolve_ir_type(node.return_type)
 		if node.body is None:
 			# Prototype-only or extern declaration: emit a stub IRFunction
 			self._functions.append(
@@ -884,10 +933,13 @@ class IRGenerator(ASTVisitor):
 				return dest
 
 		is_unsigned = self._is_unsigned_value(left) or self._is_unsigned_value(right)
+		# Compute the widest integer type from operands
+		result_type = self._wider_int_type(left_type, right_type)
 		dest = self._new_temp()
+		self._set_temp_type(dest, result_type)
 		if is_unsigned:
 			self._temp_unsigned[dest.name] = True
-		self._emit(IRBinOp(dest=dest, left=left, op=node.op, right=right, is_unsigned=is_unsigned))
+		self._emit(IRBinOp(dest=dest, left=left, op=node.op, right=right, ir_type=result_type, is_unsigned=is_unsigned))
 		return dest
 
 	def _emit_short_circuit_and(self, node: BinaryOp) -> IRTemp:
@@ -1274,6 +1326,10 @@ class IRGenerator(ASTVisitor):
 		for av in arg_vals:
 			self._emit(IRParam(value=av))
 		dest = self._new_temp()
+		# Set the return type of the call destination from known function signatures
+		call_name = node.name if node.callee is None else None
+		ret_type = self._func_return_types.get(call_name, IRType.INT) if call_name else IRType.INT
+		self._set_temp_type(dest, ret_type)
 		# Indirect call via expression callee (e.g. (*fp)(args), arr[i](args))
 		if node.callee is not None:
 			func_val = self.visit(node.callee)
@@ -1284,7 +1340,7 @@ class IRGenerator(ASTVisitor):
 				func_val = tmp
 			self._emit(IRCall(
 				dest=dest, function_name="<indirect>", args=arg_vals,
-				arg_types=arg_types, indirect=True, func_value=func_val,
+				arg_types=arg_types, return_type=ret_type, indirect=True, func_value=func_val,
 			))
 			return dest
 		# Check if this is an indirect call through a function pointer
@@ -1296,12 +1352,12 @@ class IRGenerator(ASTVisitor):
 				self._emit(IRCopy(dest=func_val, source=fp_temp, ir_type=IRType.POINTER))
 				self._emit(IRCall(
 					dest=dest, function_name=node.name, args=arg_vals,
-					arg_types=arg_types, indirect=True, func_value=func_val,
+					arg_types=arg_types, return_type=ret_type, indirect=True, func_value=func_val,
 				))
 				return dest
 		self._emit(IRCall(
 			dest=dest, function_name=node.name, args=arg_vals,
-			arg_types=arg_types,
+			arg_types=arg_types, return_type=ret_type,
 		))
 		return dest
 
@@ -2904,6 +2960,12 @@ class IRGenerator(ASTVisitor):
 				elif name.startswith("union "):
 					name = name[len("union "):]
 				return name
+		if isinstance(node, ArraySubscript):
+			# a[i] where a is an array of structs: resolve element type
+			base = node.array
+			while isinstance(base, ArraySubscript):
+				base = base.array
+			return self._resolve_aggregate_name(base)
 		if isinstance(node, UnaryOp) and node.op == "*":
 			# Dereference of pointer-to-struct: resolve pointee type
 			inner_ts = self._infer_expr_type(node.operand)
