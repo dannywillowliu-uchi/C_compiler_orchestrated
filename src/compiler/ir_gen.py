@@ -509,6 +509,17 @@ class IRGenerator(ASTVisitor):
 						type_name = self._resolve_aggregate_name(ma.object)
 						if type_name and type_name not in self._unions:
 							symbol_offset = self._compute_field_offset(type_name, ma.member)
+					elif isinstance(ma.object, ArraySubscript) and isinstance(ma.object.array, Identifier):
+						# &array[idx].member
+						symbol_init = ma.object.array.name
+						idx = self._eval_const_expr(ma.object.index)
+						arr_ts = self._global_types.get(ma.object.array.name)
+						if idx is not None and arr_ts is not None:
+							elem_size = _resolve_size(arr_ts)
+							symbol_offset = idx * elem_size
+							type_name = self._resolve_aggregate_name(ma.object.array)
+							if type_name and type_name not in self._unions:
+								symbol_offset += self._compute_field_offset(type_name, ma.member)
 				elif isinstance(node.initializer, UnaryOp) and node.initializer.op == "&" and isinstance(node.initializer.operand, ArraySubscript):
 					subscript = node.initializer.operand
 					if isinstance(subscript.array, Identifier):
@@ -547,6 +558,16 @@ class IRGenerator(ASTVisitor):
 					if val is not None:
 						total_elements *= val
 				total_size = total_elements * element_size
+			elif node.type_spec.pointer_count == 0:
+				base = node.type_spec.base_type
+				if base.startswith("struct "):
+					sn = base[len("struct "):]
+					if sn in self._structs:
+						total_size = self._compute_struct_size(sn)
+				elif base.startswith("union "):
+					un = base[len("union "):]
+					if un in self._unions:
+						total_size = self._compute_union_size(un)
 			self._globals.append(IRGlobalVar(
 				name=name, ir_type=ir_type, initializer=init_val,
 				total_size=total_size,
@@ -1220,6 +1241,10 @@ class IRGenerator(ASTVisitor):
 		if isinstance(current, Identifier):
 			ts = self._local_types.get(current.name) or self._global_types.get(current.name)
 			if ts is not None:
+				dims = self._local_array.get(current.name) or self._global_array.get(current.name, [])
+				if ts.pointer_count > 0 and dims:
+					# Array of pointers: element type is the pointer type itself
+					return IRType.POINTER
 				if ts.pointer_count > 0:
 					# Pointer subscript: element type is the pointee type
 					deref = TypeSpec(base_type=ts.base_type, width_modifier=ts.width_modifier, signedness=ts.signedness, pointer_count=ts.pointer_count - 1)
@@ -1260,13 +1285,16 @@ class IRGenerator(ASTVisitor):
 				element_size = self._pointee_size_from_type(cast_ts)
 		elif isinstance(current, Identifier):
 			ts = self._local_types.get(current.name) or self._global_types.get(current.name)
+			dims = self._local_array.get(current.name) or self._global_array.get(current.name, [])
 			if ts is not None:
-				if ts.pointer_count > 0:
+				if ts.pointer_count > 0 and dims:
+					# Array of pointers: element size is pointer size (8)
+					element_size = 8
+				elif ts.pointer_count > 0:
 					# Pointer subscript: element size is pointee size
 					element_size = self._pointee_size_from_type(ts)
 				else:
 					element_size = self._resolve_member_size(ts)
-			dims = self._local_array.get(current.name) or self._global_array.get(current.name, [])
 
 		addr = base
 		for d, idx_node in enumerate(index_nodes):
@@ -1978,6 +2006,7 @@ class IRGenerator(ASTVisitor):
 
 		if is_array:
 			element_size = _resolve_size(node.type_spec)
+			element_ir_type = _resolve_ir_type(node.type_spec)
 			# Determine total array size
 			total_elements = 0
 			if node.array_sizes:
@@ -1995,7 +2024,7 @@ class IRGenerator(ASTVisitor):
 					self._emit(IRBinOp(dest=off, left=IRConst(i), op="*", right=IRConst(element_size)))
 					a = self._new_temp()
 					self._emit(IRBinOp(dest=a, left=dest, op="+", right=off))
-					self._emit(IRStore(address=a, value=IRConst(0)))
+					self._emit(IRStore(address=a, value=IRConst(0), ir_type=element_ir_type))
 				positional_idx = 0
 				for elem in init_list.elements:
 					if isinstance(elem, DesignatedInit):
@@ -2009,7 +2038,7 @@ class IRGenerator(ASTVisitor):
 						self._emit(IRBinOp(dest=off, left=IRConst(idx), op="*", right=IRConst(element_size)))
 						a = self._new_temp()
 						self._emit(IRBinOp(dest=a, left=dest, op="+", right=off))
-						self._emit(IRStore(address=a, value=val))
+						self._emit(IRStore(address=a, value=val, ir_type=element_ir_type))
 						positional_idx = idx + 1
 					else:
 						val = self.visit(elem)
@@ -2017,7 +2046,7 @@ class IRGenerator(ASTVisitor):
 						self._emit(IRBinOp(dest=off, left=IRConst(positional_idx), op="*", right=IRConst(element_size)))
 						a = self._new_temp()
 						self._emit(IRBinOp(dest=a, left=dest, op="+", right=off))
-						self._emit(IRStore(address=a, value=val))
+						self._emit(IRStore(address=a, value=val, ir_type=element_ir_type))
 						positional_idx += 1
 			else:
 				for i in range(total_elements):
@@ -2029,7 +2058,7 @@ class IRGenerator(ASTVisitor):
 					self._emit(IRBinOp(dest=offset, left=IRConst(i), op="*", right=IRConst(element_size)))
 					addr = self._new_temp()
 					self._emit(IRBinOp(dest=addr, left=dest, op="+", right=offset))
-					self._emit(IRStore(address=addr, value=val))
+					self._emit(IRStore(address=addr, value=val, ir_type=element_ir_type))
 		elif base_type.startswith("struct "):
 			struct_name = base_type[len("struct "):]
 			members = self._structs.get(struct_name, [])
@@ -2445,6 +2474,9 @@ class IRGenerator(ASTVisitor):
 		if node.is_arrow:
 			# Arrow access: object is a pointer, visit to get pointer value (= struct address)
 			base = self.visit(node.object)
+		elif isinstance(node.object, UnaryOp) and node.object.op == "*":
+			# (*ptr).member is equivalent to ptr->member: use pointer value as base
+			base = self.visit(node.object.operand)
 		elif isinstance(node.object, ArraySubscript):
 			# Dot access on array element: need address, not loaded value
 			base = self._compute_array_addr(node.object)
@@ -2712,6 +2744,26 @@ class IRGenerator(ASTVisitor):
 		if isinstance(node, Identifier):
 			ts = self._local_types.get(node.name) or self._global_types.get(node.name)
 			if ts is not None:
+				name = ts.base_type
+				if name.startswith("struct "):
+					name = name[len("struct "):]
+				elif name.startswith("union "):
+					name = name[len("union "):]
+				return name
+		if isinstance(node, UnaryOp) and node.op == "*":
+			# Dereference of pointer-to-struct: resolve pointee type
+			inner_ts = self._infer_expr_type(node.operand)
+			if inner_ts is not None and inner_ts.pointer_count >= 1:
+				name = inner_ts.base_type
+				if name.startswith("struct "):
+					name = name[len("struct "):]
+				elif name.startswith("union "):
+					name = name[len("union "):]
+				return name
+		if isinstance(node, CastExpr):
+			# Cast to struct pointer: resolve from target type
+			ts = node.target_type
+			if ts.pointer_count >= 1:
 				name = ts.base_type
 				if name.startswith("struct "):
 					name = name[len("struct "):]
