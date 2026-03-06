@@ -132,19 +132,35 @@ class SymbolTable:
 # Type compatibility helpers
 
 _NUMERIC_TYPES = {
-	"int", "char", "short", "long", "float", "double", "_Bool",
+	"int", "char", "short", "long", "float", "double", "_Bool", "bool",
 	"signed char", "unsigned char",
 	"unsigned short", "signed short",
 	"unsigned int", "signed int",
 	"unsigned long", "signed long",
 	"long long", "unsigned long long", "signed long long",
 	"long double",
+	# Standard typedef'd numeric types
+	"size_t", "ptrdiff_t", "wchar_t",
+	"int8_t", "int16_t", "int32_t", "int64_t",
+	"uint8_t", "uint16_t", "uint32_t", "uint64_t",
+	"intptr_t", "uintptr_t", "intmax_t", "uintmax_t",
 }
 _ARITHMETIC_OPS = {"+", "-", "*", "/", "%"}
 _COMPARISON_OPS = {"<", ">", "<=", ">=", "==", "!="}
 _LOGICAL_OPS = {"&&", "||"}
 _BITWISE_OPS = {"&", "|", "^", "<<", ">>"}
 
+
+_TYPEDEF_RANK: dict[str, tuple[int, bool]] = {
+	"int8_t": (1, False), "uint8_t": (1, True),
+	"int16_t": (2, False), "uint16_t": (2, True),
+	"int32_t": (3, False), "uint32_t": (3, True),
+	"int64_t": (5, False), "uint64_t": (5, True),
+	"intptr_t": (4, False), "uintptr_t": (4, True),
+	"intmax_t": (5, False), "uintmax_t": (5, True),
+	"size_t": (4, True), "ptrdiff_t": (4, False),
+	"wchar_t": (3, False),
+}
 
 def _type_rank(ts: TypeSpec) -> int:
 	"""Return the conversion rank of a type (higher = wider).
@@ -155,6 +171,8 @@ def _type_rank(ts: TypeSpec) -> int:
 		return 7
 	if ts.base_type == "float":
 		return 6
+	if ts.base_type in _TYPEDEF_RANK:
+		return _TYPEDEF_RANK[ts.base_type][0]
 	if ts.width_modifier == "long long":
 		return 5
 	if ts.base_type == "long" or ts.width_modifier == "long":
@@ -163,13 +181,15 @@ def _type_rank(ts: TypeSpec) -> int:
 		return 2
 	if ts.base_type == "char":
 		return 1
-	if ts.base_type == "_Bool":
+	if ts.base_type in ("_Bool", "bool"):
 		return 0
 	# int or anything else
 	return 3
 
 
 def _is_unsigned(ts: TypeSpec) -> bool:
+	if ts.base_type in _TYPEDEF_RANK:
+		return _TYPEDEF_RANK[ts.base_type][1]
 	return ts.signedness == "unsigned"
 
 
@@ -325,6 +345,8 @@ class SemanticAnalyzer(ASTVisitor):
 			"int8_t", "uint8_t", "int16_t", "uint16_t",
 			"int32_t", "uint32_t", "int64_t", "uint64_t",
 			"intptr_t", "uintptr_t",
+			"size_t", "ptrdiff_t", "wchar_t",
+			"intmax_t", "uintmax_t",
 		}
 		self._typedef_types: dict[str, TypeSpec] = {
 			"int8_t": TypeSpec(base_type="signed char"),
@@ -337,6 +359,11 @@ class SemanticAnalyzer(ASTVisitor):
 			"uint64_t": TypeSpec(base_type="unsigned long long"),
 			"intptr_t": TypeSpec(base_type="long"),
 			"uintptr_t": TypeSpec(base_type="unsigned long"),
+			"size_t": TypeSpec(base_type="unsigned long"),
+			"ptrdiff_t": TypeSpec(base_type="long"),
+			"wchar_t": TypeSpec(base_type="int"),
+			"intmax_t": TypeSpec(base_type="long long"),
+			"uintmax_t": TypeSpec(base_type="unsigned long long"),
 		}
 		self._in_sizeof_or_addressof: bool = False
 		self._label_defs: dict[str, ASTNode] = {}
@@ -1095,6 +1122,9 @@ class SemanticAnalyzer(ASTVisitor):
 		elif isinstance(node.array, MemberAccess):
 			# Member access may yield an array type; trust the type system
 			is_base_array = True
+		elif isinstance(node.array, (UnaryOp, CastExpr, FunctionCall, CompoundLiteral)):
+			# Complex expressions (dereference, cast, function call) may produce arrays/pointers
+			is_base_array = True
 		if not is_base_array and not _is_pointer(base_type):
 			self._error("subscript requires array or pointer type", node)
 			return None
@@ -1292,7 +1322,20 @@ class SemanticAnalyzer(ASTVisitor):
 			self._error(f"bitfield '{member.name}' cannot be an array", member)
 			return
 		base = member.type_spec.base_type
-		type_widths = {"int": 32, "unsigned int": 32, "char": 8, "short": 16, "long": 64, "_Bool": 1}
+		type_widths = {
+			"int": 32, "unsigned int": 32, "signed int": 32,
+			"char": 8, "unsigned char": 8, "signed char": 8,
+			"short": 16, "unsigned short": 16, "signed short": 16,
+			"long": 64, "unsigned long": 64, "signed long": 64,
+			"long long": 64, "unsigned long long": 64, "signed long long": 64,
+			"_Bool": 1, "bool": 1,
+			"int8_t": 8, "uint8_t": 8,
+			"int16_t": 16, "uint16_t": 16,
+			"int32_t": 32, "uint32_t": 32,
+			"int64_t": 64, "uint64_t": 64,
+			"intptr_t": 64, "uintptr_t": 64,
+			"size_t": 64, "ptrdiff_t": 64,
+		}
 		max_width = type_widths.get(base, 32)
 		if member.type_spec.width_modifier == "short":
 			max_width = 16

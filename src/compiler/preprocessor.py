@@ -227,6 +227,11 @@ class Preprocessor:
 		for name, body in _gcc_builtins.items():
 			self.macros[name] = Macro(name=name, body=body)
 
+		# C23: bool, true, false are keywords (available without stdbool.h)
+		self.macros["bool"] = Macro(name="bool", body="_Bool")
+		self.macros["true"] = Macro(name="true", body="1")
+		self.macros["false"] = Macro(name="false", body="0")
+
 		# Built-in assert macro (available without #include <assert.h>)
 		# Use if-abort pattern to avoid ternary void cast issues
 		self.macros["assert"] = Macro(name="assert", body="do { if (!(expr)) abort(); } while(0)", params=["expr"])
