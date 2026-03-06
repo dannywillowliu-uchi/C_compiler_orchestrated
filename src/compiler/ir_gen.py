@@ -491,7 +491,7 @@ class IRGenerator(ASTVisitor):
 			init_values = self._collect_init_values(node.initializer)
 			total_size = 0
 			if node.array_sizes:
-				element_size = _resolve_size(node.type_spec)
+				element_size = self._resolve_member_size(node.type_spec)
 				for se in node.array_sizes:
 					val = self._eval_const_expr(se)
 					if val is not None:
@@ -499,7 +499,7 @@ class IRGenerator(ASTVisitor):
 			elif node.type_spec.base_type.startswith("struct "):
 				struct_name = node.type_spec.base_type[len("struct "):]
 				total_size = self._compute_struct_size(struct_name)
-			element_size = _resolve_size(node.type_spec) if node.array_sizes else 4
+			element_size = self._resolve_member_size(node.type_spec) if node.array_sizes else 4
 			total_slots = total_size // element_size if element_size > 0 else len(init_values)
 			while len(init_values) < total_slots:
 				init_values.append(0)
@@ -573,7 +573,7 @@ class IRGenerator(ASTVisitor):
 						init_val = const_val
 			total_size = 0
 			if node.array_sizes:
-				element_size = _resolve_size(node.type_spec)
+				element_size = self._resolve_member_size(node.type_spec)
 				total_elements = 1
 				for se in node.array_sizes:
 					val = self._eval_const_expr(se)
@@ -1487,8 +1487,9 @@ class IRGenerator(ASTVisitor):
 		self._emit(IRLabelInstr(name=ir_label))
 		self.visit(node.statement)
 
-	def visit_compound_assignment(self, node: CompoundAssignment) -> None:
+	def visit_compound_assignment(self, node: CompoundAssignment) -> IRTemp:
 		arith_op = node.op[:-1] if node.op.endswith("=") else node.op
+		result = None
 		if isinstance(node.target, ArraySubscript):
 			addr = self._compute_array_addr(node.target)
 			# Load current value
@@ -1565,6 +1566,7 @@ class IRGenerator(ASTVisitor):
 			self._emit(IRBinOp(dest=result, left=current, op=arith_op, right=rhs))
 			# Write back
 			self._emit(IRCopy(dest=target_temp, source=result))
+		return result
 
 	def visit_type_spec(self, node: TypeSpec) -> None:
 		pass
