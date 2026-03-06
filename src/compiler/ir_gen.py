@@ -258,6 +258,14 @@ class IRGenerator(ASTVisitor):
 		self._temp_counter += 1
 		return IRTemp(name)
 
+	def _val_as_temp(self, val: IRValue, ir_type: IRType = IRType.INT) -> IRTemp:
+		"""Ensure a value is an IRTemp; if it's a constant, copy it into a new temp."""
+		if isinstance(val, IRTemp):
+			return val
+		dest = self._new_temp()
+		self._emit(IRCopy(dest=dest, source=val, ir_type=ir_type))
+		return dest
+
 	def _new_label(self, prefix: str = "L") -> str:
 		name = f"{prefix}{self._label_counter}"
 		self._label_counter += 1
@@ -939,6 +947,13 @@ class IRGenerator(ASTVisitor):
 				return dest
 
 		is_unsigned = self._is_unsigned_value(left) or self._is_unsigned_value(right)
+		# Constant fold division/modulo by zero to 0 (UB, safe default)
+		if node.op in ("/", "%") and isinstance(right, IRConst) and right.value == 0:
+			result_type = self._wider_int_type(left_type, right_type)
+			dest = self._new_temp()
+			self._set_temp_type(dest, result_type)
+			self._emit(IRCopy(dest=dest, source=IRConst(0), ir_type=result_type))
+			return dest
 		# Compute the widest integer type from operands
 		result_type = self._wider_int_type(left_type, right_type)
 		dest = self._new_temp()
@@ -1221,12 +1236,12 @@ class IRGenerator(ASTVisitor):
 			if target_type == IRType.BOOL:
 				val = self._emit_bool_normalize(val)
 			self._emit(IRStore(address=IRGlobalRef(mangled), value=val, ir_type=target_type))
-			return val if isinstance(val, IRTemp) else self._new_temp()
+			return self._val_as_temp(val, target_type)
 		if isinstance(node.target, ArraySubscript):
 			addr = self._compute_array_addr(node.target)
 			elem_type = self._array_element_ir_type(node.target)
 			self._emit(IRStore(address=addr, value=val, ir_type=elem_type))
-			return val if isinstance(val, IRTemp) else self._new_temp()
+			return self._val_as_temp(val, elem_type)
 		if isinstance(node.target, UnaryOp) and node.target.op == "*":
 			addr = self.visit(node.target.operand)
 			# Check if we're assigning to a dereferenced pointer-to-struct/union
@@ -1236,12 +1251,12 @@ class IRGenerator(ASTVisitor):
 				return addr
 			val_type = self._value_ir_type(val)
 			self._emit(IRStore(address=addr, value=val, ir_type=val_type))
-			return val if isinstance(val, IRTemp) else self._new_temp()
+			return self._val_as_temp(val, val_type)
 		if isinstance(node.target, MemberAccess):
 			bf_info = self._get_bitfield_info(node.target)
 			if bf_info is not None:
 				self._bitfield_write(node.target, bf_info, val)
-				return val if isinstance(val, IRTemp) else self._new_temp()
+				return self._val_as_temp(val, IRType.INT)
 			addr = self._compute_member_addr(node.target)
 			member_ts = self._resolve_member_type_spec(node.target)
 			if self._member_is_aggregate(member_ts):
@@ -1254,7 +1269,7 @@ class IRGenerator(ASTVisitor):
 				return addr
 			member_type = self._member_ir_type(node.target)
 			self._emit(IRStore(address=addr, value=val, ir_type=member_type))
-			return val if isinstance(val, IRTemp) else self._new_temp()
+			return self._val_as_temp(val, member_type)
 		if isinstance(node.target, Identifier):
 			target_temp = self._locals.get(node.target.name)
 			if target_temp is not None:
@@ -1291,7 +1306,7 @@ class IRGenerator(ASTVisitor):
 					val = self._emit_bool_normalize(val)
 				store_type = _resolve_ir_type(global_ts) if global_ts is not None else IRType.INT
 				self._emit(IRStore(address=IRGlobalRef(node.target.name), value=val, ir_type=store_type))
-				return val if isinstance(val, IRTemp) else self._new_temp()
+				return self._val_as_temp(val, store_type)
 		target = self.visit(node.target)
 		if isinstance(target, IRTemp):
 			self._emit(IRCopy(dest=target, source=val))
@@ -2553,10 +2568,14 @@ class IRGenerator(ASTVisitor):
 				return left - right
 			if node.op == "*":
 				return left * right
-			if node.op == "/" and right != 0:
-				return int(left / right)
-			if node.op == "%" and right != 0:
-				return left % right
+			if node.op == "/":
+				if right != 0:
+					return int(left / right)
+				return 0  # UB: division by zero, return 0
+			if node.op == "%":
+				if right != 0:
+					return left % right
+				return 0  # UB: modulo by zero, return 0
 			if node.op == "<<":
 				return left << right
 			if node.op == ">>":
