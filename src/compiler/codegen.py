@@ -1350,6 +1350,12 @@ class CodeGenerator:
 			self._load_value(instr.source, "%rax")
 			self._truncate_narrow(from_type, is_unsigned=instr.is_unsigned)
 			self._store_to_temp("%rax", instr.dest)
+		elif from_type == IRType.INT and to_type == IRType.INT:
+			# Same-size int conversion: zero-extend if unsigned (clear upper 32 bits)
+			self._load_value(instr.source, "%rax")
+			if instr.is_unsigned:
+				self._emit_instr("movl %eax, %eax")  # zero-extends to 64-bit
+			self._store_to_temp("%rax", instr.dest)
 		else:
 			# Fallback: just copy
 			self._load_value(instr.source, "%rax")
