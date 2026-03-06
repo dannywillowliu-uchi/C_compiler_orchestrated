@@ -175,10 +175,16 @@ class Preprocessor:
 		# GCC-compatible predefined type and constant macros
 		_gcc_builtins: dict[str, str] = {
 			"__SIZE_TYPE__": "unsigned long",
+			"__INT8_TYPE__": "signed char",
+			"__UINT8_TYPE__": "unsigned char",
+			"__INT16_TYPE__": "short",
+			"__UINT16_TYPE__": "unsigned short",
 			"__INT32_TYPE__": "int",
-			"__INT64_TYPE__": "long",
 			"__UINT32_TYPE__": "unsigned int",
-			"__UINT64_TYPE__": "unsigned long",
+			"__INT64_TYPE__": "long long",
+			"__UINT64_TYPE__": "unsigned long long",
+			"__INTPTR_TYPE__": "long",
+			"__UINTPTR_TYPE__": "unsigned long",
 			"__INT_MAX__": "2147483647",
 			"__LONG_MAX__": "9223372036854775807L",
 			"__SIZEOF_INT__": "4",
@@ -196,6 +202,10 @@ class Preprocessor:
 		if predefined_macros:
 			for name, body in predefined_macros.items():
 				self.macros[name] = Macro(name=name, body=body)
+
+	def preprocess(self, source: str, filename: str = "<stdin>") -> str:
+		"""Alias for process() for compatibility."""
+		return self.process(source, filename)
 
 	def process(self, source: str, filename: str = "<stdin>") -> str:
 		"""Process source text and return preprocessed output."""
@@ -552,8 +562,16 @@ class Preprocessor:
 			py_expr = re.sub(r"!(?!=)", " not ", py_expr)
 			# Handle character literals like 'A'
 			py_expr = re.sub(r"'\\?(.)'", lambda m: str(ord(m.group(0)[1:-1].encode().decode("unicode_escape"))), py_expr)
+			# Strip C integer suffixes (ULL, LL, UL, LU, U, L) from numeric literals
+			py_expr = re.sub(r"\b(\d+)\s*(?:ULL|LLU|ull|llu|UL|LU|ul|lu|LL|ll|U|u|L|l)\b", r"\1", py_expr)
+			# Handle hex literals with suffixes too
+			py_expr = re.sub(r"(0[xX][0-9a-fA-F]+)\s*(?:ULL|LLU|ull|llu|UL|LU|ul|lu|LL|ll|U|u|L|l)\b", r"\1", py_expr)
 			result = eval(py_expr, {"__builtins__": {}}, {})  # noqa: S307
 			return bool(result)
+		except SyntaxError:
+			# Expression may contain type names or other non-evaluable tokens;
+			# treat as false (0) like GCC does for unevaluable expressions
+			return False
 		except Exception as e:
 			raise PreprocessorError(f"Cannot evaluate #if expression: {expr!r}", filename, line_num) from e
 
