@@ -237,6 +237,11 @@ def link(
 		toolchain = detect_toolchain()
 
 	cmd = [toolchain.cc, *toolchain.extra_cc_flags, "-o", output, *obj_files]
+	# Allow undefined symbols (declared but not defined external functions)
+	if toolchain.system == "Darwin":
+		cmd.extend(["-Wl,-undefined,dynamic_lookup"])
+	else:
+		cmd.extend(["-Wl,--unresolved-symbols=ignore-all"])
 	if libraries:
 		for lib in libraries:
 			cmd.append(f"-l{lib}")
