@@ -151,6 +151,8 @@ class Parser:
 		self.pos = 0
 		self._typedef_names: set[str] = set()
 		self._last_storage_class: str | None = None
+		self._anon_counter: int = 0
+		self._pending_decls: list[ASTNode] = []
 
 	@classmethod
 	def from_source(cls, source: str) -> Parser:
@@ -213,7 +215,11 @@ class Parser:
 		"""Parse the full token stream into a Program AST node."""
 		declarations: list[ASTNode] = []
 		while not self._at_end():
+			self._pending_decls.clear()
 			result = self._parse_top_level_decl()
+			# Emit any inline struct/union declarations before the referencing decl
+			declarations.extend(self._pending_decls)
+			self._pending_decls.clear()
 			if isinstance(result, list):
 				declarations.extend(result)
 			else:
@@ -240,17 +246,27 @@ class Parser:
 			if peek_offset == 0:
 				return self._parse_enum_decl()
 
-		# Check for struct definition or forward declaration: struct name { ... }; or struct name;
-		if self._peek(peek_offset).type == TokenType.STRUCT and self._peek(peek_offset + 1).type == TokenType.IDENTIFIER:
-			next_after_name = self._peek(peek_offset + 2).type
-			if peek_offset == 0 and next_after_name in (TokenType.LBRACE, TokenType.SEMICOLON):
+		# Check for struct definition or forward declaration: struct [name] { ... }; or struct name;
+		if self._peek(peek_offset).type == TokenType.STRUCT:
+			next_tok = self._peek(peek_offset + 1)
+			if next_tok.type == TokenType.LBRACE and peek_offset == 0:
+				# Anonymous struct: struct { ... } var;
 				return self._parse_struct_decl()
+			if next_tok.type == TokenType.IDENTIFIER:
+				next_after_name = self._peek(peek_offset + 2).type
+				if peek_offset == 0 and next_after_name in (TokenType.LBRACE, TokenType.SEMICOLON):
+					return self._parse_struct_decl()
 
-		# Check for union definition or forward declaration: union name { ... }; or union name;
-		if self._peek(peek_offset).type == TokenType.UNION and self._peek(peek_offset + 1).type == TokenType.IDENTIFIER:
-			next_after_name = self._peek(peek_offset + 2).type
-			if peek_offset == 0 and next_after_name in (TokenType.LBRACE, TokenType.SEMICOLON):
+		# Check for union definition or forward declaration: union [name] { ... }; or union name;
+		if self._peek(peek_offset).type == TokenType.UNION:
+			next_tok = self._peek(peek_offset + 1)
+			if next_tok.type == TokenType.LBRACE and peek_offset == 0:
+				# Anonymous union: union { ... } var;
 				return self._parse_union_decl()
+			if next_tok.type == TokenType.IDENTIFIER:
+				next_after_name = self._peek(peek_offset + 2).type
+				if peek_offset == 0 and next_after_name in (TokenType.LBRACE, TokenType.SEMICOLON):
+					return self._parse_union_decl()
 
 		self._last_storage_class = None
 		type_spec = self._parse_type_spec()
@@ -357,12 +373,32 @@ class Parser:
 			base_type = tok.value
 		elif tok.type == TokenType.STRUCT:
 			self._advance()
-			name_tok = self._expect(TokenType.IDENTIFIER, "Expected struct name")
-			base_type = f"struct {name_tok.value}"
+			if self._check(TokenType.LBRACE):
+				# Anonymous struct: struct { ... }
+				anon_name = self._parse_anon_struct_body("struct")
+				base_type = f"struct {anon_name}"
+			elif self._check(TokenType.IDENTIFIER) and self._peek(1).type == TokenType.LBRACE:
+				# Named struct definition used as type: struct Name { ... }
+				sname = self._advance().value
+				self._parse_struct_or_union_body(sname, "struct")
+				base_type = f"struct {sname}"
+			else:
+				name_tok = self._expect(TokenType.IDENTIFIER, "Expected struct name")
+				base_type = f"struct {name_tok.value}"
 		elif tok.type == TokenType.UNION:
 			self._advance()
-			name_tok = self._expect(TokenType.IDENTIFIER, "Expected union name")
-			base_type = f"union {name_tok.value}"
+			if self._check(TokenType.LBRACE):
+				# Anonymous union: union { ... }
+				anon_name = self._parse_anon_struct_body("union")
+				base_type = f"union {anon_name}"
+			elif self._check(TokenType.IDENTIFIER) and self._peek(1).type == TokenType.LBRACE:
+				# Named union definition used as type: union Name { ... }
+				uname = self._advance().value
+				self._parse_struct_or_union_body(uname, "union")
+				base_type = f"union {uname}"
+			else:
+				name_tok = self._expect(TokenType.IDENTIFIER, "Expected union name")
+				base_type = f"union {name_tok.value}"
 		elif tok.type == TokenType.ENUM:
 			self._advance()
 			name_tok = self._expect(TokenType.IDENTIFIER, "Expected enum name")
@@ -392,6 +428,39 @@ class Parser:
 			width_modifier=width_modifier,
 			loc=self._loc(start_tok),
 		)
+
+	# -- Anonymous struct/union helpers --------------------------------------
+
+	def _gen_anon_name(self, kind: str) -> str:
+		"""Generate a unique anonymous struct/union name."""
+		self._anon_counter += 1
+		return f"__anon_{kind}_{self._anon_counter}"
+
+	def _parse_anon_struct_body(self, kind: str) -> str:
+		"""Parse an anonymous struct/union body '{...}' and return the generated name."""
+		anon_name = self._gen_anon_name(kind)
+		self._parse_struct_or_union_body(anon_name, kind)
+		return anon_name
+
+	def _parse_struct_or_union_body(self, name: str, kind: str) -> ASTNode:
+		"""Parse a struct/union body '{...}' (consumes '{' through '}').
+		Returns the StructDecl or UnionDecl and adds it to pending declarations."""
+		start_tok = self._current()
+		self._expect(TokenType.LBRACE, f"Expected '{{' after {kind} name")
+		members: list[StructMember] = []
+		sa_list: list[StaticAssertDecl] = []
+		while not self._check(TokenType.RBRACE) and not self._at_end():
+			if self._check(TokenType.STATIC_ASSERT):
+				sa_list.append(self._parse_static_assert())
+				continue
+			members.append(self._parse_struct_member())
+		self._expect(TokenType.RBRACE, f"Expected '}}' after {kind} members")
+		if kind == "struct":
+			decl = StructDecl(name=name, members=members, static_asserts=sa_list, loc=self._loc(start_tok))
+		else:
+			decl = UnionDecl(name=name, members=members, static_asserts=sa_list, loc=self._loc(start_tok))
+		self._pending_decls.append(decl)
+		return decl
 
 	# -- Struct declaration --------------------------------------------------
 
@@ -436,11 +505,16 @@ class Parser:
 		)
 
 	def _parse_struct_decl(self) -> ASTNode | list[ASTNode]:
-		"""Parse 'struct name { ... };' or 'struct name { ... } var, *ptr;' or forward decl."""
+		"""Parse 'struct [name] { ... };' or 'struct [name] { ... } var, *ptr;' or forward decl."""
 		tok = self._advance()  # consume 'struct'
-		name_tok = self._expect(TokenType.IDENTIFIER, "Expected struct name")
-		if self._match(TokenType.SEMICOLON):
-			return StructDecl(name=name_tok.value, members=[], loc=self._loc(tok))
+		if self._check(TokenType.LBRACE):
+			# Anonymous struct: struct { ... } var;
+			struct_name = self._gen_anon_name("struct")
+		else:
+			name_tok = self._expect(TokenType.IDENTIFIER, "Expected struct name")
+			struct_name = name_tok.value
+			if self._match(TokenType.SEMICOLON):
+				return StructDecl(name=struct_name, members=[], loc=self._loc(tok))
 		self._expect(TokenType.LBRACE, "Expected '{' after struct name")
 		members: list[StructMember] = []
 		sa_list: list[StaticAssertDecl] = []
@@ -450,20 +524,25 @@ class Parser:
 				continue
 			members.append(self._parse_struct_member())
 		self._expect(TokenType.RBRACE, "Expected '}' after struct members")
-		struct_node = StructDecl(name=name_tok.value, members=members, static_asserts=sa_list, loc=self._loc(tok))
+		struct_node = StructDecl(name=struct_name, members=members, static_asserts=sa_list, loc=self._loc(tok))
 		if self._match(TokenType.SEMICOLON):
 			return struct_node
 		# Trailing declarators: struct S { ... } var, *ptr = init;
-		return self._parse_trailing_declarators(struct_node, f"struct {name_tok.value}", tok)
+		return self._parse_trailing_declarators(struct_node, f"struct {struct_name}", tok)
 
 	# -- Union declaration ---------------------------------------------------
 
 	def _parse_union_decl(self) -> ASTNode | list[ASTNode]:
-		"""Parse 'union name { ... };' or 'union name { ... } var, *ptr;' or forward decl."""
+		"""Parse 'union [name] { ... };' or 'union [name] { ... } var, *ptr;' or forward decl."""
 		tok = self._advance()  # consume 'union'
-		name_tok = self._expect(TokenType.IDENTIFIER, "Expected union name")
-		if self._match(TokenType.SEMICOLON):
-			return UnionDecl(name=name_tok.value, members=[], loc=self._loc(tok))
+		if self._check(TokenType.LBRACE):
+			# Anonymous union: union { ... } var;
+			union_name = self._gen_anon_name("union")
+		else:
+			name_tok = self._expect(TokenType.IDENTIFIER, "Expected union name")
+			union_name = name_tok.value
+			if self._match(TokenType.SEMICOLON):
+				return UnionDecl(name=union_name, members=[], loc=self._loc(tok))
 		self._expect(TokenType.LBRACE, "Expected '{' after union name")
 		members: list[StructMember] = []
 		sa_list: list[StaticAssertDecl] = []
@@ -473,11 +552,11 @@ class Parser:
 				continue
 			members.append(self._parse_struct_member())
 		self._expect(TokenType.RBRACE, "Expected '}' after union members")
-		union_node = UnionDecl(name=name_tok.value, members=members, static_asserts=sa_list, loc=self._loc(tok))
+		union_node = UnionDecl(name=union_name, members=members, static_asserts=sa_list, loc=self._loc(tok))
 		if self._match(TokenType.SEMICOLON):
 			return union_node
 		# Trailing declarators: union U { ... } var, *ptr = init;
-		return self._parse_trailing_declarators(union_node, f"union {name_tok.value}", tok)
+		return self._parse_trailing_declarators(union_node, f"union {union_name}", tok)
 
 	def _parse_trailing_declarators(self, type_decl: ASTNode, base_type: str, start_tok: Token) -> list[ASTNode]:
 		"""Parse variable declarators after a struct/union definition body."""
@@ -1058,15 +1137,18 @@ class Parser:
 		The base type (without pointers) is derived from the first type_spec.
 		"""
 		pointer_count = 0
+		qualifiers: list[str] = []
 		while self._match(TokenType.STAR):
 			pointer_count += 1
+			while self._check(*_QUALIFIER_KEYWORDS):
+				qualifiers.append(self._advance().value)
 		name_tok = self._expect(TokenType.IDENTIFIER, "Expected variable name")
 		array_sizes = self._parse_array_dimensions()
 		initializer = self._parse_optional_initializer()
 		decl_type = TypeSpec(
 			base_type=first_type_spec.base_type,
 			pointer_count=pointer_count,
-			qualifiers=first_type_spec.qualifiers[:],
+			qualifiers=first_type_spec.qualifiers[:] + qualifiers,
 			signedness=first_type_spec.signedness,
 			width_modifier=first_type_spec.width_modifier,
 			loc=first_type_spec.loc,
