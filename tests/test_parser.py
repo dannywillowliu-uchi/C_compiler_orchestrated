@@ -9,7 +9,6 @@ from compiler.ast_nodes import (
 	BreakStmt,
 	CaseClause,
 	CharLiteral,
-	CompoundAssignment,
 	CompoundStmt,
 	ContinueStmt,
 	DoWhileStmt,
@@ -1000,58 +999,67 @@ class TestCompoundAssignment:
 		stmt = body_stmts(func)[0]
 		assert isinstance(stmt, ExprStmt)
 		expr = stmt.expression
-		assert isinstance(expr, CompoundAssignment)
+		# Compound assignments are desugared to Assignment(target, BinaryOp(...))
+		assert isinstance(expr, Assignment)
 		assert isinstance(expr.target, Identifier)
 		assert expr.target.name == "x"
-		assert expr.op == "+"
-		assert isinstance(expr.value, IntLiteral)
-		assert expr.value.value == 1
+		assert isinstance(expr.value, BinaryOp)
+		assert expr.value.op == "+"
+		assert isinstance(expr.value.right, IntLiteral)
+		assert expr.value.right.value == 1
 
 	def test_minus_assign(self) -> None:
 		func = parse_single_func("int f() { x -= 5; }")
 		expr = body_stmts(func)[0].expression
-		assert isinstance(expr, CompoundAssignment)
-		assert expr.op == "-"
+		assert isinstance(expr, Assignment)
+		assert isinstance(expr.value, BinaryOp)
+		assert expr.value.op == "-"
 
 	def test_star_assign(self) -> None:
 		func = parse_single_func("int f() { x *= 2; }")
 		expr = body_stmts(func)[0].expression
-		assert isinstance(expr, CompoundAssignment)
-		assert expr.op == "*"
+		assert isinstance(expr, Assignment)
+		assert isinstance(expr.value, BinaryOp)
+		assert expr.value.op == "*"
 
 	def test_slash_assign(self) -> None:
 		func = parse_single_func("int f() { x /= 3; }")
 		expr = body_stmts(func)[0].expression
-		assert isinstance(expr, CompoundAssignment)
-		assert expr.op == "/"
+		assert isinstance(expr, Assignment)
+		assert isinstance(expr.value, BinaryOp)
+		assert expr.value.op == "/"
 
 	def test_percent_assign(self) -> None:
 		func = parse_single_func("int f() { x %= 4; }")
 		expr = body_stmts(func)[0].expression
-		assert isinstance(expr, CompoundAssignment)
-		assert expr.op == "%"
+		assert isinstance(expr, Assignment)
+		assert isinstance(expr.value, BinaryOp)
+		assert expr.value.op == "%"
 
 	def test_compound_assign_with_expression(self) -> None:
 		func = parse_single_func("int f() { x += 1 + 2; }")
 		expr = body_stmts(func)[0].expression
-		assert isinstance(expr, CompoundAssignment)
-		assert expr.op == "+"
+		assert isinstance(expr, Assignment)
 		assert isinstance(expr.value, BinaryOp)
+		assert expr.value.op == "+"
+		assert isinstance(expr.value.right, BinaryOp)
 
 	def test_compound_assign_array(self) -> None:
 		func = parse_single_func("int f() { arr[0] += 1; }")
 		expr = body_stmts(func)[0].expression
-		assert isinstance(expr, CompoundAssignment)
+		assert isinstance(expr, Assignment)
 		assert isinstance(expr.target, ArraySubscript)
-		assert expr.op == "+"
+		assert isinstance(expr.value, BinaryOp)
+		assert expr.value.op == "+"
 
 	def test_compound_assign_in_for_update(self) -> None:
 		src = "int f() { for (int i = 0; i < 10; i += 1) { return i; } }"
 		func = parse_single_func(src)
 		stmt = body_stmts(func)[0]
 		assert isinstance(stmt, ForStmt)
-		assert isinstance(stmt.update, CompoundAssignment)
-		assert stmt.update.op == "+"
+		assert isinstance(stmt.update, Assignment)
+		assert isinstance(stmt.update.value, BinaryOp)
+		assert stmt.update.value.op == "+"
 
 
 # -- Prefix increment/decrement ---------------------------------------------

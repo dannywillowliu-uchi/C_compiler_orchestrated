@@ -1,7 +1,8 @@
 """Tests for enum support, compound assignment fix, and string literal codegen."""
 
 from compiler.ast_nodes import (
-	CompoundAssignment,
+	Assignment,
+	BinaryOp,
 	EnumDecl,
 	IntLiteral,
 )
@@ -158,8 +159,8 @@ class TestCompoundAssignment:
 		# stmts: VarDecl, ExprStmt(+=), ExprStmt(-=), ExprStmt(*=), ExprStmt(/=), ExprStmt(%=), Return
 		ops = []
 		for s in stmts:
-			if hasattr(s, "expression") and isinstance(s.expression, CompoundAssignment):
-				ops.append(s.expression.op)
+			if hasattr(s, "expression") and isinstance(s.expression, Assignment) and isinstance(s.expression.value, BinaryOp):
+				ops.append(s.expression.value.op)
 		assert ops == ["+", "-", "*", "/", "%"]
 
 	def test_compound_assignment_semantic(self) -> None:
