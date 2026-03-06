@@ -172,6 +172,23 @@ class Preprocessor:
 		self._line_offset: int = 0
 		self._file_override: str | None = None
 
+		# GCC-compatible predefined type and constant macros
+		_gcc_builtins: dict[str, str] = {
+			"__SIZE_TYPE__": "unsigned long",
+			"__INT32_TYPE__": "int",
+			"__INT64_TYPE__": "long",
+			"__UINT32_TYPE__": "unsigned int",
+			"__UINT64_TYPE__": "unsigned long",
+			"__INT_MAX__": "2147483647",
+			"__LONG_MAX__": "9223372036854775807L",
+			"__SIZEOF_INT__": "4",
+			"__SIZEOF_LONG__": "8",
+			"__SIZEOF_POINTER__": "8",
+			"__CHAR_BIT__": "8",
+		}
+		for name, body in _gcc_builtins.items():
+			self.macros[name] = Macro(name=name, body=body)
+
 		# Built-in assert macro (available without #include <assert.h>)
 		# Use if-abort pattern to avoid ternary void cast issues
 		self.macros["assert"] = Macro(name="assert", body="do { if (!(expr)) abort(); } while(0)", params=["expr"])
