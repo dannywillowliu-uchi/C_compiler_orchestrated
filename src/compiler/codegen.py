@@ -1092,15 +1092,26 @@ class CodeGenerator:
 			suffix = _ss_sd(instr.ir_type)
 			self._emit_instr(f"mov{suffix} (%rax), %xmm0")
 			self._store_float_to_temp("%xmm0", instr.dest, instr.ir_type)
-		elif instr.ir_type in (IRType.CHAR, IRType.BOOL):
+		elif instr.ir_type == IRType.BOOL:
 			self._emit_instr("movzbl (%rax), %eax")
 			self._store_to_temp("%rax", instr.dest)
+		elif instr.ir_type == IRType.CHAR:
+			if instr.is_unsigned:
+				self._emit_instr("movzbl (%rax), %eax")
+			else:
+				self._emit_instr("movsbl (%rax), %eax")
+				self._emit_instr("movslq %eax, %rax")
+			self._store_to_temp("%rax", instr.dest)
 		elif instr.ir_type == IRType.SHORT:
-			self._emit_instr("movswq (%rax), %rax")
+			if instr.is_unsigned:
+				self._emit_instr("movzwl (%rax), %eax")
+			else:
+				self._emit_instr("movswq (%rax), %rax")
 			self._store_to_temp("%rax", instr.dest)
 		elif instr.ir_type == IRType.INT:
 			self._emit_instr("movl (%rax), %eax")
-			self._emit_instr("movslq %eax, %rax")
+			if not instr.is_unsigned:
+				self._emit_instr("movslq %eax, %rax")
 			self._store_to_temp("%rax", instr.dest)
 		else:
 			self._emit_instr("movq (%rax), %rax")
@@ -1330,14 +1341,14 @@ class CodeGenerator:
 			self._emit_instr("cvtsd2ss %xmm0, %xmm0")
 			self._store_float_to_temp("%xmm0", instr.dest, IRType.FLOAT)
 		elif to_type in (IRType.BOOL, IRType.CHAR, IRType.SHORT) and from_type in (IRType.INT, IRType.LONG, IRType.POINTER, IRType.CHAR, IRType.SHORT, IRType.BOOL):
-			# Integer narrowing: truncate to target width (signed)
+			# Integer narrowing: truncate to target width
 			self._load_value(instr.source, "%rax")
-			self._truncate_narrow(to_type)
+			self._truncate_narrow(to_type, is_unsigned=instr.is_unsigned)
 			self._store_to_temp("%rax", instr.dest)
 		elif from_type in (IRType.BOOL, IRType.CHAR, IRType.SHORT) and to_type in (IRType.INT, IRType.LONG):
-			# Integer widening: sign-extend from narrow type
+			# Integer widening: sign/zero-extend from narrow type
 			self._load_value(instr.source, "%rax")
-			self._truncate_narrow(from_type)
+			self._truncate_narrow(from_type, is_unsigned=instr.is_unsigned)
 			self._store_to_temp("%rax", instr.dest)
 		else:
 			# Fallback: just copy

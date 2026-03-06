@@ -379,6 +379,9 @@ class SemanticAnalyzer(ASTVisitor):
 			return TypeSpec(
 				base_type=resolved.base_type,
 				pointer_count=resolved.pointer_count + ts.pointer_count,
+				signedness=resolved.signedness,
+				width_modifier=resolved.width_modifier,
+				qualifiers=list(set(resolved.qualifiers + ts.qualifiers)),
 			)
 		return ts
 
