@@ -175,6 +175,9 @@ class Preprocessor:
 		# GCC-compatible predefined type and constant macros
 		_gcc_builtins: dict[str, str] = {
 			"__SIZE_TYPE__": "unsigned long",
+			"__PTRDIFF_TYPE__": "long",
+			"__WCHAR_TYPE__": "int",
+			"__WINT_TYPE__": "unsigned int",
 			"__INT8_TYPE__": "signed char",
 			"__UINT8_TYPE__": "unsigned char",
 			"__INT16_TYPE__": "short",
@@ -187,10 +190,20 @@ class Preprocessor:
 			"__UINTPTR_TYPE__": "unsigned long",
 			"__INT_MAX__": "2147483647",
 			"__LONG_MAX__": "9223372036854775807L",
+			"__LONG_LONG_MAX__": "9223372036854775807LL",
 			"__SIZEOF_INT__": "4",
 			"__SIZEOF_LONG__": "8",
+			"__SIZEOF_LONG_LONG__": "8",
+			"__SIZEOF_SHORT__": "2",
 			"__SIZEOF_POINTER__": "8",
+			"__SIZEOF_FLOAT__": "4",
+			"__SIZEOF_DOUBLE__": "8",
 			"__CHAR_BIT__": "8",
+			"__BYTE_ORDER__": "1234",
+			"__ORDER_LITTLE_ENDIAN__": "1234",
+			"__ORDER_BIG_ENDIAN__": "4321",
+			"__ORDER_PDP_ENDIAN__": "3412",
+			"CHAR_BIT": "8",
 		}
 		for name, body in _gcc_builtins.items():
 			self.macros[name] = Macro(name=name, body=body)
