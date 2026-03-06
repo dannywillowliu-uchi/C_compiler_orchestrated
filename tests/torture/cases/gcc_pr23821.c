@@ -11,6 +11,8 @@ main ()
 {
   int i, x;
   for (i = 0; i < 199; i++)
+    a[i] = i;
+  for (i = 0; i < 199; i++)
     {
       x = a[i];
       if (x != i)
