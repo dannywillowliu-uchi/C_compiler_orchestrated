@@ -204,6 +204,25 @@ class Preprocessor:
 			"__ORDER_BIG_ENDIAN__": "4321",
 			"__ORDER_PDP_ENDIAN__": "3412",
 			"CHAR_BIT": "8",
+			# Predefined integer limit macros (available without headers)
+			"INT_MAX": "2147483647",
+			"INT_MIN": "(-2147483647 - 1)",
+			"INT8_MAX": "127",
+			"INT8_MIN": "(-128)",
+			"INT16_MAX": "32767",
+			"INT16_MIN": "(-32768)",
+			"INT32_MAX": "2147483647",
+			"INT32_MIN": "(-2147483647 - 1)",
+			"INT64_MAX": "9223372036854775807LL",
+			"INT64_MIN": "(-9223372036854775807LL - 1)",
+			"UINT8_MAX": "255",
+			"UINT16_MAX": "65535",
+			"UINT32_MAX": "4294967295U",
+			"UINT64_MAX": "18446744073709551615ULL",
+			"INT_WIDTH": "32",
+			"LONG_WIDTH": "64",
+			"INTPTR_MAX": "9223372036854775807L",
+			"INTPTR_MIN": "(-9223372036854775807L - 1)",
 		}
 		for name, body in _gcc_builtins.items():
 			self.macros[name] = Macro(name=name, body=body)
@@ -215,6 +234,7 @@ class Preprocessor:
 		if predefined_macros:
 			for name, body in predefined_macros.items():
 				self.macros[name] = Macro(name=name, body=body)
+
 
 	def preprocess(self, source: str, filename: str = "<stdin>") -> str:
 		"""Alias for process() for compatibility."""

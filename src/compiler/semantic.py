@@ -313,7 +313,23 @@ class SemanticAnalyzer(ASTVisitor):
 		self._switch_depth: int = 0
 		self._struct_types: dict[str, StructDecl] = {}
 		self._union_types: dict[str, UnionDecl] = {}
-		self._typedef_types: dict[str, TypeSpec] = {}
+		self._predefined_typedef_names: set[str] = {
+			"int8_t", "uint8_t", "int16_t", "uint16_t",
+			"int32_t", "uint32_t", "int64_t", "uint64_t",
+			"intptr_t", "uintptr_t",
+		}
+		self._typedef_types: dict[str, TypeSpec] = {
+			"int8_t": TypeSpec(base_type="signed char"),
+			"uint8_t": TypeSpec(base_type="unsigned char"),
+			"int16_t": TypeSpec(base_type="short"),
+			"uint16_t": TypeSpec(base_type="unsigned short"),
+			"int32_t": TypeSpec(base_type="int"),
+			"uint32_t": TypeSpec(base_type="unsigned int"),
+			"int64_t": TypeSpec(base_type="long long"),
+			"uint64_t": TypeSpec(base_type="unsigned long long"),
+			"intptr_t": TypeSpec(base_type="long"),
+			"uintptr_t": TypeSpec(base_type="unsigned long"),
+		}
 		self._in_sizeof_or_addressof: bool = False
 		self._label_defs: dict[str, ASTNode] = {}
 		self._goto_refs: list[tuple[str, ASTNode]] = []
@@ -1296,7 +1312,7 @@ class SemanticAnalyzer(ASTVisitor):
 		if node.union_decl is not None:
 			self.visit_union_decl(node.union_decl)
 		resolved = self._resolve_type(node.type_spec)
-		if node.name in self._typedef_types:
+		if node.name in self._typedef_types and node.name not in self._predefined_typedef_names:
 			self._error(f"redefinition of typedef '{node.name}'", node)
 			return
 		self._typedef_types[node.name] = resolved

@@ -1,6 +1,6 @@
 /* Adapted from gcc.dg/torture/pr37731-1.c */
 
-extern void return 1;
+extern void abort(void);
 
 unsigned long long xh = 1;
 

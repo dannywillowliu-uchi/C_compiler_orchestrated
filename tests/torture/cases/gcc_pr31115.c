@@ -1,7 +1,7 @@
 /* Adapted from gcc.dg/torture/pr31115.c */
 
 extern void exit(int);
-extern void return 1;
+extern void abort(void);
 void foo (int e1)
 {
   if (e1 < 0)
