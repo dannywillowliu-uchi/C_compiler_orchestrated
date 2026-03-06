@@ -137,10 +137,12 @@ _TYPE_KEYWORDS: set[TokenType] = {
 _QUALIFIER_KEYWORDS: set[TokenType] = {TokenType.CONST, TokenType.VOLATILE}
 
 _STORAGE_CLASS_KEYWORDS: set[TokenType] = {
-	TokenType.STATIC, TokenType.EXTERN, TokenType.AUTO, TokenType.REGISTER, TokenType.INLINE,
+	TokenType.STATIC, TokenType.EXTERN, TokenType.AUTO, TokenType.REGISTER,
 }
 
-_TYPE_SPECIFIER_START: set[TokenType] = _TYPE_KEYWORDS | _QUALIFIER_KEYWORDS | _STORAGE_CLASS_KEYWORDS
+_FUNCTION_SPECIFIER_KEYWORDS: set[TokenType] = {TokenType.INLINE}
+
+_TYPE_SPECIFIER_START: set[TokenType] = _TYPE_KEYWORDS | _QUALIFIER_KEYWORDS | _STORAGE_CLASS_KEYWORDS | _FUNCTION_SPECIFIER_KEYWORDS
 
 
 class Parser:
@@ -238,7 +240,7 @@ class Parser:
 
 		# Check for standalone struct/enum/union definitions (skip past storage class/qualifiers)
 		peek_offset = 0
-		while self._peek(peek_offset).type in (_STORAGE_CLASS_KEYWORDS | _QUALIFIER_KEYWORDS):
+		while self._peek(peek_offset).type in (_STORAGE_CLASS_KEYWORDS | _QUALIFIER_KEYWORDS | _FUNCTION_SPECIFIER_KEYWORDS):
 			peek_offset += 1
 
 		# Check for enum definition: enum name { ... };
@@ -342,6 +344,8 @@ class Parser:
 				if storage_class is not None:
 					raise self._error(f"Multiple storage classes: '{storage_class}' and '{tok.value}'")
 				storage_class = tok.value
+			elif tok.type in _FUNCTION_SPECIFIER_KEYWORDS:
+				self._advance()  # consume inline as a no-op function specifier
 			elif tok.type == TokenType.SIGNED:
 				self._advance()
 				signedness = "signed"
@@ -418,6 +422,9 @@ class Parser:
 		pointer_count = 0
 		while self._match(TokenType.STAR):
 			pointer_count += 1
+			# Consume pointer qualifiers (e.g., int * const p)
+			while self._check(*_QUALIFIER_KEYWORDS):
+				qualifiers.append(self._advance().value)
 
 		self._last_storage_class = storage_class
 		return TypeSpec(
@@ -928,8 +935,8 @@ class Parser:
 			return self._parse_var_decl_stmt()
 		if self._check(*_TYPE_KEYWORDS):
 			return self._parse_var_decl_stmt()
-		# Qualifiers and storage classes start a variable declaration
-		if self._check(*_QUALIFIER_KEYWORDS) or self._check(*_STORAGE_CLASS_KEYWORDS):
+		# Qualifiers, storage classes, and function specifiers start a variable declaration
+		if self._check(*_QUALIFIER_KEYWORDS) or self._check(*_STORAGE_CLASS_KEYWORDS) or self._check(*_FUNCTION_SPECIFIER_KEYWORDS):
 			return self._parse_var_decl_stmt()
 		# Typedef name used as type for variable declaration
 		if self._check(TokenType.IDENTIFIER) and self._current().value in self._typedef_names:
@@ -1219,7 +1226,7 @@ class Parser:
 		if self._check(TokenType.INT, TokenType.CHAR, TokenType.VOID, TokenType.FLOAT, TokenType.DOUBLE,
 			TokenType.LONG, TokenType.SHORT, TokenType.SIGNED, TokenType.UNSIGNED, TokenType.BOOL):
 			return True
-		if self._check(*_QUALIFIER_KEYWORDS) or self._check(*_STORAGE_CLASS_KEYWORDS):
+		if self._check(*_QUALIFIER_KEYWORDS) or self._check(*_STORAGE_CLASS_KEYWORDS) or self._check(*_FUNCTION_SPECIFIER_KEYWORDS):
 			return True
 		if self._check(TokenType.IDENTIFIER) and self._current().value in self._typedef_names:
 			return True
