@@ -16,7 +16,6 @@ from compiler.ast_nodes import (
 	CastExpr,
 	CharLiteral,
 	CommaExpr,
-	CompoundAssignment,
 	CompoundLiteral,
 	CompoundStmt,
 	ContinueStmt,
@@ -1355,9 +1354,9 @@ class Parser:
 		if self._current().type in _COMPOUND_ASSIGN:
 			op_tok = self._advance()
 			value = self._parse_assignment()
-			return CompoundAssignment(
-				target=left, op=_COMPOUND_ASSIGN[op_tok.type], value=value, loc=left.loc
-			)
+			op_str = _COMPOUND_ASSIGN[op_tok.type]
+			rhs = BinaryOp(op=op_str, left=left, right=value, loc=left.loc)
+			return Assignment(target=left, value=rhs, loc=left.loc)
 		return left
 
 	def _parse_ternary(self) -> ASTNode:
@@ -1576,6 +1575,10 @@ class Parser:
 				return VaCopyExpr(dest=dest, src=src, loc=self._loc(tok))
 			self._advance()
 			return Identifier(name=tok.value, loc=self._loc(tok))
+
+		if tok.type == TokenType.NULLPTR:
+			self._advance()
+			return IntLiteral(value=0, loc=self._loc(tok))
 
 		if tok.type == TokenType.LPAREN:
 			self._advance()

@@ -2,7 +2,7 @@
 
 import pytest
 
-from compiler.ast_nodes import CompoundAssignment, FunctionDecl, Identifier
+from compiler.ast_nodes import Assignment, BinaryOp, FunctionDecl, Identifier
 from compiler.parser import Parser
 from compiler.semantic import SemanticAnalyzer, SemanticError
 
@@ -29,16 +29,17 @@ class TestBitwiseCompoundAssignments:
 		prog = Parser.from_source(src).parse()
 		func = prog.declarations[0]
 		assert isinstance(func, FunctionDecl)
-		# Find the CompoundAssignment statement (after the var decls)
-		compound_stmts = [
+		# Compound assignments are desugared to Assignment(target, BinaryOp(...))
+		assign_stmts = [
 			s.expression for s in func.body.statements
-			if hasattr(s, "expression") and isinstance(s.expression, CompoundAssignment)
+			if hasattr(s, "expression") and isinstance(s.expression, Assignment)
+			and isinstance(s.expression.value, BinaryOp)
 		]
-		assert len(compound_stmts) == 1
-		ca = compound_stmts[0]
-		assert ca.op == expected_op
-		assert isinstance(ca.target, Identifier)
-		assert ca.target.name == "x"
+		assert len(assign_stmts) == 1
+		a = assign_stmts[0]
+		assert a.value.op == expected_op
+		assert isinstance(a.target, Identifier)
+		assert a.target.name == "x"
 
 	@pytest.mark.parametrize(
 		"op_src, expected_op",

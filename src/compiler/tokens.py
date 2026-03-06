@@ -63,6 +63,7 @@ class TokenType(Enum):
 	WHILE = auto()
 	INLINE = auto()        # inline (C99)
 	STATIC_ASSERT = auto()  # _Static_assert (C11)
+	NULLPTR = auto()       # nullptr (C23)
 
 	# Operators
 	PLUS = auto()          # +
@@ -161,6 +162,7 @@ KEYWORDS: dict[str, TokenType] = {
 	"__inline": TokenType.INLINE,
 	"__inline__": TokenType.INLINE,
 	"_Static_assert": TokenType.STATIC_ASSERT,
+	"nullptr": TokenType.NULLPTR,
 }
 
 
