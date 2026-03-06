@@ -169,6 +169,7 @@ class IRGenerator(ASTVisitor):
 		self._locals: dict[str, IRTemp] = {}
 		self._local_types: dict[str, TypeSpec] = {}
 		self._local_array: dict[str, list[int]] = {}
+		self._local_alloc: set[str] = set()
 		self._temp_types: dict[str, IRType] = {}
 		self._temp_unsigned: dict[str, bool] = {}
 		self._functions: list[IRFunction] = []
@@ -342,6 +343,7 @@ class IRGenerator(ASTVisitor):
 		old_locals = self._locals
 		old_types = self._local_types
 		old_arrays = self._local_array
+		old_allocs = self._local_alloc
 		old_temp_types = self._temp_types
 		old_temp_unsigned = self._temp_unsigned
 		old_in_function = self._in_function
@@ -356,6 +358,7 @@ class IRGenerator(ASTVisitor):
 		self._locals = {}
 		self._local_types = {}
 		self._local_array = {}
+		self._local_alloc = set()
 		self._temp_types = {}
 		self._temp_unsigned = {}
 		self._temp_pointee_size = {}
@@ -408,6 +411,7 @@ class IRGenerator(ASTVisitor):
 			self._emit(IRAlloc(dest=stack_addr, size=size))
 			self._emit(IRStore(address=stack_addr, value=p_temp))
 			self._locals[param_name] = stack_addr
+			self._local_alloc.add(param_name)
 
 		self.visit(node.body)
 
@@ -427,6 +431,7 @@ class IRGenerator(ASTVisitor):
 		self._locals = old_locals
 		self._local_types = old_types
 		self._local_array = old_arrays
+		self._local_alloc = old_allocs
 		self._temp_types = old_temp_types
 		self._temp_unsigned = old_temp_unsigned
 		self._in_function = old_in_function
@@ -627,9 +632,17 @@ class IRGenerator(ASTVisitor):
 					size_vals.append(val)
 			self._local_array[node.name] = size_vals
 			self._emit(IRAlloc(dest=dest, size=element_size * total_elements))
+			self._local_alloc.add(node.name)
 		else:
 			alloc_size = 8 if is_fp else self._resolve_type_size(node.type_spec)
 			self._emit(IRAlloc(dest=dest, size=alloc_size))
+			# Only structs, unions and arrays use the alloc pointer; scalars store values directly
+			base = node.type_spec.base_type
+			if node.type_spec.pointer_count == 0 and (
+				(base.startswith("struct ") and base[len("struct "):] in self._structs) or
+				(base.startswith("union ") and base[len("union "):] in self._unions)
+			):
+				self._local_alloc.add(node.name)
 		if node.initializer is not None:
 			if isinstance(node.initializer, InitializerList):
 				self._emit_initializer_list(dest, node)
@@ -707,7 +720,9 @@ class IRGenerator(ASTVisitor):
 			dest = self._new_temp()
 			ir_type = self._resolve_local_ir_type(node.name)
 			self._set_temp_type(dest, ir_type)
-			self._emit(IRLoad(dest=dest, address=IRGlobalRef(mangled), ir_type=ir_type))
+			ts = self._local_types.get(node.name)
+			load_unsigned = ts is not None and ts.signedness == "unsigned"
+			self._emit(IRLoad(dest=dest, address=IRGlobalRef(mangled), ir_type=ir_type, is_unsigned=load_unsigned))
 			return dest
 		src = self._locals.get(node.name)
 		if src is not None:
@@ -740,9 +755,10 @@ class IRGenerator(ASTVisitor):
 			if global_ts is not None:
 				ir_type = _resolve_ir_type(global_ts)
 				self._set_temp_type(dest, ir_type)
-				if global_ts.signedness == "unsigned":
+				load_unsigned = global_ts.signedness == "unsigned"
+				if load_unsigned:
 					self._temp_unsigned[dest.name] = True
-				self._emit(IRLoad(dest=dest, address=IRGlobalRef(node.name), ir_type=ir_type))
+				self._emit(IRLoad(dest=dest, address=IRGlobalRef(node.name), ir_type=ir_type, is_unsigned=load_unsigned))
 			else:
 				self._emit(IRLoad(dest=dest, address=IRGlobalRef(node.name)))
 			return dest
@@ -910,7 +926,8 @@ class IRGenerator(ASTVisitor):
 					signedness=operand_ts.signedness,
 				))
 				self._set_temp_type(dest, load_type)
-			self._emit(IRLoad(dest=dest, address=ptr, ir_type=load_type))
+			load_unsigned = operand_ts is not None and operand_ts.signedness == "unsigned"
+			self._emit(IRLoad(dest=dest, address=ptr, ir_type=load_type, is_unsigned=load_unsigned))
 			return dest
 		if node.op == "&":
 			# Address-of a function -> get function address
@@ -944,7 +961,12 @@ class IRGenerator(ASTVisitor):
 					ts = self._local_types.get(node.operand.name)
 					if ts is not None:
 						self._temp_pointee_size[dest.name] = self._resolve_member_size(ts)
-					self._emit(IRAddrOf(dest=dest, source=src))
+					if node.operand.name in self._local_alloc:
+						# Alloc'd local: temp already holds pointer to data
+						self._emit(IRCopy(dest=dest, source=src, ir_type=IRType.POINTER))
+					else:
+						# Parameter: need actual address of stack slot
+						self._emit(IRAddrOf(dest=dest, source=src))
 					return dest
 			# Address-of array subscript: return the computed address without loading
 			if isinstance(node.operand, ArraySubscript):
@@ -2593,12 +2615,19 @@ class IRGenerator(ASTVisitor):
 		target_ir_type = _resolve_ir_type(node.target_type)
 		dest = self._new_temp()
 		self._set_temp_type(dest, target_ir_type)
+		# Track signedness change even for same-width casts
+		if node.target_type.signedness == "unsigned":
+			self._temp_unsigned[dest.name] = True
+		cast_unsigned = node.target_type.signedness == "unsigned"
 		if self._is_float_type(target_ir_type) != self._is_float_type(val_type):
-			self._emit(IRConvert(dest=dest, source=val, from_type=val_type, to_type=target_ir_type))
+			self._emit(IRConvert(dest=dest, source=val, from_type=val_type, to_type=target_ir_type, is_unsigned=cast_unsigned))
 		elif self._is_float_type(target_ir_type) and self._is_float_type(val_type) and target_ir_type != val_type:
 			self._emit(IRConvert(dest=dest, source=val, from_type=val_type, to_type=target_ir_type))
 		elif val_type != target_ir_type:
-			self._emit(IRConvert(dest=dest, source=val, from_type=val_type, to_type=target_ir_type))
+			self._emit(IRConvert(dest=dest, source=val, from_type=val_type, to_type=target_ir_type, is_unsigned=cast_unsigned))
+		elif target_ir_type in (IRType.CHAR, IRType.SHORT):
+			# Same type but may need sign/zero extension (e.g. unsigned char -> signed char)
+			self._emit(IRConvert(dest=dest, source=val, from_type=val_type, to_type=target_ir_type, is_unsigned=cast_unsigned))
 		else:
 			self._emit(IRCopy(dest=dest, source=val, ir_type=target_ir_type))
 		return dest

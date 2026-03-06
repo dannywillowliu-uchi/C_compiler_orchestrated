@@ -169,6 +169,7 @@ class IRLoad(IRInstruction):
 	dest: IRTemp
 	address: IRValue
 	ir_type: IRType = IRType.INT
+	is_unsigned: bool = False
 
 	def __str__(self) -> str:
 		return f"{self.dest} = *{self.address}"
@@ -264,6 +265,7 @@ class IRConvert(IRInstruction):
 	source: IRValue
 	from_type: IRType = IRType.INT
 	to_type: IRType = IRType.FLOAT
+	is_unsigned: bool = False
 
 	def __str__(self) -> str:
 		return f"{self.dest} = convert {self.source} {self.from_type.name}->{self.to_type.name}"
