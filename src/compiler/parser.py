@@ -148,10 +148,16 @@ _TYPE_SPECIFIER_START: set[TokenType] = _TYPE_KEYWORDS | _QUALIFIER_KEYWORDS | _
 class Parser:
 	"""Recursive descent parser that builds AST nodes from a token stream."""
 
+	_PREDEFINED_TYPEDEF_NAMES: set[str] = {
+		"int8_t", "uint8_t", "int16_t", "uint16_t",
+		"int32_t", "uint32_t", "int64_t", "uint64_t",
+		"intptr_t", "uintptr_t",
+	}
+
 	def __init__(self, tokens: list[Token]) -> None:
 		self.tokens = tokens
 		self.pos = 0
-		self._typedef_names: set[str] = set()
+		self._typedef_names: set[str] = set(self._PREDEFINED_TYPEDEF_NAMES)
 		self._last_storage_class: str | None = None
 		self._anon_counter: int = 0
 		self._pending_decls: list[ASTNode] = []
