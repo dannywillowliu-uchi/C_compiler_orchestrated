@@ -791,3 +791,28 @@ class TestTernaryErrors:
 		}
 		"""
 		assert_semantic_error(source, "incompatible types in ternary branches")
+
+
+class TestInlineAndQualifiers:
+	"""Regression tests for inline specifier and pointer qualifiers."""
+
+	def test_static_inline_function(self):
+		parse("static inline int f(void) { return 1; } int main() { return f()-1; }")
+
+	def test_extern_inline_function(self):
+		parse("extern inline int f(void) { return 0; }")
+
+	def test_inline_alone(self):
+		parse("inline int f(void) { return 0; }")
+
+	def test_const_qualified_pointer(self):
+		parse("int g = 5; int * const p = &g; int main() { return *p; }")
+
+	def test_volatile_qualified_pointer(self):
+		parse("int g = 5; int * volatile p = &g;")
+
+	def test_anonymous_struct_declaration(self):
+		parse("struct { int x; } a; int main() { a.x = 1; return a.x; }")
+
+	def test_static_volatile_struct(self):
+		parse("static volatile int x = 1; int main() { return x; }")
