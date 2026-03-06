@@ -124,6 +124,7 @@ class TokenType(Enum):
 # Map keyword strings to their token types
 KEYWORDS: dict[str, TokenType] = {
 	"_Bool": TokenType.BOOL,
+	"bool": TokenType.BOOL,
 	"auto": TokenType.AUTO,
 	"break": TokenType.BREAK,
 	"case": TokenType.CASE,
