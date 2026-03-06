@@ -697,6 +697,12 @@ class IRGenerator(ASTVisitor):
 				self._func_ptr_locals.add(node.name)
 			return
 
+		# Extern local: treat as global reference (no local allocation)
+		if node.storage_class == "extern":
+			self._emit_global_var(node.name, node)
+			self._global_types[node.name] = node.type_spec
+			return
+
 		# Static local: emit as global with mangled name, reference via IRGlobalRef
 		if node.storage_class == "static":
 			mangled = f"{self._current_function_name}.{node.name}"
