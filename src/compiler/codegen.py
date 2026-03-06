@@ -925,7 +925,7 @@ class CodeGenerator:
 		# Implicit epilogue
 		last_is_return = func.body and isinstance(func.body[-1], IRReturn)
 		if not last_is_return:
-			if func.return_type != IRType.VOID:
+			if func.return_type != IRType.VOID or func.name == "main":
 				if _is_float(func.return_type):
 					self._emit_instr("xorps %xmm0, %xmm0")
 				else:

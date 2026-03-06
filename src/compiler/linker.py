@@ -300,8 +300,8 @@ def _generate_extern_stubs(asm_source: str) -> str:
 		if sym not in call_targets:
 			data_refs.add(sym)
 
-	# Also find data refs in .quad directives
-	for m in re.finditer(r"\.quad\s+(\w+)", asm_source):
+	# Also find data refs in .quad directives (exclude numeric literals)
+	for m in re.finditer(r"\.quad\s+([A-Za-z_]\w*)", asm_source):
 		sym = m.group(1)
 		if sym not in call_targets:
 			data_refs.add(sym)
