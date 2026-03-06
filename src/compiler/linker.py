@@ -97,8 +97,14 @@ def transform_asm_for_macos(asm: str) -> str:
 	call_targets: set[str] = set()
 	for m in re.finditer(r"\bcall\s+(\w+)\s*$", asm, re.MULTILINE):
 		call_targets.add(m.group(1))
-	# All symbols that need _ prefix (globals + call targets that have labels)
-	all_c_symbols = globals_set | call_targets
+	# Collect symbol references in .quad directives (e.g. function pointers in data)
+	quad_symbols: set[str] = set()
+	for m in re.finditer(r"\.quad\s+(\w+)", asm):
+		sym = m.group(1)
+		if not sym.startswith(".") and not sym.isdigit():
+			quad_symbols.add(sym)
+	# All symbols that need _ prefix (globals + call targets + data references)
+	all_c_symbols = globals_set | call_targets | quad_symbols
 
 	lines = asm.splitlines()
 	out: list[str] = []
