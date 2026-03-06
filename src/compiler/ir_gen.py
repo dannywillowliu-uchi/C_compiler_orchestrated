@@ -1246,6 +1246,17 @@ class IRGenerator(ASTVisitor):
 		if isinstance(node.target, ArraySubscript):
 			addr = self._compute_array_addr(node.target)
 			elem_type = self._array_element_ir_type(node.target)
+			val_type = self._value_ir_type(val)
+			if self._is_float_type(elem_type) and not self._is_float_type(val_type):
+				conv = self._new_temp()
+				self._set_temp_type(conv, elem_type)
+				self._emit(IRConvert(dest=conv, source=val, from_type=val_type, to_type=elem_type))
+				val = conv
+			elif not self._is_float_type(elem_type) and self._is_float_type(val_type):
+				conv = self._new_temp()
+				self._set_temp_type(conv, elem_type)
+				self._emit(IRConvert(dest=conv, source=val, from_type=val_type, to_type=elem_type))
+				val = conv
 			self._emit(IRStore(address=addr, value=val, ir_type=elem_type))
 			return self._val_as_temp(val, elem_type)
 		if isinstance(node.target, UnaryOp) and node.target.op == "*":
@@ -1274,6 +1285,17 @@ class IRGenerator(ASTVisitor):
 				self._emit_aggregate_copy(addr, val, nested_name)
 				return addr
 			member_type = self._member_ir_type(node.target)
+			val_type = self._value_ir_type(val)
+			if self._is_float_type(member_type) and not self._is_float_type(val_type):
+				conv = self._new_temp()
+				self._set_temp_type(conv, member_type)
+				self._emit(IRConvert(dest=conv, source=val, from_type=val_type, to_type=member_type))
+				val = conv
+			elif not self._is_float_type(member_type) and self._is_float_type(val_type):
+				conv = self._new_temp()
+				self._set_temp_type(conv, member_type)
+				self._emit(IRConvert(dest=conv, source=val, from_type=val_type, to_type=member_type))
+				val = conv
 			self._emit(IRStore(address=addr, value=val, ir_type=member_type))
 			return self._val_as_temp(val, member_type)
 		if isinstance(node.target, Identifier):
