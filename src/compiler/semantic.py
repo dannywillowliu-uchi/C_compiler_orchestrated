@@ -347,6 +347,7 @@ class SemanticAnalyzer(ASTVisitor):
 			"intptr_t", "uintptr_t",
 			"size_t", "ptrdiff_t", "wchar_t",
 			"intmax_t", "uintmax_t",
+			"nullptr_t",
 		}
 		self._typedef_types: dict[str, TypeSpec] = {
 			"int8_t": TypeSpec(base_type="signed char"),
@@ -364,6 +365,7 @@ class SemanticAnalyzer(ASTVisitor):
 			"wchar_t": TypeSpec(base_type="int"),
 			"intmax_t": TypeSpec(base_type="long long"),
 			"uintmax_t": TypeSpec(base_type="unsigned long long"),
+			"nullptr_t": TypeSpec(base_type="void", pointer_count=1),
 		}
 		self._in_sizeof_or_addressof: bool = False
 		self._label_defs: dict[str, ASTNode] = {}
@@ -726,7 +728,8 @@ class SemanticAnalyzer(ASTVisitor):
 			self.visit_initializer_list(value)
 		else:
 			val_type = self.visit(value)
-			if val_type is not None and not _types_compatible(expected_type, val_type):
+			resolved_expected = self._resolve_type(expected_type)
+			if val_type is not None and not _types_compatible(resolved_expected, val_type):
 				self._error(
 					"incompatible type in designated initializer",
 					value,
@@ -1077,6 +1080,12 @@ class SemanticAnalyzer(ASTVisitor):
 				self.visit(arg)
 			return fp_type.func_ptr_return_type
 		if not sym.is_function:
+			if sym.storage_class == "extern":
+				# Local extern function declarations are parsed as VarDecl;
+				# allow calls through them
+				for arg in node.arguments:
+					self.visit(arg)
+				return sym.type_spec
 			self._error(f"'{node.name}' is not a function", node)
 			return None
 		# In C, a prototype `int f()` means unspecified params (accept any args)
