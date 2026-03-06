@@ -151,7 +151,8 @@ class Parser:
 	_PREDEFINED_TYPEDEF_NAMES: set[str] = {
 		"int8_t", "uint8_t", "int16_t", "uint16_t",
 		"int32_t", "uint32_t", "int64_t", "uint64_t",
-		"intptr_t", "uintptr_t",
+		"intptr_t", "uintptr_t", "ptrdiff_t",
+		"size_t", "ssize_t", "nullptr_t",
 	}
 
 	def __init__(self, tokens: list[Token]) -> None:
@@ -234,8 +235,27 @@ class Parser:
 				declarations.append(result)
 		return Program(declarations=declarations, loc=SourceLocation(1, 1))
 
+	def _skip_c23_attributes(self) -> None:
+		"""Skip C23 [[...]] attributes."""
+		while self._check(TokenType.LBRACKET) and self._peek(1).type == TokenType.LBRACKET:
+			self._advance()  # first [
+			self._advance()  # second [
+			depth = 1
+			while depth > 0 and not self._at_end():
+				if self._check(TokenType.LBRACKET):
+					depth += 1
+				elif self._check(TokenType.RBRACKET):
+					depth -= 1
+				self._advance()
+			# consume closing ]
+			if self._check(TokenType.RBRACKET):
+				self._advance()
+
 	def _parse_top_level_decl(self) -> ASTNode:
 		"""Parse a top-level declaration (function, global variable, struct, enum, or typedef)."""
+		# Skip C23 [[...]] attributes
+		self._skip_c23_attributes()
+
 		# Check for _Static_assert
 		if self._check(TokenType.STATIC_ASSERT):
 			return self._parse_static_assert()
@@ -372,7 +392,7 @@ class Parser:
 
 		# Now parse the base type
 		tok = self._current()
-		if tok.type == TokenType.IDENTIFIER and tok.value in self._typedef_names:
+		if tok.type == TokenType.IDENTIFIER and tok.value in self._typedef_names and signedness is None and width_modifier is None:
 			self._advance()
 			base_type = tok.value
 		elif tok.type in _QUALIFIER_KEYWORDS:
@@ -486,8 +506,7 @@ class Parser:
 		if self._check(TokenType.COLON):
 			# Unnamed bitfield: type : width ;
 			self._advance()
-			width_tok = self._expect(TokenType.INTEGER_LITERAL, "Expected bitfield width")
-			bit_width = int(width_tok.value)
+			bit_width = self._parse_bitfield_width()
 			self._expect(TokenType.SEMICOLON, "Expected ';' after struct member")
 			return StructMember(
 				type_spec=member_type,
@@ -502,8 +521,7 @@ class Parser:
 		if self._check(TokenType.COLON):
 			# Named bitfield: type name : width ;
 			self._advance()
-			width_tok = self._expect(TokenType.INTEGER_LITERAL, "Expected bitfield width")
-			bit_width = int(width_tok.value)
+			bit_width = self._parse_bitfield_width()
 		else:
 			while self._match(TokenType.LBRACKET):
 				dims.append(self._parse_expression())
@@ -516,6 +534,19 @@ class Parser:
 			bit_width=bit_width,
 			loc=self._loc(loc_tok),
 		)
+
+	def _parse_bitfield_width(self) -> int:
+		"""Parse a bitfield width expression, evaluating it to an integer constant."""
+		from compiler.const_eval import ConstExprEvaluator
+		if self._check(TokenType.INTEGER_LITERAL):
+			tok = self._advance()
+			return int(tok.value)
+		expr = self._parse_ternary()
+		evaluator = ConstExprEvaluator()
+		result = evaluator.evaluate(expr)
+		if result is not None:
+			return int(result)
+		return 0
 
 	def _parse_struct_decl(self) -> ASTNode | list[ASTNode]:
 		"""Parse 'struct [name] { ... };' or 'struct [name] { ... } var, *ptr;' or forward decl."""
@@ -890,6 +921,8 @@ class Parser:
 
 	def _parse_statement(self) -> ASTNode:
 		"""Parse a single statement."""
+		# Skip C23 [[...]] attributes
+		self._skip_c23_attributes()
 		# Empty statement (bare ;)
 		if self._check(TokenType.SEMICOLON):
 			tok = self._advance()
@@ -1201,6 +1234,18 @@ class Parser:
 			)]
 
 		name_tok = self._expect(TokenType.IDENTIFIER, "Expected variable name")
+		# Local extern function declaration: extern type name(params);
+		if self._check(TokenType.LPAREN):
+			self._advance()  # consume '('
+			while not self._check(TokenType.RPAREN) and not self._at_end():
+				self._advance()
+			self._expect(TokenType.RPAREN, "Expected ')' after function params")
+			self._expect(TokenType.SEMICOLON, "Expected ';' after function declaration")
+			decl = VarDecl(
+				type_spec=type_spec, name=name_tok.value,
+				storage_class=storage_class, loc=self._loc(name_tok),
+			)
+			return [decl]
 		array_sizes = self._parse_array_dimensions()
 		initializer = self._parse_optional_initializer()
 		first_decl = VarDecl(
@@ -1319,7 +1364,11 @@ class Parser:
 		"""Parse ternary conditional: expr ? expr : expr (right-associative)."""
 		expr = self._parse_binop(1)
 		if self._match(TokenType.QUESTION):
-			true_expr = self._parse_expression()
+			# GNU extension: ?: (elvis operator) - omitted true expr means use condition
+			if self._check(TokenType.COLON):
+				true_expr = expr
+			else:
+				true_expr = self._parse_expression()
 			self._expect(TokenType.COLON, "Expected ':' in ternary expression")
 			false_expr = self._parse_ternary()
 			return TernaryExpr(
@@ -1353,6 +1402,17 @@ class Parser:
 		if tok.type == TokenType.LPAREN and self._is_type_start(1):
 			self._advance()  # consume '('
 			cast_type = self._parse_type_spec()
+			# Handle pointer-to-array declarator: (type(*)[N]) or (type(*)[])
+			if self._check(TokenType.LPAREN) and self._peek(1).type == TokenType.STAR:
+				self._advance()  # consume '('
+				self._advance()  # consume '*'
+				cast_type.pointer_count += 1
+				self._expect(TokenType.RPAREN, "Expected ')' in declarator")
+				if self._check(TokenType.LBRACKET):
+					self._advance()  # consume '['
+					if not self._check(TokenType.RBRACKET):
+						self._parse_expression()  # consume array size
+					self._expect(TokenType.RBRACKET, "Expected ']' after array size")
 			# Handle array type in compound literal: (int[]){...} or (int[N]){...}
 			if self._check(TokenType.LBRACKET):
 				self._advance()  # consume '['
@@ -1463,7 +1523,11 @@ class Parser:
 				raw = raw[:-1]
 			elif raw.endswith(("l", "L")):
 				raw = raw[:-1]
-			return FloatLiteral(value=float(raw), suffix=suffix, loc=self._loc(tok))
+			if raw.startswith(("0x", "0X")):
+				val = float.fromhex(raw)
+			else:
+				val = float(raw)
+			return FloatLiteral(value=val, suffix=suffix, loc=self._loc(tok))
 
 		if tok.type == TokenType.CHAR_LITERAL:
 			self._advance()
