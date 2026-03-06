@@ -925,11 +925,14 @@ class CodeGenerator:
 		# Implicit epilogue
 		last_is_return = func.body and isinstance(func.body[-1], IRReturn)
 		if not last_is_return:
-			if func.return_type != IRType.VOID:
+			if func.return_type != IRType.VOID or func.name == "main":
 				if _is_float(func.return_type):
 					self._emit_instr("xorps %xmm0, %xmm0")
 				else:
 					self._emit_instr("movq $0, %rax")
+			elif func.name == "main":
+				# C99+: main() implicitly returns 0 even if declared void
+				self._emit_instr("xorl %eax, %eax")
 			self._emit_epilogue()
 
 		# ELF .size directive
