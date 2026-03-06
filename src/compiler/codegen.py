@@ -1042,12 +1042,26 @@ class CodeGenerator:
 		elif op == "^":
 			self._emit_instr("xorq %rcx, %rax")
 		elif op == "<<":
-			self._emit_instr("salq %cl, %rax")
-		elif op == ">>":
-			if unsigned:
-				self._emit_instr("shrq %cl, %rax")
+			if instr.ir_type == IRType.INT:
+				self._emit_instr("sall %cl, %eax")
+				self._emit_instr("movl %eax, %eax")
 			else:
-				self._emit_instr("sarq %cl, %rax")
+				self._emit_instr("salq %cl, %rax")
+		elif op == ">>":
+			if instr.ir_type == IRType.INT:
+				if unsigned:
+					self._emit_instr("movl %eax, %eax")
+					self._emit_instr("shrl %cl, %eax")
+					self._emit_instr("movl %eax, %eax")
+				else:
+					self._emit_instr("movslq %eax, %rax")
+					self._emit_instr("sarl %cl, %eax")
+					self._emit_instr("movslq %eax, %rax")
+			else:
+				if unsigned:
+					self._emit_instr("shrq %cl, %rax")
+				else:
+					self._emit_instr("sarq %cl, %rax")
 		else:
 			raise ValueError(f"Unknown binary operator: {op}")
 
@@ -1191,7 +1205,10 @@ class CodeGenerator:
 
 	def _gen_return(self, instr: IRReturn) -> None:
 		if instr.value is not None:
-			self._load_value(instr.value, "%rax")
+			if _is_float(instr.ir_type):
+				self._load_float_value(instr.value, "%xmm0", instr.ir_type)
+			else:
+				self._load_value(instr.value, "%rax")
 		self._emit_epilogue()
 
 	def _gen_alloc(self, instr: IRAlloc) -> None:

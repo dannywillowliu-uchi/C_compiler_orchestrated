@@ -196,6 +196,7 @@ class TypeSpec(ASTNode):
 	is_function_pointer: bool = False
 	func_ptr_return_type: TypeSpec | None = None
 	func_ptr_params: list[TypeSpec] = field(default_factory=list)
+	pointee_array_size: int | None = None  # For pointer-to-array types like char(*)[32]
 
 	def accept(self, visitor: ASTVisitor) -> Any:
 		return visitor.visit_type_spec(self)
