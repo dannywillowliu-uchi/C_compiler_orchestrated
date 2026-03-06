@@ -18,6 +18,7 @@ from compiler.ir import (
 	IRFloatConst,
 	IRFunction,
 	IRGlobalRef,
+	IRGlobalVar,
 	IRJump,
 	IRLabelInstr,
 	IRLoad,
@@ -71,6 +72,23 @@ _GAS_ESCAPE_MAP = {
 	"\r": "\\r",
 	"\v": "\\v",
 }
+
+
+def _global_alignment(g: IRGlobalVar) -> int:
+	"""Return the required alignment in bytes for a global variable."""
+	if g.symbol_initializer is not None or g.string_label is not None:
+		return 8
+	if g.ir_type in (IRType.POINTER, IRType.LONG, IRType.DOUBLE):
+		return 8
+	if g.ir_type in (IRType.INT, IRType.FLOAT):
+		return 4
+	if g.ir_type == IRType.SHORT:
+		return 2
+	if g.total_size >= 8:
+		return 8
+	if g.total_size >= 4:
+		return 4
+	return 1
 
 
 def _escape_for_gas(s: str) -> str:
@@ -525,6 +543,9 @@ class CodeGenerator:
 		if initialized:
 			self._emit(".section .data")
 			for g in initialized:
+				align = _global_alignment(g)
+				if align > 1:
+					self._emit_instr(f".align {align}")
 				if g.storage_class != "static":
 					self._emit(f".globl {g.name}")
 				self._emit(f"{g.name}:")
@@ -547,7 +568,10 @@ class CodeGenerator:
 				elif g.string_label is not None:
 					self._emit_instr(f".quad {g.string_label}")
 				elif g.symbol_initializer is not None:
-					self._emit_instr(f".quad {g.symbol_initializer}")
+					if g.symbol_initializer_offset:
+						self._emit_instr(f".quad {g.symbol_initializer}+{g.symbol_initializer_offset}")
+					else:
+						self._emit_instr(f".quad {g.symbol_initializer}")
 				elif g.ir_type in (IRType.CHAR, IRType.BOOL):
 					self._emit_instr(f".byte {g.initializer}")
 				elif g.ir_type == IRType.SHORT:
@@ -581,6 +605,9 @@ class CodeGenerator:
 		if uninitialized:
 			self._emit(".section .bss")
 			for g in uninitialized:
+				align = _global_alignment(g)
+				if align > 1:
+					self._emit_instr(f".align {align}")
 				if g.storage_class != "static":
 					self._emit(f".globl {g.name}")
 				self._emit(f"{g.name}:")
