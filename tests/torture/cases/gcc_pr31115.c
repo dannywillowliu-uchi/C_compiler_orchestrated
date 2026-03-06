@@ -10,7 +10,7 @@ void foo (int e1)
       if (e1 >>= 4)
         {
           if (e1 >= 1 << 5)
-            return 0;
+            exit(0);
         }
     }
 }
@@ -18,5 +18,6 @@ void foo (int e1)
 int main()
 {
   foo(-(1<<9));
+  abort();
   return 1;
 }
