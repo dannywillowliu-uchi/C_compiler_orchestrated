@@ -524,6 +524,16 @@ class IRGenerator(ASTVisitor):
 							symbol_offset = idx * elem_size
 				elif isinstance(node.initializer, UnaryOp) and node.initializer.op == "-" and isinstance(node.initializer.operand, FloatLiteral):
 					float_init = -node.initializer.operand.value
+				elif isinstance(node.initializer, Identifier) and node.initializer.name in self._global_names:
+					# Bare global name as initializer (array decay to pointer, or address of global)
+					init_name = node.initializer.name
+					if init_name in self._global_array or init_name in self._known_functions:
+						symbol_init = init_name
+					else:
+						# Could be another global variable - try const eval first
+						const_val = self._eval_const_expr(node.initializer)
+						if const_val is not None:
+							init_val = const_val
 				else:
 					const_val = self._eval_const_expr(node.initializer)
 					if const_val is not None:
@@ -693,6 +703,11 @@ class IRGenerator(ASTVisitor):
 		if node.name in self._global_names:
 			dest = self._new_temp()
 			global_ts = self._global_types.get(node.name)
+			# For global arrays, return address (array decays to pointer)
+			if node.name in self._global_array:
+				self._set_temp_type(dest, IRType.POINTER)
+				self._emit(IRCopy(dest=dest, source=IRGlobalRef(node.name), ir_type=IRType.POINTER))
+				return dest
 			# For global aggregates (struct/union), return address, not loaded value
 			if global_ts is not None and global_ts.pointer_count == 0:
 				base = global_ts.base_type
@@ -1118,7 +1133,8 @@ class IRGenerator(ASTVisitor):
 				global_ts = self._global_types.get(node.target.name)
 				if global_ts is not None and global_ts.base_type == "_Bool" and global_ts.pointer_count == 0:
 					val = self._emit_bool_normalize(val)
-				self._emit(IRStore(address=IRGlobalRef(node.target.name), value=val))
+				store_type = _resolve_ir_type(global_ts) if global_ts is not None else IRType.INT
+				self._emit(IRStore(address=IRGlobalRef(node.target.name), value=val, ir_type=store_type))
 				return val if isinstance(val, IRTemp) else self._new_temp()
 		target = self.visit(node.target)
 		if isinstance(target, IRTemp):
@@ -2426,7 +2442,18 @@ class IRGenerator(ASTVisitor):
 
 	def _compute_member_addr(self, node: MemberAccess) -> IRTemp:
 		"""Compute the memory address of a struct/union member."""
-		base = self.visit(node.object)
+		if node.is_arrow:
+			# Arrow access: object is a pointer, visit to get pointer value (= struct address)
+			base = self.visit(node.object)
+		elif isinstance(node.object, ArraySubscript):
+			# Dot access on array element: need address, not loaded value
+			base = self._compute_array_addr(node.object)
+		elif isinstance(node.object, MemberAccess):
+			# Nested dot access: get address of parent member
+			base = self._compute_member_addr(node.object)
+		else:
+			# Identifier (local/global struct) - visit returns address for aggregates
+			base = self.visit(node.object)
 		type_name = self._resolve_aggregate_name(node.object)
 		is_union = type_name in self._unions
 
