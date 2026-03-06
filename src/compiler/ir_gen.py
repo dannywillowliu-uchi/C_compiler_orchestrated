@@ -638,6 +638,12 @@ class IRGenerator(ASTVisitor):
 					const_val = self._eval_const_expr(node.initializer)
 					if const_val is not None:
 						init_val = const_val
+				# Try float const eval for float/double globals without a float_init yet
+				if float_init is None and init_val is None and symbol_init is None and string_label is None:
+					if node.type_spec.base_type in ("float", "double") and node.type_spec.pointer_count == 0:
+						fval = self._eval_const_float_expr(node.initializer)
+						if fval is not None:
+							float_init = fval
 			total_size = 0
 			if node.array_sizes:
 				element_size = self._resolve_member_size(node.type_spec)
@@ -2615,6 +2621,39 @@ class IRGenerator(ASTVisitor):
 			if cond is None:
 				return None
 			return self._eval_const_expr(node.true_expr if cond else node.false_expr)
+		return None
+
+	def _eval_const_float_expr(self, node: ASTNode) -> float | None:
+		"""Evaluate a compile-time constant float expression."""
+		if isinstance(node, FloatLiteral):
+			return node.value
+		if isinstance(node, IntLiteral):
+			return float(node.value)
+		if isinstance(node, UnaryOp):
+			operand = self._eval_const_float_expr(node.operand)
+			if operand is None:
+				return None
+			if node.op == "-":
+				return -operand
+			if node.op == "+":
+				return operand
+			return None
+		if isinstance(node, BinaryOp):
+			left = self._eval_const_float_expr(node.left)
+			right = self._eval_const_float_expr(node.right)
+			if left is None or right is None:
+				return None
+			if node.op == "+":
+				return left + right
+			if node.op == "-":
+				return left - right
+			if node.op == "*":
+				return left * right
+			if node.op == "/" and right != 0:
+				return left / right
+			return None
+		if isinstance(node, CastExpr):
+			return self._eval_const_float_expr(node.operand)
 		return None
 
 	def _collect_init_values(self, init_list: InitializerList) -> list[int]:
