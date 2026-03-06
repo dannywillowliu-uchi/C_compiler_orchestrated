@@ -555,6 +555,24 @@ class IRGenerator(ASTVisitor):
 							else:
 								elem_size = 4
 							symbol_offset = idx * elem_size
+				elif isinstance(node.initializer, CastExpr):
+					# Handle casts wrapping address expressions: (char *)&a[0]
+					inner = node.initializer.operand
+					if isinstance(inner, UnaryOp) and inner.op == "&" and isinstance(inner.operand, ArraySubscript):
+						subscript = inner.operand
+						if isinstance(subscript.array, Identifier):
+							symbol_init = subscript.array.name
+							idx = self._eval_const_expr(subscript.index)
+							if idx is not None:
+								arr_ts = self._global_types.get(subscript.array.name)
+								elem_size = _resolve_size(arr_ts) if arr_ts is not None else 4
+								symbol_offset = idx * elem_size
+					elif isinstance(inner, UnaryOp) and inner.op == "&" and isinstance(inner.operand, Identifier):
+						symbol_init = inner.operand.name
+					else:
+						const_val = self._eval_const_expr(node.initializer)
+						if const_val is not None:
+							init_val = const_val
 				elif isinstance(node.initializer, UnaryOp) and node.initializer.op == "-" and isinstance(node.initializer.operand, FloatLiteral):
 					float_init = -node.initializer.operand.value
 				elif isinstance(node.initializer, Identifier) and node.initializer.name in self._global_names:
@@ -931,6 +949,10 @@ class IRGenerator(ASTVisitor):
 			# Infer load type from the pointer's pointee type
 			load_type = IRType.INT
 			operand_ts = self._infer_expr_type(node.operand)
+			# Pointer-to-array deref: array decays to pointer, so just return the address
+			if operand_ts is not None and operand_ts.pointer_count >= 1 and operand_ts.pointee_array_size is not None:
+				self._set_temp_type(ptr, IRType.POINTER)
+				return ptr
 			# If pointee is a struct/union, return pointer as address (no scalar load)
 			if operand_ts is not None and operand_ts.pointer_count == 1:
 				base = operand_ts.base_type
@@ -1305,6 +1327,13 @@ class IRGenerator(ASTVisitor):
 					deref = TypeSpec(base_type=ts.base_type, width_modifier=ts.width_modifier, signedness=ts.signedness, pointer_count=ts.pointer_count - 1)
 					return _resolve_ir_type(deref)
 				return _resolve_ir_type(ts)
+		# Fallback: infer type from expression (e.g., dereferenced pointer-to-array)
+		ts = self._infer_expr_type(current)
+		if ts is not None and ts.pointer_count > 0:
+			deref = TypeSpec(base_type=ts.base_type, width_modifier=ts.width_modifier, signedness=ts.signedness, pointer_count=ts.pointer_count - 1)
+			return _resolve_ir_type(deref)
+		if ts is not None:
+			return _resolve_ir_type(ts)
 		return IRType.INT
 
 	def _compute_array_addr(self, node: ArraySubscript) -> IRTemp:
@@ -1350,6 +1379,13 @@ class IRGenerator(ASTVisitor):
 					element_size = self._pointee_size_from_type(ts)
 				else:
 					element_size = self._resolve_member_size(ts)
+		else:
+			# Fallback: infer type from expression (e.g., dereferenced pointer-to-array)
+			ts = self._infer_expr_type(current)
+			if ts is not None and ts.pointer_count > 0:
+				element_size = self._pointee_size_from_type(ts)
+			elif ts is not None:
+				element_size = self._resolve_member_size(ts)
 
 		addr = base
 		for d, idx_node in enumerate(index_nodes):
@@ -1684,6 +1720,14 @@ class IRGenerator(ASTVisitor):
 			if node.op == "*":
 				inner = self._infer_expr_type(node.operand)
 				if inner and inner.pointer_count > 0:
+					# Pointer-to-array deref: array decays to pointer to element
+					if inner.pointee_array_size is not None:
+						return TypeSpec(
+							base_type=inner.base_type,
+							pointer_count=inner.pointer_count,
+							width_modifier=inner.width_modifier,
+							signedness=inner.signedness,
+						)
 					return TypeSpec(
 						base_type=inner.base_type,
 						pointer_count=inner.pointer_count - 1,

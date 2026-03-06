@@ -1409,9 +1409,13 @@ class Parser:
 				self._expect(TokenType.RPAREN, "Expected ')' in declarator")
 				if self._check(TokenType.LBRACKET):
 					self._advance()  # consume '['
+					arr_size = 0
 					if not self._check(TokenType.RBRACKET):
-						self._parse_expression()  # consume array size
+						size_expr = self._parse_expression()
+						if isinstance(size_expr, IntLiteral):
+							arr_size = size_expr.value
 					self._expect(TokenType.RBRACKET, "Expected ']' after array size")
+					cast_type.pointee_array_size = arr_size
 			# Handle array type in compound literal: (int[]){...} or (int[N]){...}
 			if self._check(TokenType.LBRACKET):
 				self._advance()  # consume '['
