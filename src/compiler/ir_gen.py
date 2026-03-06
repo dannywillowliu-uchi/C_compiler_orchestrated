@@ -626,6 +626,8 @@ class IRGenerator(ASTVisitor):
 								symbol_offset = idx * elem_size
 					elif isinstance(inner, UnaryOp) and inner.op == "&" and isinstance(inner.operand, Identifier):
 						symbol_init = inner.operand.name
+					elif isinstance(inner, Identifier) and (inner.name in self._known_functions or inner.name in self._global_names):
+						symbol_init = inner.name
 					else:
 						const_val = self._eval_const_expr(node.initializer)
 						if const_val is not None:
@@ -1392,7 +1394,7 @@ class IRGenerator(ASTVisitor):
 				arg_types=arg_types, return_type=ret_type, indirect=True, func_value=func_val,
 			))
 			return dest
-		# Check if this is an indirect call through a function pointer
+		# Check if this is an indirect call through a function pointer (local)
 		if node.name in self._func_ptr_locals:
 			fp_temp = self._locals.get(node.name)
 			if fp_temp is not None:
@@ -1404,6 +1406,17 @@ class IRGenerator(ASTVisitor):
 					arg_types=arg_types, return_type=ret_type, indirect=True, func_value=func_val,
 				))
 				return dest
+		# Check if this is an indirect call through a global function pointer
+		global_ts = self._global_types.get(node.name)
+		if global_ts is not None and global_ts.is_function_pointer:
+			func_val = self._new_temp()
+			self._set_temp_type(func_val, IRType.POINTER)
+			self._emit(IRLoad(dest=func_val, address=IRGlobalRef(node.name), ir_type=IRType.POINTER))
+			self._emit(IRCall(
+				dest=dest, function_name=node.name, args=arg_vals,
+				arg_types=arg_types, return_type=ret_type, indirect=True, func_value=func_val,
+			))
+			return dest
 		self._emit(IRCall(
 			dest=dest, function_name=node.name, args=arg_vals,
 			arg_types=arg_types, return_type=ret_type,
