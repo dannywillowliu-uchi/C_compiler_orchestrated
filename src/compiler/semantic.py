@@ -131,7 +131,15 @@ class SymbolTable:
 
 # Type compatibility helpers
 
-_NUMERIC_TYPES = {"int", "char", "short", "long", "float", "double", "_Bool"}
+_NUMERIC_TYPES = {
+	"int", "char", "short", "long", "float", "double", "_Bool",
+	"signed char", "unsigned char",
+	"unsigned short", "signed short",
+	"unsigned int", "signed int",
+	"unsigned long", "signed long",
+	"long long", "unsigned long long", "signed long long",
+	"long double",
+}
 _ARITHMETIC_OPS = {"+", "-", "*", "/", "%"}
 _COMPARISON_OPS = {"<", ">", "<=", ">=", "==", "!="}
 _LOGICAL_OPS = {"&&", "||"}
@@ -546,6 +554,9 @@ class SemanticAnalyzer(ASTVisitor):
 						inferred = len(node.initializer.value) + 1  # +1 for null terminator
 						size_expr.value = inferred
 						array_size_vals.append(inferred)
+					elif node.storage_class == "extern" or self.symbols.depth() == 0:
+						# Extern/file-scope incomplete arrays are allowed
+						array_size_vals.append(0)
 					else:
 						self._error("array size must be specified or inferred from initializer", node)
 				else:
@@ -626,14 +637,16 @@ class SemanticAnalyzer(ASTVisitor):
 				elif isinstance(elem, InitializerList):
 					self.visit_initializer_list(elem)
 				else:
-					elem_t = self.visit(elem)
-					if elem_t is not None and not _types_compatible(node.type_spec, elem_t):
-						self._error("incompatible type in array initializer element", elem)
-			# Check positional count doesn't exceed array size
-			if declared_size > 0:
-				if not any(isinstance(e, DesignatedInit) for e in init_list.elements):
-					if len(init_list.elements) > declared_size:
-						self._error("excess elements in array initializer", node)
+					self.visit(elem)
+			# Check positional count doesn't exceed total array capacity
+			if declared_size > 0 and not any(isinstance(e, DesignatedInit) for e in init_list.elements):
+				# For multi-dimensional arrays, compute total capacity
+				total_capacity = 1
+				for size_expr in node.array_sizes:  # type: ignore[union-attr]
+					if isinstance(size_expr, IntLiteral) and size_expr.value > 0:
+						total_capacity *= size_expr.value
+				if len(init_list.elements) > total_capacity:
+					self._error("excess elements in array initializer", node)
 		elif base_type.startswith("struct "):
 			struct_name = base_type[len("struct "):]
 			if struct_name in self._struct_types:
@@ -908,6 +921,11 @@ class SemanticAnalyzer(ASTVisitor):
 				self._error("increment/decrement of const variable", node)
 		if node.op == "*":
 			if operand_type.pointer_count < 1:
+				# Arrays decay to pointers and can be dereferenced
+				if isinstance(node.operand, Identifier):
+					sym = self.symbols.lookup(node.operand.name)
+					if sym is not None and sym.is_array:
+						return TypeSpec(base_type=operand_type.base_type)
 				self._error("dereference of non-pointer type", node)
 				return None
 			return TypeSpec(
@@ -1057,7 +1075,11 @@ class SemanticAnalyzer(ASTVisitor):
 		return sym.type_spec
 
 	def visit_array_subscript(self, node: ArraySubscript) -> TypeSpec | None:
+		# Array subscript always needs array decay on the base expression
+		old_flag = self._in_sizeof_or_addressof
+		self._in_sizeof_or_addressof = False
 		base_type = self.visit(node.array)
+		self._in_sizeof_or_addressof = old_flag
 		index_type = self.visit(node.index)
 		if base_type is None:
 			return None
@@ -1070,6 +1092,9 @@ class SemanticAnalyzer(ASTVisitor):
 		elif isinstance(node.array, ArraySubscript):
 			# Nested subscript (multi-dim array): result of inner subscript is still subscriptable
 			is_base_array = True
+		elif isinstance(node.array, MemberAccess):
+			# Member access may yield an array type; trust the type system
+			is_base_array = True
 		if not is_base_array and not _is_pointer(base_type):
 			self._error("subscript requires array or pointer type", node)
 			return None
@@ -1077,7 +1102,7 @@ class SemanticAnalyzer(ASTVisitor):
 		if index_type is not None and not _is_numeric(index_type):
 			self._error("array index must be an integer", node)
 			return None
-		# Result type: dereference one pointer level, or base element type for arrays
+		# Result type: dereference one pointer level (arrays decay to pointers, so subscript undoes one level)
 		if _is_pointer(base_type):
 			return TypeSpec(
 				base_type=base_type.base_type,
@@ -1160,15 +1185,10 @@ class SemanticAnalyzer(ASTVisitor):
 		node.target_type = self._resolve_type(node.target_type)
 		target = node.target_type
 		if operand_type is not None:
-			# Allow: numeric-to-numeric, pointer-to-pointer, numeric-to-pointer, pointer-to-numeric
-			src_numeric = _is_numeric(operand_type)
-			src_pointer = _is_pointer(operand_type)
-			tgt_numeric = _is_numeric(target)
-			tgt_pointer = _is_pointer(target)
-			if not ((src_numeric and tgt_numeric)
-				or (src_pointer and tgt_pointer)
-				or (src_numeric and tgt_pointer)
-				or (src_pointer and tgt_numeric)):
+			# Only reject casts involving struct/union types (non-scalar)
+			src_struct = operand_type.base_type.startswith(("struct ", "union ")) and operand_type.pointer_count == 0
+			tgt_struct = target.base_type.startswith(("struct ", "union ")) and target.pointer_count == 0
+			if src_struct or tgt_struct:
 				self._error(
 					f"invalid cast from '{operand_type.base_type}' to '{target.base_type}'",
 					node,
