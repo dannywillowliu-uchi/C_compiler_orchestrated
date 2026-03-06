@@ -263,6 +263,85 @@ def link(
 		raise ToolchainError(f"Linking failed:\n{stderr}")
 
 
+def _generate_extern_stubs(asm_source: str) -> str:
+	"""Generate assembly stubs for undefined extern symbols.
+
+	Scans assembly for call targets and data references that have no
+	corresponding label definition, then appends minimal stubs:
+	- Functions: .globl <name>; <name>: xorl %eax,%eax; ret
+	- Data: .comm <name>,64,8 (allocates zero-initialized space)
+	"""
+	lines = asm_source.splitlines()
+
+	# Collect all label definitions
+	defined_labels: set[str] = set()
+	for line in lines:
+		m = re.match(r"^(\w+):", line)
+		if m:
+			defined_labels.add(m.group(1))
+
+	# Collect symbols from .globl directives (they're defined somewhere)
+	for m in re.finditer(r"\.globl\s+(\w+)", asm_source):
+		defined_labels.add(m.group(1))
+
+	# Collect symbols from .comm directives (already allocated)
+	for m in re.finditer(r"\.comm\s+(\w+)", asm_source):
+		defined_labels.add(m.group(1))
+
+	# Find all call targets
+	call_targets: set[str] = set()
+	for m in re.finditer(r"\bcall\s+(\w+)\s*$", asm_source, re.MULTILINE):
+		call_targets.add(m.group(1))
+
+	# Find all data references via lea (e.g. leaq symbol(%rip), %reg)
+	data_refs: set[str] = set()
+	for m in re.finditer(r"\blea[qlwb]?\s+(\w+)\(%rip\)", asm_source):
+		sym = m.group(1)
+		if sym not in call_targets:
+			data_refs.add(sym)
+
+	# Also find data refs in .quad directives
+	for m in re.finditer(r"\.quad\s+(\w+)", asm_source):
+		sym = m.group(1)
+		if sym not in call_targets:
+			data_refs.add(sym)
+
+	# Built-in/runtime symbols that the system linker resolves
+	runtime_syms = {"printf", "exit", "abort", "malloc", "free", "calloc", "realloc",
+		"memcpy", "memmove", "memset", "memcmp", "strlen", "strcmp", "strcpy",
+		"strncpy", "strcat", "strncat", "strncmp", "puts", "putchar", "getchar",
+		"sprintf", "snprintf", "fprintf", "scanf", "sscanf", "fscanf",
+		"fopen", "fclose", "fread", "fwrite", "fgets", "fputs",
+		"atoi", "atol", "atof", "strtol", "strtoul", "strtod",
+		"qsort", "bsearch", "rand", "srand", "time",
+		"sin", "cos", "tan", "sqrt", "pow", "log", "exp", "fabs",
+		"ceil", "floor", "round", "fmod",
+		"__stack_chk_fail", "___stack_chk_fail", "___stack_chk_guard"}
+
+	# Generate function stubs for undefined call targets
+	undefined_funcs = call_targets - defined_labels - runtime_syms
+	undefined_data = data_refs - defined_labels - runtime_syms
+
+	if not undefined_funcs and not undefined_data:
+		return asm_source
+
+	stubs: list[str] = ["\n# Auto-generated stubs for undefined extern symbols"]
+	stubs.append(".section .text")
+
+	for func in sorted(undefined_funcs):
+		stubs.append(f".globl {func}")
+		stubs.append(f"{func}:")
+		stubs.append("\txorl %eax, %eax")
+		stubs.append("\tret")
+
+	if undefined_data:
+		stubs.append(".section .bss")
+		for sym in sorted(undefined_data):
+			stubs.append(f".comm {sym},64,8")
+
+	return asm_source + "\n".join(stubs) + "\n"
+
+
 def compile_and_link(
 	asm_source: str,
 	output: str,
@@ -299,6 +378,9 @@ def compile_and_link(
 		if not re.search(r"^main:|^_main:", asm_source, re.MULTILINE):
 			asm_source += "\n.globl main\nmain:\n\txorl %eax, %eax\n\tret\n"
 
+		# Generate stubs for undefined extern symbols (functions and data)
+		asm_source = _generate_extern_stubs(asm_source)
+
 		# Write assembly (transform for macOS if needed)
 		asm_text = transform_asm_for_macos(asm_source) if toolchain.system == "Darwin" else asm_source
 		Path(asm_file).write_text(asm_text)
@@ -306,7 +388,11 @@ def compile_and_link(
 		# Assemble
 		assemble(asm_file, obj_file, toolchain=toolchain)
 
-		# Link
+		# Link (always include math library)
+		if libraries is None:
+			libraries = []
+		if "m" not in libraries:
+			libraries.append("m")
 		link([obj_file], output, libraries=libraries, toolchain=toolchain)
 	finally:
 		if not keep_intermediates:
