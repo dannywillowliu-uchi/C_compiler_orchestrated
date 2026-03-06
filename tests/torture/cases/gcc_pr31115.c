@@ -1,7 +1,7 @@
 /* Adapted from gcc.dg/torture/pr31115.c */
 
 extern void exit(int);
-extern void abort(void);
+extern void abort();
 void foo (int e1)
 {
   if (e1 < 0)
@@ -19,5 +19,4 @@ int main()
 {
   foo(-(1<<9));
   abort();
-  return 1;
 }

@@ -15,5 +15,5 @@ main (void)
   TEST_I_F(signed int, unsigned int, __float80, FLOAT80_MANT_DIG, FLOAT80_MAX_EXP);
   TEST_I_F(signed long, unsigned long, __float80, FLOAT80_MANT_DIG, FLOAT80_MAX_EXP);
   TEST_I_F(signed long long, unsigned long long, __float80, FLOAT80_MANT_DIG, FLOAT80_MAX_EXP);
-  return 0;
+  exit (0);
 }

@@ -26,7 +26,7 @@ main (void)
     }
 
   if (ep.rx_skbuff[0] != 0)
-    return 1;
+    abort ();
 
   return 0;
 }

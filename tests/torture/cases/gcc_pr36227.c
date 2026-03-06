@@ -10,7 +10,7 @@ int main()
   iptr = (uintptr_t)p - (uintptr_t)&iptr;
   p = (int *)((uintptr_t)&iptr + iptr);
   if (*p != 1)
-    return 1;
+    abort ();
   return 0;
 }
 

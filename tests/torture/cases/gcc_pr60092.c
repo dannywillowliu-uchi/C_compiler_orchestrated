@@ -12,6 +12,6 @@ main (void)
   p = (void *)&ret;
   ret = posix_memalign (&p, sizeof (void *), -1);
   if (p != (void *)&ret)
-    return 1;
+    abort ();
   return 0;
 }

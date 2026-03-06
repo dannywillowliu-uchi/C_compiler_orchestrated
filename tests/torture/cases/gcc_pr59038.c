@@ -20,6 +20,6 @@ main ()
       }
   }
   if (connected_passed[3] != 7)
-    return 1;
+    abort ();
   return 0;
 }

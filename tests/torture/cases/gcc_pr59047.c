@@ -34,6 +34,6 @@ main ()
 {
   fn1 ();
   if (b != 1)
-    return 1;
+    abort ();
   return 0;
 }

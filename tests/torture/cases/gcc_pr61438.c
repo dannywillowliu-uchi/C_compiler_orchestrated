@@ -32,12 +32,12 @@ foo ()
 	    {
 	      i = *d;
 	      if (!i)
-		return 1;
+		abort ();
 	    }
 	}
     }
   if (!i)
-    return 1;
+    abort ();
 }
 
 int

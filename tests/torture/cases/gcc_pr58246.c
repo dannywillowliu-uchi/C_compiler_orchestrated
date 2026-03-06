@@ -15,7 +15,7 @@ int main ()
     }
 
   if (b != 1)
-    return 1;
+    abort ();
 
   return 0;
 }

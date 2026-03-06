@@ -68,7 +68,7 @@ static uint16_t func_35 (int32_t * p_36, uint64_t p_37, uint32_t p_38);
 static uint16_t func_35 (int32_t * p_36, uint64_t p_37, uint32_t p_38)
 {
   if (g_62 != 0)
-    return 1;
+    abort ();
   for (g_39 = 1; g_39 < 0; g_39 = 1)
     {
     }
@@ -85,9 +85,9 @@ static int32_t func_19 (int32_t p_20)
       func_35 (0, 1 <= (safe_add_func_int8_t_s_s (g_47, g_46)) > p_20 < 1, 1);
       g_133 = 1;
       if (g_114 != 0)
-	return 1;
+	abort ();
       if (g_126 != 0)
-	return 1;
+	abort ();
     }
   return 1;
 }
@@ -110,7 +110,7 @@ int main (void)
 {
   func_2 (1);
   if (g_133 != 1)
-    return 1;
+    abort ();
   return 0;
 }
 

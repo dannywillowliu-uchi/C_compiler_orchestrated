@@ -15,6 +15,6 @@ main ()
       break;
     }
   if (a[1] != 0)
-    return 1;
+    abort ();
   return 0;
 }

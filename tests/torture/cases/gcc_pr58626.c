@@ -15,6 +15,6 @@ int main(void)
       }
   }
   if (a[1][1] != 1)
-    return 1;
+    abort ();
   return 0;
 }

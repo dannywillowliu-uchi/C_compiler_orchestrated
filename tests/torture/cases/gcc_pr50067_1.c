@@ -16,7 +16,7 @@ int main()
       for (i = 0; i < 32; ++i)
 	(*((unsigned short(*)[32])&a[0]))[i] = (*((char(*)[32])&a[0]))[i+8];
       if (memcmp (&a, &b, sizeof (a)) != 0)
-	return 1;
+	abort ();
     }
 #endif
   return 0;

@@ -6,7 +6,7 @@ main (void)
 {
   void *p = main;
   if ((intptr_t) p & 1)
-    return 1;
+    abort ();
   return 0;
 }
 

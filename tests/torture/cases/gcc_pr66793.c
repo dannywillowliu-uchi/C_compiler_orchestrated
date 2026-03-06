@@ -20,7 +20,7 @@ int
 main ()
 {
   struct S0 **f = &d;
-  d = 0;
-  fn1 (**f);
+  d = 0; 
+  fn1 (**f); 
   return 0;
 }

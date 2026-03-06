@@ -19,6 +19,6 @@ int main()
   int *p = &i;
   foo (&p, &j);
   if (i != 1)
-    return 1;
+    abort ();
   return 0;
 }

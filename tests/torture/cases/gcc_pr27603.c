@@ -9,8 +9,8 @@ int main()
   for (j = 0; j < 6; j++)
   {
     if ((unsigned)j - 3 <= 1)
-      return 0;
+      exit (0);
     a = 1000 * (6 - j);
   }
-  return 1;
+  abort ();
 }

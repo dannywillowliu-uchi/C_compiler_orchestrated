@@ -8,6 +8,6 @@ int main (void)
     n = -2;
 
     if ((-2147483647L - 1L) / (-n) != -1073741824L)
-	return 1;
+	abort ();
     return 0;
 }

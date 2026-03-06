@@ -24,6 +24,6 @@ main ()
 	}
     }
   if (c != 1)
-    return 1;
+    abort();
   return 0;
 }

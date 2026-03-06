@@ -7,9 +7,9 @@ void foo (int i)
 {
     static int n;
     if (i < -128 || i > 127)
-        return;
+        abort ();
     if (++n > 1000)
-        exit(0);
+        exit (0);
 }
 
 int main ()

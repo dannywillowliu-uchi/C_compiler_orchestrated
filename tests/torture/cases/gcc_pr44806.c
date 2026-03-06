@@ -84,6 +84,6 @@ int
 main ()
 {
   if (di_ent_equal ((void *) 0x80143c4d, (void *) 0x80173851) != 0)
-    return 1;
+    abort ();
   return 0;
 }

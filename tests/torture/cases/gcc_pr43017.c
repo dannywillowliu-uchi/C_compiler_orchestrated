@@ -92,7 +92,7 @@ int main()
   for (c = 0; c <= 255; ++c)
     {
       if (foo (c) != res[c])
-	return 1;
+	abort ();
     }
   return 0;
 }

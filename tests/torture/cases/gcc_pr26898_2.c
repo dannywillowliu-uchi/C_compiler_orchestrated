@@ -6,6 +6,6 @@ extern void abort(void);
 int main()
 {
   if (a - 1 > b + 1)
-    return 1;
+    abort();
   return 0;
 }

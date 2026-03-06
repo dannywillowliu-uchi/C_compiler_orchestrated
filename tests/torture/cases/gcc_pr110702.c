@@ -26,6 +26,6 @@ int main()
 {
   f();
   if (a != -1)
-    return 1;
+    abort ();
   return 0;
 }

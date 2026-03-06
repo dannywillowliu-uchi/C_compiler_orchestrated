@@ -1,6 +1,6 @@
 /* Adapted from gcc.dg/torture/pr37731-2.c */
 
-extern void abort(void);
+extern void abort ();
 
 long long xh = 1;
 
@@ -11,7 +11,7 @@ main ()
   long long z = xh * yh;
 
   if (z != yh)
-    return 1;
+    abort ();
 
   return 0;
 }

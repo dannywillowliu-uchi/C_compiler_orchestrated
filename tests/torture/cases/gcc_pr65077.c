@@ -59,7 +59,7 @@ S *getS()
 void verify_p(void *p)
 {
   if (p != P)
-    return 1;
+    abort ();
 }
 
 int main(int argc, char *argv[])

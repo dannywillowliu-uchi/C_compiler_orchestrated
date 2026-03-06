@@ -12,7 +12,7 @@ int main(void)
   int bla[100];
 
   if (try (bla + 50))
-    return 1;
+    abort ();
 
   return 0;
 }

@@ -10,6 +10,6 @@ int f(int a, int b)
 int main()
 {
   if (f(__INT_MAX__, 2) != __INT_MAX__/2 + 1)
-    return 1;
+    abort ();
   return 0;
 }

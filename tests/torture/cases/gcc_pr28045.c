@@ -11,7 +11,7 @@ int Fnegate (struct a b)
   if ((-((long)b.val)) <= ((long) ((1UL << ((sizeof(long) * 8) - 2)) -1UL))
       && (-((long)b.val)) >= (-(((long) ((1UL << ((sizeof(long) * 8) - 2)) -1UL))) - 1))
      return 0 ;
-  return 1;
+  abort ();
 }
 int main ()
 {

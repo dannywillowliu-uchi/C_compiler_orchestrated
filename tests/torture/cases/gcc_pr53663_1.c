@@ -25,6 +25,6 @@ int main()
   v.b = 0;
   f(&v2, v);
   if (v2.b != 0)
-    return 1;
+    abort ();
   return 0;
 }

@@ -14,6 +14,6 @@ int f(unsigned int a, unsigned int b)
 int main()
 {
   if (f (INT_MAX - 15, 41) != 1)
-    return 1;
+    abort ();
   return 0;
 }

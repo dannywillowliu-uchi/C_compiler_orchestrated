@@ -28,6 +28,6 @@ main ()
 {
   foo(y.f0);
   if (y.f0.f0 != 0)
-    return 1;
+    abort ();
   return 0;
 }

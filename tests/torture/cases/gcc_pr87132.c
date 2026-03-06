@@ -13,6 +13,6 @@ int main()
 	e[d] = 0;
       }
   if (c != 0)
-    return 1;
+    abort ();
   return 0;
 }

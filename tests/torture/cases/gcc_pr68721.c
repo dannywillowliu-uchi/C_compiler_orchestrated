@@ -11,7 +11,7 @@ fn1 ()
     {
       for (; a;)
 	if (b)
-	  return 1;
+	  abort ();
       break;
     }
   for (; c;)
@@ -25,7 +25,7 @@ main ()
   *e = fn1 ();
 
   if (!d)
-    return 1;
+    abort ();
 
   return 0;
 }

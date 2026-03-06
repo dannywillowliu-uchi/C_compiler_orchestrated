@@ -10,6 +10,6 @@ main ()
 {
   unsigned t = (0x7fff8001U - x) << (y == 0);
   if (t != 0xffff0000U)
-    return 1;
+    abort ();
   return 0;
 }

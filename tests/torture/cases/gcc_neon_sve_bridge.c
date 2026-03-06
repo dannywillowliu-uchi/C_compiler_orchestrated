@@ -53,10 +53,10 @@ int
 main ()
 {
   if (svget_neonq_test () == 1)
-    return 1;
+    abort ();
   if (svset_neonq_test () == 1)
-    return 1;
+    abort ();
   if (svdup_neonq_test () == 1)
-    return 1;
+    abort ();
   return 0;
 }

@@ -23,6 +23,6 @@ main ()
       continue;
     }
   if (d != 0)
-    return 1;
+    abort();
   return 0;
 }

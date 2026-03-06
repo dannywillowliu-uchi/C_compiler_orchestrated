@@ -22,6 +22,6 @@ int main()
   char ** data = m.ptr;
   *data = s2;
   if (s1 != s2)
-    return 1;
+    abort ();
   return 0;
 }

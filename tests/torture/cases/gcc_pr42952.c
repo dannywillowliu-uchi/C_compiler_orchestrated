@@ -13,6 +13,6 @@ int main(void)
   *p = 0;
   *p = *q;
   if (g[0] != 0)
-    return 1;
+    abort ();
   return 0;
 }

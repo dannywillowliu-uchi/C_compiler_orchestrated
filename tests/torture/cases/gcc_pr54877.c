@@ -17,6 +17,6 @@ int
 main ()
 {
   if (foo () != -64)
-    return 1;
+    abort ();
   return 0;
 }

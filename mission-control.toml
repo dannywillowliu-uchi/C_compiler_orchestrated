@@ -4,12 +4,17 @@ path = "/Users/dannyliu/personal_projects/C_compiler_orchestrated"
 branch = "main"
 objective = """Continue building the C compiler. The compiler should be able to pass the GCC torture tests, with results from the core test runner (tests/torture/runner.py). Focus on the most impactful changes.
 
-Currently 70/225 GCC torture tests pass. Read TORTURE_RESULTS.md for full failure diagnostics and skip analysis showing which missing features block the most tests.
+Currently 199/225 GCC torture tests pass. Read TORTURE_RESULTS.md for full failure diagnostics and skip analysis showing which missing features block the most tests.
 
 Strategy:
 1. Fix FAIL tests first -- these are bugs in existing code (crashes, wrong output)
 2. Fix the highest-count skip patterns to unlock the most new tests at once
 3. Do NOT add unit tests, optimizer passes, or features unrelated to improving the torture test pass rate
+
+CRITICAL RULES:
+- NEVER modify files in tests/torture/cases/. These are canonical GCC torture tests and must not be changed.
+- NEVER modify tests/torture/runner.py or tests/torture/baseline.json.
+- Only modify files in src/compiler/. If a test fails, the compiler is wrong -- fix the compiler, not the test.
 
 The compiler lives in src/compiler/. Use PYTHONPATH=src .venv/bin/python for all commands.
 """

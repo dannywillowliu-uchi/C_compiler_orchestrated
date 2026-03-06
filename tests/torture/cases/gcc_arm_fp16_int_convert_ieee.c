@@ -13,5 +13,5 @@ main (void)
   TEST_I_F(signed int, unsigned int, float, FP16_MANT_DIG, FP16_MAX_EXP);
   TEST_I_F(signed long, unsigned long, float, FP16_MANT_DIG, FP16_MAX_EXP);
   TEST_I_F(signed long long, unsigned long long, float, FP16_MANT_DIG, FP16_MAX_EXP);
-  return 0;
+  exit (0);
 }

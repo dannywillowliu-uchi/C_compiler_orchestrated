@@ -13,6 +13,6 @@ int main()
   a[0] = 1;
   foo (a, 1024);
   if (a[1023] != 1)
-    return 1;
+    abort ();
   return 0;
 }

@@ -22,6 +22,6 @@ int main()
 {
   func_4();
   if (sh != 15)
-    return 1;
+    abort ();
   return 0;
 }

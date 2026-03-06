@@ -28,6 +28,6 @@ int main ()
   a[2].p = (void *)0;
   a[2].res = 0;
   if (foo (0, 3, &x) != 1)
-    return 1;
+    abort ();
   return 0;
 }

@@ -14,7 +14,7 @@ main (void)
   float p = av * bv;
   float r = p + cv;
   if (r == 0)
-    return 0;
+    exit (0);
   else
-    return 1;
+    abort ();
 }

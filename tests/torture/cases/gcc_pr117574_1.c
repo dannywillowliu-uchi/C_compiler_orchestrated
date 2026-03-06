@@ -16,5 +16,5 @@ int main() {
   for (; e(d + 40, d + 76, c + 51) < 4;)
     ;
   if (a != 0)
-    return 1;
+    abort ();
 }

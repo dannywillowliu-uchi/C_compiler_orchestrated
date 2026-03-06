@@ -11,7 +11,7 @@ int main (void)
   int  x2 = 0;
   int  t  = ( 0 || ( INT_MIN - (int) ( x0 - x1 ) ) );
 
-  if ( t != 0 ) { x2 = t; return 1; }
+  if ( t != 0 ) { x2 = t; abort(); }
 
   return 0;
 }

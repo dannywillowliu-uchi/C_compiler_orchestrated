@@ -45,6 +45,6 @@ main ()
       break;
     }
   if (e != 1)
-    return 1;
+    abort ();
   return 0;
 }

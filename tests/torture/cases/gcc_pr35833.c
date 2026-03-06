@@ -16,6 +16,6 @@ extern void abort (void);
 int main()
 {
   if (h(&False.field) != &False.field)
-    return 1;
+    abort ();
   return 0;
 }

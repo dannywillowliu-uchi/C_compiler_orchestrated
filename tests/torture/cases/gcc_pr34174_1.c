@@ -14,7 +14,7 @@ typedef unsigned long long int uint64_t;
 int
 main (void)
 {
-  return 0;
+  exit (0);
 }
 #endif
 
@@ -33,12 +33,12 @@ int
 main (void)
 {
   if (foo (1234512345123ull, 3456734567345ull, 7897897897897ull, 42) != 84)
-    return 1;
+    abort ();
   if (a != 1234512345123ull)
-    return 1;
+    abort ();
   if (b != 3456734567345ull)
-    return 1;
+    abort ();
   if (c != 7897897897897ull)
-    return 1;
-  return 0;
+    abort ();
+  exit (0);
 }

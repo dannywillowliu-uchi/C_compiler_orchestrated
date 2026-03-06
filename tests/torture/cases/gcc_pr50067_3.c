@@ -14,6 +14,6 @@ main ()
       *p &= ~1;
     }
   if (a[4] != 0)
-    return 1;
+    abort ();
   return 0;
 }

@@ -10,6 +10,6 @@ int foo (int x)
 int main()
 {
   if (foo (- __INT_MAX__ - 1) != -1)
-    return 1;
+    abort ();
   return 0;
 }

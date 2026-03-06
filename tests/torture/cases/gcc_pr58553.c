@@ -22,7 +22,7 @@ int main ()
       u2.buf[i] = c;
     }
   if (u1.buf[MAX_LENGTH] != '\0')
-    return 1;
+    abort ();
 
   return 0;
 }

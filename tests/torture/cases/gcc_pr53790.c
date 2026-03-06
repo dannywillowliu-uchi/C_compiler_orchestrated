@@ -4,18 +4,14 @@ typedef struct s {
     int value;
 } s_t;
 
-union u {
-    int value;
-};
-union u extern_var;
-
-static inline int
-readval(s_t const *var)
+static inline int 
+read(s_t const *var)
 {
   return var->value;
 }
 
 int main()
 {
-  return readval((s_t *)&extern_var);
+  extern union u extern_var;
+  return read((s_t *)&extern_var);
 }

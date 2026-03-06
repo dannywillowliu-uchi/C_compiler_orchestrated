@@ -13,6 +13,6 @@ main ()
       b[a + 1] = 0;
     }
   if (b[1] != 1)
-    return 1;
+    abort ();
   return 0;
 }

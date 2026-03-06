@@ -32,6 +32,6 @@ main ()
   p = *f;
   fn1 (p);
   if (b != 0)
-    return 1;
+    abort ();
   return 0;
 }

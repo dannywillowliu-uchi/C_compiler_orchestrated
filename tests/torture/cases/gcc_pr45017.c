@@ -18,7 +18,7 @@ int main()
 {
   char buff = 0x2f;
   if (tester(&buff) != 0x0f)
-    return 1;
+    abort ();
   return 0;
 }
 

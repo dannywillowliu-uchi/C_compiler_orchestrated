@@ -10,6 +10,6 @@ int main ()
     for (b = 0; b < 2; b++)
       a[b + 4][c] = a[c][0];
   if (a[4][4] != 1)
-    return 1;
+    abort ();
   return 0;
 }

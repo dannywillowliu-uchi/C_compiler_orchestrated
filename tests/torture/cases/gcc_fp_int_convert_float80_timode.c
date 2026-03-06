@@ -11,5 +11,5 @@ int
 main (void)
 {
   TEST_I_F(TItype, UTItype, __float80, FLOAT80_MANT_DIG, FLOAT80_MAX_EXP);
-  return 0;
+  exit (0);
 }

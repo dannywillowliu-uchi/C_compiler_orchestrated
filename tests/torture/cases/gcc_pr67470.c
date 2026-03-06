@@ -23,7 +23,7 @@ main ()
 	  }
 
       if (a && !g)
-	return 1;
+	abort ();
 
     }
   return 0;

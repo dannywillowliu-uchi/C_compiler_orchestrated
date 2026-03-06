@@ -16,6 +16,6 @@ main ()
 	b = 0;
     }
   if (b != 0)
-    return 1;
+    abort ();
   return 0;
 }

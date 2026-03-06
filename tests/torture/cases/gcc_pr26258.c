@@ -23,6 +23,6 @@ int main()
   Foo last = (Foo){3, 4};
   Foo ret = foo(first, last, 0);
   if (ret.b != 6)
-    return 1;
+    abort ();
   return 0;
 }

@@ -8,6 +8,6 @@ int main ()
   for (; a < 13; ++a)
     c = (signed char)c - 11;
   if (c != 113)
-    return 1;
+    abort ();
   return 0;
 }

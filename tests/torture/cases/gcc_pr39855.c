@@ -19,6 +19,6 @@ main ()
   j = foo () << 30 << 2;
   k = (unsigned) foo () >> 16 >> 16;
   if (i != 2 || j != 0 || k != 0)
-    return 1;
+    abort ();
   return 0;
 }

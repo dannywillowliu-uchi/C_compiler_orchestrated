@@ -11,6 +11,6 @@ int main ()
       a[b] = 0;
     }
   if (a[0] != 1)
-    return 1;
+    abort ();
   return 0;
 }

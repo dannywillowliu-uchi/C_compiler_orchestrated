@@ -15,7 +15,7 @@ int main() {
       e[2] = f[h];
   g(&a, e[2]);
   if (a != 0)
-    return 1;
+    abort ();
   return 0;
 }
 

@@ -14,6 +14,6 @@ l1:
   if (b)
     goto l1;
   if (c != -1)
-    return 1;
+    abort ();
   return 0;
 }

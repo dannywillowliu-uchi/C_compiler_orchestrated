@@ -1,6 +1,6 @@
 /* Adapted from gcc.dg/torture/pr38405.c */
 
-extern void abort(void);
+extern void abort ();
 extern int printf (char *__format, ...);
 
 struct vpiBinaryConst {
@@ -24,6 +24,6 @@ int main(void)
  struct vpiBinaryConst x={1,0};
  int y=binary_get(1, &x);
  if (y!=1)
-   return 1;
+   abort ();
  return 0;
 }

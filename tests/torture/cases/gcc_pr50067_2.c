@@ -18,7 +18,7 @@ int main()
 	  a[i] = (*((char(*)[32])&a[0]))[i+8];
 	}
       if (memcmp (&a, &b, sizeof (a)) != 0)
-	return 1;
+	abort ();
     }
 #endif
   return 0;

@@ -19,6 +19,6 @@ float foo (float *f)
 int main()
 {
   if (foo (&v.f) != 0.)
-    return 1;
+    abort ();
   return 0;
 }

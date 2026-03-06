@@ -9,6 +9,6 @@ main (void)
   struct ptr { int val; } *ptr = (struct ptr *) &data;
   ptr->val = 0;
   if (data != 0)
-    return 1;
+    abort ();
   return 0;
 }

@@ -1,10 +1,10 @@
 {
-  "timestamp": "2026-03-06T11:45:38.094820+00:00",
+  "timestamp": "2026-03-06T19:22:37.420301+00:00",
   "summary": {
     "total": 225,
-    "passed": 142,
-    "failed": 23,
-    "skipped": 60
+    "passed": 203,
+    "failed": 13,
+    "skipped": 9
   },
   "tests": {
     "gcc_20110719_1": {
@@ -22,11 +22,11 @@
       "exit_code": 0
     },
     "gcc_20200311_1": {
-      "status": "FAIL",
+      "status": "PASS",
       "category": "struct_operations",
-      "error_msg": "crash (signal 11)",
-      "diagnostic": "Process killed by signal 11",
-      "exit_code": -11
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_20210916": {
       "status": "PASS",
@@ -43,11 +43,11 @@
       "exit_code": null
     },
     "gcc_badshift": {
-      "status": "SKIP",
+      "status": "PASS",
       "category": "arithmetic",
-      "error_msg": "compile_source failed: Expected declaration name at 21:13",
-      "diagnostic": "Expected declaration name at 21:13",
-      "exit_code": null
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_bitint_28": {
       "status": "SKIP",
@@ -141,18 +141,18 @@
       "exit_code": 0
     },
     "gcc_builtin_explog_1": {
-      "status": "SKIP",
+      "status": "PASS",
       "category": "pointers_arrays",
-      "error_msg": "compile_source failed: Expected ';' after variable declaration at 38:33",
-      "diagnostic": "Expected ';' after variable declaration at 38:33",
-      "exit_code": null
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_builtin_math_1": {
-      "status": "SKIP",
+      "status": "PASS",
       "category": "misc",
-      "error_msg": "compile_and_link failed: Linking failed:",
-      "diagnostic": "Linking failed:\nUndefined symbols for architecture x86_64:\n  \"_link_error\", referenced from:\n      _test in torture_gcc_builtin_math_1_t7vdhd41.o\n      _test in torture_gcc_builtin_math_1_t7vdhd41.o\n      _test in torture_gcc_builtin_math_1_t7vdhd41.o\n      _test in torture_gcc_builtin_math_1_t7vdhd...",
-      "exit_code": null
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_builtin_power_1": {
       "status": "SKIP",
@@ -169,18 +169,18 @@
       "exit_code": 0
     },
     "gcc_c99_contract_1": {
-      "status": "SKIP",
+      "status": "PASS",
       "category": "misc",
-      "error_msg": "compile_source failed: could not convert string to float: '0x1p-23'",
-      "diagnostic": "could not convert string to float: '0x1p-23'",
-      "exit_code": null
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_crc_linux_5": {
-      "status": "SKIP",
+      "status": "PASS",
       "category": "arithmetic",
-      "error_msg": "compile_source failed: Expected type specifier, got IDENTIFIER ('uint8_t') at 8:31",
-      "diagnostic": "Expected type specifier, got IDENTIFIER ('uint8_t') at 8:31",
-      "exit_code": null
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_crc_side_instr_6": {
       "status": "PASS",
@@ -227,8 +227,8 @@
     "gcc_neon_sve_bridge": {
       "status": "SKIP",
       "category": "misc",
-      "error_msg": "compile_source failed: Expected ';' after expression at 9:11",
-      "diagnostic": "Expected ';' after expression at 9:11",
+      "error_msg": "compile_source failed: Expected ';' after expression at 11:13",
+      "diagnostic": "Expected ';' after expression at 11:13",
       "exit_code": null
     },
     "gcc_pr100923": {
@@ -260,18 +260,18 @@
       "exit_code": 0
     },
     "gcc_pr103219": {
-      "status": "SKIP",
+      "status": "PASS",
       "category": "control_flow",
-      "error_msg": "compile_and_link failed: Linking failed:",
-      "diagnostic": "Linking failed:\nUndefined symbols for architecture x86_64:\n  \"_f\", referenced from:\n      _main in torture_gcc_pr103219_n6aga3ig.o\n  \"_g\", referenced from:\n      _main in torture_gcc_pr103219_n6aga3ig.o\nld: symbol(s) not found for architecture x86_64\nclang: error: linker command failed with exit cod...",
-      "exit_code": null
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr103816": {
-      "status": "SKIP",
+      "status": "PASS",
       "category": "struct_operations",
-      "error_msg": "compile_source failed: 8:3: array size must be specified or inferred from initializer",
-      "diagnostic": "8:3: array size must be specified or inferred from initializer",
-      "exit_code": null
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr104279": {
       "status": "PASS",
@@ -295,11 +295,11 @@
       "exit_code": 0
     },
     "gcc_pr105786": {
-      "status": "SKIP",
+      "status": "FAIL",
       "category": "control_flow",
-      "error_msg": "compile_and_link failed: Linking failed:",
-      "diagnostic": "Linking failed:\nUndefined symbols for architecture x86_64:\n  \"_sink\", referenced from:\n      _main in torture_gcc_pr105786_rbe77aky.o\nld: symbol(s) not found for architecture x86_64\nclang: error: linker command failed with exit code 1 (use -v to see invocation)",
-      "exit_code": null
+      "error_msg": "crash (signal 11)",
+      "diagnostic": "Process killed by signal 11",
+      "exit_code": -11
     },
     "gcc_pr108523": {
       "status": "FAIL",
@@ -323,11 +323,11 @@
       "exit_code": 0
     },
     "gcc_pr108574_3": {
-      "status": "FAIL",
+      "status": "PASS",
       "category": "control_flow",
-      "error_msg": "timeout",
-      "diagnostic": "Binary did not exit within 5 seconds (possible infinite loop)",
-      "exit_code": null
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr110376": {
       "status": "PASS",
@@ -400,25 +400,25 @@
       "exit_code": 0
     },
     "gcc_pr113895_2": {
-      "status": "SKIP",
+      "status": "PASS",
       "category": "control_flow",
-      "error_msg": "compile_and_link failed: Linking failed:",
-      "diagnostic": "Linking failed:\nUndefined symbols for architecture x86_64:\n  \"_d\", referenced from:\n      _main in torture_gcc_pr113895_2_9z474yo6.o\nld: symbol(s) not found for architecture x86_64\nclang: error: linker command failed with exit code 1 (use -v to see invocation)",
-      "exit_code": null
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr113895_3": {
-      "status": "SKIP",
+      "status": "PASS",
       "category": "misc",
-      "error_msg": "compile_and_link failed: Linking failed:",
-      "diagnostic": "Linking failed:\nUndefined symbols for architecture x86_64:\n  \"_f\", referenced from:\n      _main in torture_gcc_pr113895_3_nrr3sqed.o\nld: symbol(s) not found for architecture x86_64\nclang: error: linker command failed with exit code 1 (use -v to see invocation)",
-      "exit_code": null
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr113898": {
-      "status": "FAIL",
+      "status": "PASS",
       "category": "control_flow",
-      "error_msg": "wrong_output (exit code 176)",
-      "diagnostic": "Test assertion failed with exit code 176",
-      "exit_code": 176
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr114551": {
       "status": "PASS",
@@ -442,11 +442,11 @@
       "exit_code": 0
     },
     "gcc_pr115226": {
-      "status": "SKIP",
+      "status": "PASS",
       "category": "arithmetic",
-      "error_msg": "compile_source failed: Unexpected token COLON (':') at 9:18",
-      "diagnostic": "Unexpected token COLON (':') at 9:18",
-      "exit_code": null
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr116544": {
       "status": "PASS",
@@ -505,11 +505,11 @@
       "exit_code": 0
     },
     "gcc_pr121478_1": {
-      "status": "SKIP",
+      "status": "PASS",
       "category": "control_flow",
-      "error_msg": "compile_source failed: Expected type specifier, got IDENTIFIER ('nullptr_t') at 5:5",
-      "diagnostic": "Expected type specifier, got IDENTIFIER ('nullptr_t') at 5:5",
-      "exit_code": null
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr121756": {
       "status": "PASS",
@@ -540,25 +540,25 @@
       "exit_code": null
     },
     "gcc_pr123887": {
-      "status": "SKIP",
+      "status": "PASS",
       "category": "pointers_arrays",
-      "error_msg": "compile_source failed: Expected type specifier, got IDENTIFIER ('bool') at 8:1",
-      "diagnostic": "Expected type specifier, got IDENTIFIER ('bool') at 8:1",
-      "exit_code": null
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr123887_2": {
-      "status": "SKIP",
+      "status": "PASS",
       "category": "misc",
-      "error_msg": "compile_source failed: Expected type specifier, got LBRACKET ('[') at 3:1",
-      "diagnostic": "Expected type specifier, got LBRACKET ('[') at 3:1",
-      "exit_code": null
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr23821": {
       "status": "FAIL",
       "category": "control_flow",
-      "error_msg": "wrong_output (exit code 1)",
-      "diagnostic": "Test assertion failed with exit code 1",
-      "exit_code": 1
+      "error_msg": "crash (signal 6)",
+      "diagnostic": "Process killed by signal 6",
+      "exit_code": -6
     },
     "gcc_pr26258": {
       "status": "PASS",
@@ -582,18 +582,18 @@
       "exit_code": 0
     },
     "gcc_pr26898_1": {
-      "status": "SKIP",
+      "status": "PASS",
       "category": "misc",
-      "error_msg": "compile_source failed: 10:14: use of undeclared identifier 'INT_MIN'",
-      "diagnostic": "10:14: use of undeclared identifier 'INT_MIN'",
-      "exit_code": null
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr26898_2": {
-      "status": "SKIP",
+      "status": "PASS",
       "category": "misc",
-      "error_msg": "compile_source failed: 4:16: use of undeclared identifier 'INT_MAX'",
-      "diagnostic": "4:16: use of undeclared identifier 'INT_MAX'",
-      "exit_code": null
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr27116": {
       "status": "PASS",
@@ -610,18 +610,18 @@
       "exit_code": 0
     },
     "gcc_pr27302": {
-      "status": "SKIP",
+      "status": "PASS",
       "category": "misc",
-      "error_msg": "compile_and_link failed: Linking failed:",
-      "diagnostic": "Linking failed:\nUndefined symbols for architecture x86_64:\n  \"_link_error\", referenced from:\n      _test0 in torture_gcc_pr27302_a6kkpw25.o\nld: symbol(s) not found for architecture x86_64\nclang: error: linker command failed with exit code 1 (use -v to see invocation)",
-      "exit_code": null
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr27302_2": {
-      "status": "SKIP",
+      "status": "PASS",
       "category": "misc",
-      "error_msg": "compile_and_link failed: Linking failed:",
-      "diagnostic": "Linking failed:\nUndefined symbols for architecture x86_64:\n  \"_link_error\", referenced from:\n      _test0 in torture_gcc_pr27302_2_fkvvikr9.o\n      _test0 in torture_gcc_pr27302_2_fkvvikr9.o\n      _test0 in torture_gcc_pr27302_2_fkvvikr9.o\n      _test0 in torture_gcc_pr27302_2_fkvvikr9.o\n      _test...",
-      "exit_code": null
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr27603": {
       "status": "PASS",
@@ -631,18 +631,18 @@
       "exit_code": 0
     },
     "gcc_pr27743": {
-      "status": "SKIP",
+      "status": "PASS",
       "category": "arithmetic",
-      "error_msg": "compile_source failed: Expected type specifier, got IDENTIFIER ('int32_t') at 5:1",
-      "diagnostic": "Expected type specifier, got IDENTIFIER ('int32_t') at 5:1",
-      "exit_code": null
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr28045": {
-      "status": "SKIP",
+      "status": "PASS",
       "category": "arithmetic",
-      "error_msg": "compile_source failed: Expected bitfield width at 7:22",
-      "diagnostic": "Expected bitfield width at 7:22",
-      "exit_code": null
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr28230": {
       "status": "PASS",
@@ -659,46 +659,46 @@
       "exit_code": 0
     },
     "gcc_pr30364_1": {
-      "status": "SKIP",
+      "status": "PASS",
       "category": "misc",
-      "error_msg": "compile_source failed: 7:11: use of undeclared identifier 'INT_MAX'",
-      "diagnostic": "7:11: use of undeclared identifier 'INT_MAX'",
-      "exit_code": null
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr30364_2": {
-      "status": "SKIP",
+      "status": "PASS",
       "category": "arithmetic",
-      "error_msg": "compile_source failed: 7:11: use of undeclared identifier 'INT_MAX'",
-      "diagnostic": "7:11: use of undeclared identifier 'INT_MAX'",
-      "exit_code": null
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr30364_3": {
-      "status": "SKIP",
+      "status": "PASS",
       "category": "misc",
-      "error_msg": "compile_source failed: 7:11: use of undeclared identifier 'INT_MAX'",
-      "diagnostic": "7:11: use of undeclared identifier 'INT_MAX'",
-      "exit_code": null
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr31115": {
-      "status": "SKIP",
+      "status": "PASS",
       "category": "arithmetic",
-      "error_msg": "compile_source failed: Expected declaration name at 4:13",
-      "diagnostic": "Expected declaration name at 4:13",
-      "exit_code": null
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr34174_1": {
-      "status": "FAIL",
+      "status": "PASS",
       "category": "arithmetic",
-      "error_msg": "wrong_output (exit code 1)",
-      "diagnostic": "Test assertion failed with exit code 1",
-      "exit_code": 1
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr35634": {
-      "status": "FAIL",
+      "status": "PASS",
       "category": "control_flow",
-      "error_msg": "timeout",
-      "diagnostic": "Binary did not exit within 5 seconds (possible infinite loop)",
-      "exit_code": null
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr35833": {
       "status": "PASS",
@@ -708,39 +708,39 @@
       "exit_code": 0
     },
     "gcc_pr36227": {
-      "status": "SKIP",
+      "status": "PASS",
       "category": "pointers_arrays",
-      "error_msg": "compile_source failed: Expected ';' after expression at 8:13",
-      "diagnostic": "Expected ';' after expression at 8:13",
-      "exit_code": null
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr37731_1": {
-      "status": "SKIP",
+      "status": "PASS",
       "category": "arithmetic",
-      "error_msg": "compile_source failed: Expected declaration name at 3:13",
-      "diagnostic": "Expected declaration name at 3:13",
-      "exit_code": null
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr37731_2": {
-      "status": "SKIP",
+      "status": "PASS",
       "category": "misc",
-      "error_msg": "compile_source failed: Expected declaration name at 3:13",
-      "diagnostic": "Expected declaration name at 3:13",
-      "exit_code": null
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr38405": {
-      "status": "SKIP",
+      "status": "PASS",
       "category": "pointers_arrays",
-      "error_msg": "compile_source failed: Expected declaration name at 3:13",
-      "diagnostic": "Expected declaration name at 3:13",
-      "exit_code": null
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr39132": {
-      "status": "SKIP",
+      "status": "PASS",
       "category": "struct_operations",
-      "error_msg": "compile_source failed: 18:3: subscript requires array or pointer type",
-      "diagnostic": "18:3: subscript requires array or pointer type",
-      "exit_code": null
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr39855": {
       "status": "PASS",
@@ -750,11 +750,11 @@
       "exit_code": 0
     },
     "gcc_pr41555": {
-      "status": "SKIP",
+      "status": "PASS",
       "category": "control_flow",
-      "error_msg": "compile_source failed: Expected type specifier, got IDENTIFIER ('uint64_t') at 6:8",
-      "diagnostic": "Expected type specifier, got IDENTIFIER ('uint64_t') at 6:8",
-      "exit_code": null
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr42952": {
       "status": "PASS",
@@ -764,32 +764,32 @@
       "exit_code": 0
     },
     "gcc_pr43017": {
-      "status": "FAIL",
+      "status": "PASS",
       "category": "control_flow",
-      "error_msg": "wrong_output (exit code 1)",
-      "diagnostic": "Test assertion failed with exit code 1",
-      "exit_code": 1
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr44806": {
-      "status": "SKIP",
+      "status": "PASS",
       "category": "struct_operations",
-      "error_msg": "compile_source failed: Expected type specifier, got IDENTIFIER ('uint32_t') at 14:3",
-      "diagnostic": "Expected type specifier, got IDENTIFIER ('uint32_t') at 14:3",
-      "exit_code": null
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr45017": {
-      "status": "SKIP",
+      "status": "PASS",
       "category": "struct_operations",
-      "error_msg": "compile_source failed: 13:3: subscript requires array or pointer type",
-      "diagnostic": "13:3: subscript requires array or pointer type",
-      "exit_code": null
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr45623": {
-      "status": "SKIP",
+      "status": "PASS",
       "category": "struct_operations",
-      "error_msg": "compile_source failed: Expected type specifier, got IDENTIFIER ('uint64_t') at 13:5",
-      "diagnostic": "Expected type specifier, got IDENTIFIER ('uint64_t') at 13:5",
-      "exit_code": null
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr45764": {
       "status": "PASS",
@@ -827,18 +827,18 @@
       "exit_code": 0
     },
     "gcc_pr48953": {
-      "status": "FAIL",
+      "status": "PASS",
       "category": "struct_operations",
-      "error_msg": "wrong_output (exit code 1)",
-      "diagnostic": "Test assertion failed with exit code 1",
-      "exit_code": 1
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr49169": {
-      "status": "SKIP",
+      "status": "PASS",
       "category": "pointers_arrays",
-      "error_msg": "compile_source failed: Expected ')' after if condition at 8:18",
-      "diagnostic": "Expected ')' after if condition at 8:18",
-      "exit_code": null
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr49958": {
       "status": "PASS",
@@ -848,18 +848,18 @@
       "exit_code": 0
     },
     "gcc_pr50067_1": {
-      "status": "SKIP",
+      "status": "PASS",
       "category": "pointers_arrays",
-      "error_msg": "compile_source failed: Expected ')' after cast type at 17:20",
-      "diagnostic": "Expected ')' after cast type at 17:20",
-      "exit_code": null
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr50067_2": {
-      "status": "SKIP",
+      "status": "PASS",
       "category": "pointers_arrays",
-      "error_msg": "compile_source failed: Expected ')' after cast type at 18:19",
-      "diagnostic": "Expected ')' after cast type at 18:19",
-      "exit_code": null
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr50067_3": {
       "status": "PASS",
@@ -869,25 +869,25 @@
       "exit_code": 0
     },
     "gcc_pr50067_4": {
-      "status": "SKIP",
+      "status": "PASS",
       "category": "pointers_arrays",
-      "error_msg": "compile_source failed: Expected ')' after cast type at 18:12",
-      "diagnostic": "Expected ')' after cast type at 18:12",
-      "exit_code": null
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr50067_5": {
-      "status": "SKIP",
+      "status": "PASS",
       "category": "pointers_arrays",
-      "error_msg": "compile_source failed: Expected ')' after cast type at 21:12",
-      "diagnostic": "Expected ')' after cast type at 21:12",
-      "exit_code": null
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr52406": {
-      "status": "FAIL",
+      "status": "PASS",
       "category": "struct_operations",
-      "error_msg": "crash (signal 11)",
-      "diagnostic": "Process killed by signal 11",
-      "exit_code": -11
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr52943": {
       "status": "PASS",
@@ -897,11 +897,11 @@
       "exit_code": 0
     },
     "gcc_pr53663_1": {
-      "status": "FAIL",
+      "status": "PASS",
       "category": "struct_operations",
-      "error_msg": "wrong_output (exit code 1)",
-      "diagnostic": "Test assertion failed with exit code 1",
-      "exit_code": 1
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr53663_2": {
       "status": "PASS",
@@ -911,11 +911,11 @@
       "exit_code": 0
     },
     "gcc_pr53663_3": {
-      "status": "FAIL",
+      "status": "PASS",
       "category": "struct_operations",
-      "error_msg": "wrong_output (exit code 1)",
-      "diagnostic": "Test assertion failed with exit code 1",
-      "exit_code": 1
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr53790": {
       "status": "FAIL",
@@ -953,11 +953,11 @@
       "exit_code": 0
     },
     "gcc_pr55890_1": {
-      "status": "SKIP",
+      "status": "FAIL",
       "category": "misc",
-      "error_msg": "compile_source failed: 5:23: invalid cast from 'void' to '__func_ptr'",
-      "diagnostic": "5:23: invalid cast from 'void' to '__func_ptr'",
-      "exit_code": null
+      "error_msg": "crash (signal 10)",
+      "diagnostic": "Process killed by signal 10",
+      "exit_code": -10
     },
     "gcc_pr55890_2": {
       "status": "FAIL",
@@ -974,11 +974,11 @@
       "exit_code": 0
     },
     "gcc_pr57303": {
-      "status": "FAIL",
+      "status": "PASS",
       "category": "struct_operations",
-      "error_msg": "wrong_output (exit code 1)",
-      "diagnostic": "Test assertion failed with exit code 1",
-      "exit_code": 1
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr57521": {
       "status": "PASS",
@@ -1009,18 +1009,18 @@
       "exit_code": 0
     },
     "gcc_pr58553": {
-      "status": "SKIP",
+      "status": "PASS",
       "category": "struct_operations",
-      "error_msg": "compile_source failed: 19:7: subscript requires array or pointer type",
-      "diagnostic": "19:7: subscript requires array or pointer type",
-      "exit_code": null
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr58626": {
-      "status": "SKIP",
+      "status": "PASS",
       "category": "control_flow",
-      "error_msg": "compile_source failed: 5:5: excess elements in array initializer",
-      "diagnostic": "5:5: excess elements in array initializer",
-      "exit_code": null
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr58921": {
       "status": "PASS",
@@ -1030,11 +1030,11 @@
       "exit_code": 0
     },
     "gcc_pr58941": {
-      "status": "SKIP",
+      "status": "PASS",
       "category": "struct_operations",
-      "error_msg": "compile_source failed: 24:7: subscript requires array or pointer type",
-      "diagnostic": "24:7: subscript requires array or pointer type",
-      "exit_code": null
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr58955_1": {
       "status": "PASS",
@@ -1093,11 +1093,11 @@
       "exit_code": 0
     },
     "gcc_pr59891": {
-      "status": "SKIP",
+      "status": "PASS",
       "category": "arithmetic",
-      "error_msg": "compile_source failed: Unexpected token COLON (':') at 9:24",
-      "diagnostic": "Unexpected token COLON (':') at 9:24",
-      "exit_code": null
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr59903": {
       "status": "PASS",
@@ -1184,11 +1184,11 @@
       "exit_code": 0
     },
     "gcc_pr61757": {
-      "status": "FAIL",
+      "status": "PASS",
       "category": "pointers_arrays",
-      "error_msg": "wrong_output (exit code 1)",
-      "diagnostic": "Test assertion failed with exit code 1",
-      "exit_code": 1
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr61786": {
       "status": "PASS",
@@ -1212,18 +1212,18 @@
       "exit_code": 0
     },
     "gcc_pr64091": {
-      "status": "SKIP",
+      "status": "PASS",
       "category": "control_flow",
-      "error_msg": "compile_source failed: Unsupported IRValue type: NoneType",
-      "diagnostic": "Unsupported IRValue type: NoneType",
-      "exit_code": null
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr65077": {
-      "status": "SKIP",
+      "status": "FAIL",
       "category": "pointers_arrays",
-      "error_msg": "compile_source failed: 29:46: dereference of non-pointer type",
-      "diagnostic": "29:46: dereference of non-pointer type",
-      "exit_code": null
+      "error_msg": "crash (signal 11)",
+      "diagnostic": "Process killed by signal 11",
+      "exit_code": -11
     },
     "gcc_pr66185": {
       "status": "PASS",
@@ -1240,11 +1240,11 @@
       "exit_code": 0
     },
     "gcc_pr66413": {
-      "status": "SKIP",
+      "status": "PASS",
       "category": "pointers_arrays",
-      "error_msg": "compile_source failed: 46:7: incompatible types in assignment: 'int' and 'int'",
-      "diagnostic": "46:7: incompatible types in assignment: 'int' and 'int'",
-      "exit_code": null
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr66733_2": {
       "status": "PASS",
@@ -1282,11 +1282,11 @@
       "exit_code": 0
     },
     "gcc_pr66949_2": {
-      "status": "SKIP",
+      "status": "PASS",
       "category": "arithmetic",
-      "error_msg": "compile_and_link failed: Linking failed:",
-      "diagnostic": "Linking failed:\nUndefined symbols for architecture x86_64:\n  \"_fn2\", referenced from:\n      _fn1 in torture_gcc_pr66949_2_18ulrrp3.o\nld: symbol(s) not found for architecture x86_64\nclang: error: linker command failed with exit code 1 (use -v to see invocation)",
-      "exit_code": null
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr67253": {
       "status": "PASS",
@@ -1375,9 +1375,9 @@
     "gcc_pr71908": {
       "status": "FAIL",
       "category": "struct_operations",
-      "error_msg": "crash (signal 11)",
-      "diagnostic": "Process killed by signal 11",
-      "exit_code": -11
+      "error_msg": "timeout",
+      "diagnostic": "Binary did not exit within 5 seconds (possible infinite loop)",
+      "exit_code": null
     },
     "gcc_pr71987": {
       "status": "PASS",
@@ -1387,18 +1387,18 @@
       "exit_code": 0
     },
     "gcc_pr78510": {
-      "status": "SKIP",
+      "status": "FAIL",
       "category": "arithmetic",
-      "error_msg": "compile_source failed: Unexpected token COLON (':') at 11:12",
-      "diagnostic": "Unexpected token COLON (':') at 11:12",
+      "error_msg": "timeout",
+      "diagnostic": "Binary did not exit within 5 seconds (possible infinite loop)",
       "exit_code": null
     },
     "gcc_pr78997": {
-      "status": "SKIP",
+      "status": "PASS",
       "category": "control_flow",
-      "error_msg": "compile_source failed: Unsupported IRValue type: NoneType",
-      "diagnostic": "Unsupported IRValue type: NoneType",
-      "exit_code": null
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr79088": {
       "status": "PASS",
@@ -1471,18 +1471,18 @@
       "exit_code": 0
     },
     "gcc_pr81571": {
-      "status": "SKIP",
+      "status": "PASS",
       "category": "control_flow",
-      "error_msg": "compile_source failed: Unsupported IRValue type: NoneType",
-      "diagnostic": "Unsupported IRValue type: NoneType",
-      "exit_code": null
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr81573": {
-      "status": "FAIL",
+      "status": "PASS",
       "category": "control_flow",
-      "error_msg": "timeout",
-      "diagnostic": "Binary did not exit within 5 seconds (possible infinite loop)",
-      "exit_code": null
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr82157": {
       "status": "PASS",
@@ -1527,11 +1527,11 @@
       "exit_code": 0
     },
     "gcc_pr87176": {
-      "status": "SKIP",
+      "status": "PASS",
       "category": "control_flow",
-      "error_msg": "compile_source failed: 19:24: incompatible type in array initializer element",
-      "diagnostic": "19:24: incompatible type in array initializer element",
-      "exit_code": null
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr87263": {
       "status": "PASS",
@@ -1569,11 +1569,11 @@
       "exit_code": 0
     },
     "gcc_pr91200": {
-      "status": "FAIL",
+      "status": "PASS",
       "category": "control_flow",
-      "error_msg": "crash (signal 11)",
-      "diagnostic": "Process killed by signal 11",
-      "exit_code": -11
+      "error_msg": null,
+      "diagnostic": null,
+      "exit_code": 0
     },
     "gcc_pr99954": {
       "status": "PASS",
@@ -1585,135 +1585,77 @@
   },
   "deltas": {
     "newly_passing": [
-      "gcc_20141202_1",
-      "gcc_20210916",
-      "gcc_pr100923",
-      "gcc_pr100934",
-      "gcc_pr101151",
-      "gcc_pr108574_1",
-      "gcc_pr110376",
-      "gcc_pr110702",
-      "gcc_pr110924",
-      "gcc_pr111807",
-      "gcc_pr112827_1",
-      "gcc_pr112827_2",
-      "gcc_pr113707_1",
-      "gcc_pr114624",
-      "gcc_pr116544",
-      "gcc_pr117041",
-      "gcc_pr117496_1",
-      "gcc_pr117574_1",
-      "gcc_pr117859_1",
-      "gcc_pr121194",
-      "gcc_pr121756",
-      "gcc_pr122079_2",
-      "gcc_pr122497_1",
-      "gcc_pr26763_2",
-      "gcc_pr27116",
-      "gcc_pr30313",
-      "gcc_pr35833",
-      "gcc_pr39855",
-      "gcc_pr42952",
-      "gcc_pr45764",
-      "gcc_pr47621",
-      "gcc_pr48124_2",
-      "gcc_pr49958",
-      "gcc_pr50067_3",
-      "gcc_pr52943",
-      "gcc_pr53663_2",
-      "gcc_pr55253",
-      "gcc_pr57521",
-      "gcc_pr58223",
-      "gcc_pr58228",
-      "gcc_pr58246",
-      "gcc_pr58955_1",
-      "gcc_pr59038",
-      "gcc_pr59047",
-      "gcc_pr59903",
-      "gcc_pr60092",
-      "gcc_pr60733",
-      "gcc_pr61438",
-      "gcc_pr61576",
-      "gcc_pr61602",
-      "gcc_pr61681",
-      "gcc_pr61786",
-      "gcc_pr66185",
-      "gcc_pr66375",
-      "gcc_pr66733_2",
-      "gcc_pr66894",
-      "gcc_pr66949_1",
-      "gcc_pr67253",
-      "gcc_pr68528",
-      "gcc_pr68721",
-      "gcc_pr69936",
-      "gcc_pr70780",
-      "gcc_pr71132",
-      "gcc_pr79666",
-      "gcc_pr80565",
-      "gcc_pr80764",
-      "gcc_pr80901",
-      "gcc_pr80974",
-      "gcc_pr86066",
-      "gcc_pr87263",
-      "gcc_pr88223",
-      "gcc_pr88621",
-      "gcc_pr99954"
-    ],
-    "newly_failing": [
-      "gcc_pr53663_1"
-    ],
-    "newly_compiling": [
       "gcc_20200311_1",
+      "gcc_badshift",
+      "gcc_builtin_explog_1",
+      "gcc_builtin_math_1",
+      "gcc_c99_contract_1",
+      "gcc_crc_linux_5",
+      "gcc_pr103219",
+      "gcc_pr103816",
       "gcc_pr108574_3",
-      "gcc_pr111614",
+      "gcc_pr113895_2",
+      "gcc_pr113895_3",
       "gcc_pr113898",
-      "gcc_pr122502_2",
+      "gcc_pr115226",
+      "gcc_pr121478_1",
+      "gcc_pr123887",
+      "gcc_pr123887_2",
+      "gcc_pr26898_1",
+      "gcc_pr26898_2",
+      "gcc_pr27302",
+      "gcc_pr27302_2",
+      "gcc_pr27743",
+      "gcc_pr28045",
+      "gcc_pr30364_1",
+      "gcc_pr30364_2",
+      "gcc_pr30364_3",
+      "gcc_pr31115",
       "gcc_pr34174_1",
       "gcc_pr35634",
+      "gcc_pr36227",
+      "gcc_pr37731_1",
+      "gcc_pr37731_2",
+      "gcc_pr38405",
+      "gcc_pr39132",
+      "gcc_pr41555",
       "gcc_pr43017",
+      "gcc_pr44806",
+      "gcc_pr45017",
+      "gcc_pr45623",
       "gcc_pr48953",
+      "gcc_pr49169",
+      "gcc_pr50067_1",
+      "gcc_pr50067_2",
+      "gcc_pr50067_4",
+      "gcc_pr50067_5",
       "gcc_pr52406",
+      "gcc_pr53663_1",
       "gcc_pr53663_3",
-      "gcc_pr53790",
       "gcc_pr57303",
+      "gcc_pr58553",
+      "gcc_pr58626",
+      "gcc_pr58941",
+      "gcc_pr59891",
       "gcc_pr61757",
-      "gcc_pr66793",
-      "gcc_pr70115",
-      "gcc_pr71908",
-      "gcc_pr81573"
+      "gcc_pr64091",
+      "gcc_pr66413",
+      "gcc_pr66949_2",
+      "gcc_pr78997",
+      "gcc_pr81571",
+      "gcc_pr81573",
+      "gcc_pr87176",
+      "gcc_pr91200"
+    ],
+    "newly_failing": [],
+    "newly_compiling": [
+      "gcc_pr105786",
+      "gcc_pr55890_1",
+      "gcc_pr65077",
+      "gcc_pr78510"
     ]
   },
   "skip_analysis": {
-    "Expected type specifier, got IDENTIFIER ()": {
-      "count": 7,
-      "examples": [
-        "gcc_crc_linux_5",
-        "gcc_pr121478_1",
-        "gcc_pr123887",
-        "gcc_pr27743",
-        "gcc_pr41555"
-      ]
-    },
-    "Expected declaration name": {
-      "count": 5,
-      "examples": [
-        "gcc_badshift",
-        "gcc_pr31115",
-        "gcc_pr37731_1",
-        "gcc_pr37731_2",
-        "gcc_pr38405"
-      ]
-    },
-    "linker command failed with exit code 1 (use -v to see invocation)": {
-      "count": 5,
-      "examples": [
-        "gcc_pr105786",
-        "gcc_pr113895_2",
-        "gcc_pr113895_3",
-        "gcc_pr27302",
-        "gcc_pr66949_2"
-      ]
-    },
     "<stdin>:4: Cannot find include file": {
       "count": 4,
       "examples": [
@@ -1723,64 +1665,11 @@
         "gcc_bitint_83"
       ]
     },
-    "Expected after cast type": {
-      "count": 4,
-      "examples": [
-        "gcc_pr50067_1",
-        "gcc_pr50067_2",
-        "gcc_pr50067_4",
-        "gcc_pr50067_5"
-      ]
-    },
-    "Unexpected token COLON ()": {
-      "count": 3,
-      "examples": [
-        "gcc_pr115226",
-        "gcc_pr59891",
-        "gcc_pr78510"
-      ]
-    },
-    "7:11: use of undeclared identifier": {
-      "count": 3,
-      "examples": [
-        "gcc_pr30364_1",
-        "gcc_pr30364_2",
-        "gcc_pr30364_3"
-      ]
-    },
-    "Unsupported IRValue type: NoneType": {
-      "count": 3,
-      "examples": [
-        "gcc_pr64091",
-        "gcc_pr78997",
-        "gcc_pr81571"
-      ]
-    },
-    "Linking failed": {
-      "count": 2,
-      "examples": [
-        "gcc_builtin_math_1",
-        "gcc_pr27302_2"
-      ]
-    },
     "<stdin>:5: Cannot find include file": {
       "count": 2,
       "examples": [
         "gcc_fp_int_convert_float80",
         "gcc_fp_int_convert_float80_timode"
-      ]
-    },
-    "Expected after expression": {
-      "count": 2,
-      "examples": [
-        "gcc_neon_sve_bridge",
-        "gcc_pr36227"
-      ]
-    },
-    "Expected after variable declaration": {
-      "count": 1,
-      "examples": [
-        "gcc_builtin_explog_1"
       ]
     },
     "<stdin>:10: Cannot find include file": {
@@ -1789,112 +1678,16 @@
         "gcc_builtin_power_1"
       ]
     },
-    "could not convert string to float": {
-      "count": 1,
-      "examples": [
-        "gcc_c99_contract_1"
-      ]
-    },
     "<stdin>:3: Cannot find include file": {
       "count": 1,
       "examples": [
         "gcc_inline_mem_move_1"
       ]
     },
-    "linker command failed with exit cod": {
+    "Expected after expression": {
       "count": 1,
       "examples": [
-        "gcc_pr103219"
-      ]
-    },
-    "8:3: array size must be specified or inferred from initializer": {
-      "count": 1,
-      "examples": [
-        "gcc_pr103816"
-      ]
-    },
-    "Expected type specifier, got LBRACKET ()": {
-      "count": 1,
-      "examples": [
-        "gcc_pr123887_2"
-      ]
-    },
-    "10:14: use of undeclared identifier": {
-      "count": 1,
-      "examples": [
-        "gcc_pr26898_1"
-      ]
-    },
-    "4:16: use of undeclared identifier": {
-      "count": 1,
-      "examples": [
-        "gcc_pr26898_2"
-      ]
-    },
-    "Expected bitfield width": {
-      "count": 1,
-      "examples": [
-        "gcc_pr28045"
-      ]
-    },
-    "18:3: subscript requires array or pointer type": {
-      "count": 1,
-      "examples": [
-        "gcc_pr39132"
-      ]
-    },
-    "13:3: subscript requires array or pointer type": {
-      "count": 1,
-      "examples": [
-        "gcc_pr45017"
-      ]
-    },
-    "Expected after if condition": {
-      "count": 1,
-      "examples": [
-        "gcc_pr49169"
-      ]
-    },
-    "5:23: invalid cast from to": {
-      "count": 1,
-      "examples": [
-        "gcc_pr55890_1"
-      ]
-    },
-    "19:7: subscript requires array or pointer type": {
-      "count": 1,
-      "examples": [
-        "gcc_pr58553"
-      ]
-    },
-    "5:5: excess elements in array initializer": {
-      "count": 1,
-      "examples": [
-        "gcc_pr58626"
-      ]
-    },
-    "24:7: subscript requires array or pointer type": {
-      "count": 1,
-      "examples": [
-        "gcc_pr58941"
-      ]
-    },
-    "29:46: dereference of non-pointer type": {
-      "count": 1,
-      "examples": [
-        "gcc_pr65077"
-      ]
-    },
-    "46:7: incompatible types in assignment: and": {
-      "count": 1,
-      "examples": [
-        "gcc_pr66413"
-      ]
-    },
-    "19:24: incompatible type in array initializer element": {
-      "count": 1,
-      "examples": [
-        "gcc_pr87176"
+        "gcc_neon_sve_bridge"
       ]
     }
   }

@@ -1,7 +1,7 @@
 /* Adapted from gcc.dg/torture/pr105786.c */
 
 void sink(const char*);
-static const char *a = "ab\0cd";
+static const char *a;
 int main()
 {
   const char *b = a;

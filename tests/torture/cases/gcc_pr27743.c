@@ -10,6 +10,6 @@ int32_t bar (int32_t a)
 int main()
 {
   if (bar (0xffff3000) != 0x1ffff)
-    return 1;
+    abort ();
   return 0;
 }

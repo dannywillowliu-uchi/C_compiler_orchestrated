@@ -6,6 +6,6 @@ int main()
   int b = i != 0;
   int c = ~b;
   if (c != -1)
-    return 1;
+    abort ();
   return 0;
 }

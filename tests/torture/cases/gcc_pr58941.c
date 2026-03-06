@@ -28,6 +28,6 @@ int main()
 	pData->d[i] |= 0xaa;
     }
   if (pData->d[0] != 0xff)
-    return 1;
+    abort ();
   return 0;
 }

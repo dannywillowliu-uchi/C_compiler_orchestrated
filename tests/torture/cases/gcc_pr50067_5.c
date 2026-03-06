@@ -21,7 +21,7 @@ int main()
 	  (*((char(*)[])&ap[i+2]))[0] = (*((char(*)[])&ap[0]))[i+1];
 	}
       if (memcmp (&a, &b, sizeof (a)) != 0)
-	return 1;
+	abort ();
     }
 #endif
   return 0;

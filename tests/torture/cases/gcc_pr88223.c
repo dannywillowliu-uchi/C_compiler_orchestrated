@@ -11,6 +11,6 @@ main(void)
  memmove(s + 1, s, 4);
  memmove(s + 1, s, 4);
  if (s[0] != '1' || s[1] != '1' || s[2] != '1' || s[3] != '1' || s[4] != '2')
-   return 1;
+   abort ();
  return (0);
 }
