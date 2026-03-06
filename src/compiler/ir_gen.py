@@ -154,6 +154,23 @@ def _resolve_alignment(ts: TypeSpec) -> int:
 	return _ALIGN_MAP.get(ts.base_type, 4)
 
 
+_UNSIGNED_TYPEDEFS = frozenset({
+	"uint8_t", "uint16_t", "uint32_t", "uint64_t",
+	"size_t", "uintptr_t",
+})
+
+
+def _is_type_unsigned(ts: TypeSpec) -> bool:
+	"""Check if a TypeSpec represents an unsigned type (including typedefs)."""
+	if ts.signedness == "unsigned":
+		return True
+	if ts.base_type in _UNSIGNED_TYPEDEFS:
+		return True
+	if ts.base_type.startswith("unsigned "):
+		return True
+	return False
+
+
 def _align_to(offset: int, alignment: int) -> int:
 	"""Round *offset* up to the next multiple of *alignment*."""
 	return (offset + alignment - 1) & ~(alignment - 1)
@@ -400,7 +417,7 @@ class IRGenerator(ASTVisitor):
 				if agg_name is not None:
 					struct_param_fixups.append((param.name, p_temp, agg_name))
 
-		# For struct/union params passed by value: allocate stack space and copy the register value
+		# For struct/union params passed by value: allocate stack space and bulk-copy from caller's address
 		for param_name, p_temp, agg_name in struct_param_fixups:
 			if agg_name in self._unions:
 				size = self._compute_union_size(agg_name)
@@ -409,7 +426,7 @@ class IRGenerator(ASTVisitor):
 			stack_addr = self._new_temp()
 			self._set_temp_type(stack_addr, IRType.POINTER)
 			self._emit(IRAlloc(dest=stack_addr, size=size))
-			self._emit(IRStore(address=stack_addr, value=p_temp))
+			self._emit(IRBulkCopy(dest_addr=stack_addr, src_addr=p_temp, size=size))
 			self._locals[param_name] = stack_addr
 			self._local_alloc.add(param_name)
 
@@ -911,10 +928,21 @@ class IRGenerator(ASTVisitor):
 		if node.op == "*":
 			# Pointer dereference: load from the pointer value
 			ptr = self.visit(node.operand)
-			dest = self._new_temp()
 			# Infer load type from the pointer's pointee type
 			load_type = IRType.INT
 			operand_ts = self._infer_expr_type(node.operand)
+			# If pointee is a struct/union, return pointer as address (no scalar load)
+			if operand_ts is not None and operand_ts.pointer_count == 1:
+				base = operand_ts.base_type
+				agg_name = None
+				if base.startswith("struct ") and base[len("struct "):] in self._structs:
+					agg_name = base[len("struct "):]
+				elif base.startswith("union ") and base[len("union "):] in self._unions:
+					agg_name = base[len("union "):]
+				if agg_name is not None:
+					self._set_temp_type(ptr, IRType.POINTER)
+					return ptr
+			dest = self._new_temp()
 			if operand_ts is not None and operand_ts.pointer_count > 1:
 				load_type = IRType.POINTER
 				self._set_temp_type(dest, IRType.POINTER)
@@ -1121,6 +1149,11 @@ class IRGenerator(ASTVisitor):
 			return val if isinstance(val, IRTemp) else self._new_temp()
 		if isinstance(node.target, UnaryOp) and node.target.op == "*":
 			addr = self.visit(node.target.operand)
+			# Check if we're assigning to a dereferenced pointer-to-struct/union
+			agg_name = self._deref_aggregate_name(node.target.operand)
+			if agg_name is not None:
+				self._emit_aggregate_copy(addr, val, agg_name)
+				return addr
 			val_type = self._value_ir_type(val)
 			self._emit(IRStore(address=addr, value=val, ir_type=val_type))
 			return val if isinstance(val, IRTemp) else self._new_temp()
@@ -1778,7 +1811,7 @@ class IRGenerator(ASTVisitor):
 				align = self._resolve_type_alignment(m.type_spec)
 				max_align = max(max_align, align)
 				byte_offset = _align_to(byte_offset, align)
-				byte_offset += self._resolve_member_size(m.type_spec)
+				byte_offset += self._resolve_full_member_size(m)
 		self._bitfield_layouts[name] = layout
 
 	def _compute_struct_size(self, name: str) -> int:
@@ -1792,7 +1825,7 @@ class IRGenerator(ASTVisitor):
 				align = self._resolve_type_alignment(m.type_spec)
 				max_align = max(max_align, align)
 				offset = _align_to(offset, align)
-				offset += self._resolve_member_size(m.type_spec)
+				offset += self._resolve_full_member_size(m)
 			return _align_to(offset, max_align)
 		# Bitfield-aware size computation
 		byte_offset = 0
@@ -1830,7 +1863,7 @@ class IRGenerator(ASTVisitor):
 				align = self._resolve_type_alignment(m.type_spec)
 				max_align = max(max_align, align)
 				byte_offset = _align_to(byte_offset, align)
-				byte_offset += self._resolve_member_size(m.type_spec)
+				byte_offset += self._resolve_full_member_size(m)
 		if bit_offset > 0:
 			byte_offset += storage_size
 		return _align_to(byte_offset, max_align)
@@ -1843,7 +1876,7 @@ class IRGenerator(ASTVisitor):
 		max_size = 0
 		max_align = 1
 		for m in members:
-			max_size = max(max_size, self._resolve_member_size(m.type_spec))
+			max_size = max(max_size, self._resolve_full_member_size(m))
 			max_align = max(max_align, self._resolve_type_alignment(m.type_spec))
 		return _align_to(max_size, max_align)
 
@@ -1861,6 +1894,16 @@ class IRGenerator(ASTVisitor):
 			if uname in self._unions:
 				return self._compute_union_size(uname)
 		return _resolve_size(ts)
+
+	def _resolve_full_member_size(self, m) -> int:
+		"""Resolve the total size of a struct member including array dimensions."""
+		base_size = self._resolve_member_size(m.type_spec)
+		if m.array_dims:
+			for dim in m.array_dims:
+				dim_val = self._eval_const_expr(dim)
+				if dim_val is not None and dim_val > 0:
+					base_size *= dim_val
+		return base_size
 
 	def _resolve_type_alignment(self, ts: TypeSpec) -> int:
 		"""Resolve the alignment of a type, handling nested structs/unions."""
@@ -2201,7 +2244,7 @@ class IRGenerator(ASTVisitor):
 							addr = self._new_temp()
 							self._emit(IRBinOp(dest=addr, left=dest, op="+", right=IRConst(field_offset)))
 							self._emit(IRStore(address=addr, value=val))
-						field_offset += self._resolve_member_size(members[i].type_spec)
+						field_offset += self._resolve_full_member_size(members[i])
 					# Zero-fill remaining members
 					for i in range(len(init_list.elements), len(members)):
 						align = self._resolve_type_alignment(members[i].type_spec)
@@ -2209,7 +2252,7 @@ class IRGenerator(ASTVisitor):
 						addr = self._new_temp()
 						self._emit(IRBinOp(dest=addr, left=dest, op="+", right=IRConst(field_offset)))
 						self._emit(IRStore(address=addr, value=IRConst(0)))
-						field_offset += self._resolve_member_size(members[i].type_spec)
+						field_offset += self._resolve_full_member_size(members[i])
 
 	def _is_local_aggregate(self, name: str) -> str | None:
 		"""Return the struct/union name if a local variable is an aggregate type, else None."""
@@ -2243,6 +2286,27 @@ class IRGenerator(ASTVisitor):
 				return uname
 		return None
 
+	def _deref_aggregate_name(self, expr: ASTNode) -> str | None:
+		"""If expr is a pointer-to-struct/union, return the aggregate name, else None."""
+		ts = None
+		if isinstance(expr, Identifier):
+			ts = self._local_types.get(expr.name) or self._global_types.get(expr.name)
+		elif isinstance(expr, MemberAccess):
+			ts = self._resolve_member_type_spec(expr)
+		elif isinstance(expr, CastExpr):
+			ts = expr.target_type
+		if ts is not None and ts.pointer_count >= 1:
+			base = ts.base_type
+			if base.startswith("struct "):
+				sname = base[len("struct "):]
+				if sname in self._structs:
+					return sname
+			if base.startswith("union "):
+				uname = base[len("union "):]
+				if uname in self._unions:
+					return uname
+		return None
+
 	def _emit_aggregate_copy(self, dest_addr: IRTemp, src_addr: IRTemp, type_name: str) -> None:
 		"""Emit a bulk copy IR instruction for copying a struct or union."""
 		is_union = type_name in self._unions
@@ -2265,7 +2329,7 @@ class IRGenerator(ASTVisitor):
 			addr = self._new_temp()
 			self._emit(IRBinOp(dest=addr, left=dest, op="+", right=IRConst(field_offset)))
 			self._emit(IRStore(address=addr, value=IRConst(0)))
-			field_offset += self._resolve_member_size(m.type_spec)
+			field_offset += self._resolve_full_member_size(m)
 
 	def _compute_field_offset_by_index(self, struct_name: str, field_index: int) -> int:
 		"""Compute the byte offset of a struct field by its index."""
@@ -2284,7 +2348,7 @@ class IRGenerator(ASTVisitor):
 				offset = _align_to(offset, align)
 				if i == field_index:
 					return offset
-				offset += self._resolve_member_size(m.type_spec)
+				offset += self._resolve_full_member_size(m)
 			return offset
 		# Bitfield-aware computation
 		byte_offset = 0
@@ -2322,7 +2386,7 @@ class IRGenerator(ASTVisitor):
 				byte_offset = _align_to(byte_offset, align)
 				if i == field_index:
 					return byte_offset
-				byte_offset += self._resolve_member_size(m.type_spec)
+				byte_offset += self._resolve_full_member_size(m)
 		return byte_offset
 
 	def visit_designated_init(self, node: DesignatedInit) -> IRValue:
@@ -2484,6 +2548,17 @@ class IRGenerator(ASTVisitor):
 			return base[len("union "):] in self._unions
 		return False
 
+	def _member_is_array(self, node: MemberAccess) -> bool:
+		"""Check if a member access refers to an array member (has array_dims)."""
+		type_name = self._resolve_aggregate_name(node.object)
+		if not type_name:
+			return False
+		members = self._structs.get(type_name) or self._unions.get(type_name, [])
+		for m in members:
+			if m.name == node.member and m.array_dims:
+				return True
+		return False
+
 	def _member_ir_type(self, node: MemberAccess) -> IRType:
 		"""Resolve the IRType for a struct/union member access."""
 		ts = self._resolve_member_type_spec(node)
@@ -2602,6 +2677,10 @@ class IRGenerator(ASTVisitor):
 		# For struct/union-typed members, return the address directly (no scalar load)
 		if self._member_is_aggregate(member_ts):
 			return addr
+		# For array members, return address (array decays to pointer)
+		if self._member_is_array(node):
+			self._set_temp_type(addr, IRType.POINTER)
+			return addr
 		member_type = _resolve_ir_type(member_ts) if member_ts is not None else IRType.INT
 		dest = self._new_temp()
 		self._set_temp_type(dest, member_type)
@@ -2616,17 +2695,17 @@ class IRGenerator(ASTVisitor):
 		dest = self._new_temp()
 		self._set_temp_type(dest, target_ir_type)
 		# Track signedness change even for same-width casts
-		if node.target_type.signedness == "unsigned":
+		cast_unsigned = _is_type_unsigned(node.target_type)
+		if cast_unsigned:
 			self._temp_unsigned[dest.name] = True
-		cast_unsigned = node.target_type.signedness == "unsigned"
 		if self._is_float_type(target_ir_type) != self._is_float_type(val_type):
 			self._emit(IRConvert(dest=dest, source=val, from_type=val_type, to_type=target_ir_type, is_unsigned=cast_unsigned))
 		elif self._is_float_type(target_ir_type) and self._is_float_type(val_type) and target_ir_type != val_type:
 			self._emit(IRConvert(dest=dest, source=val, from_type=val_type, to_type=target_ir_type))
 		elif val_type != target_ir_type:
 			self._emit(IRConvert(dest=dest, source=val, from_type=val_type, to_type=target_ir_type, is_unsigned=cast_unsigned))
-		elif target_ir_type in (IRType.CHAR, IRType.SHORT):
-			# Same type but may need sign/zero extension (e.g. unsigned char -> signed char)
+		elif target_ir_type in (IRType.CHAR, IRType.SHORT, IRType.INT):
+			# Same type but may need sign/zero extension or truncation
 			self._emit(IRConvert(dest=dest, source=val, from_type=val_type, to_type=target_ir_type, is_unsigned=cast_unsigned))
 		else:
 			self._emit(IRCopy(dest=dest, source=val, ir_type=target_ir_type))
@@ -2828,7 +2907,7 @@ class IRGenerator(ASTVisitor):
 				offset = _align_to(offset, align)
 				if m.name == field_name:
 					return offset
-				offset += self._resolve_member_size(m.type_spec)
+				offset += self._resolve_full_member_size(m)
 			return offset
 		# Walk through with bitfield-aware offsets for non-bitfield members
 		byte_offset = 0
@@ -2866,5 +2945,5 @@ class IRGenerator(ASTVisitor):
 				byte_offset = _align_to(byte_offset, align)
 				if m.name == field_name:
 					return byte_offset
-				byte_offset += self._resolve_member_size(m.type_spec)
+				byte_offset += self._resolve_full_member_size(m)
 		return byte_offset
