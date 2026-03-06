@@ -356,6 +356,7 @@ class IRGlobalVar:
 	float_initializer: Optional[float] = None  # For float/double global initializers
 	string_label: Optional[str] = None  # For string pointer global initializers
 	symbol_initializer: Optional[str] = None  # For &variable initializers (symbol name)
+	symbol_initializer_offset: int = 0  # Byte offset added to symbol_initializer
 
 	def __str__(self) -> str:
 		if self.initializer_values:

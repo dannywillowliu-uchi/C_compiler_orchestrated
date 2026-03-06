@@ -369,6 +369,7 @@ class IRGenerator(ASTVisitor):
 
 		params: list[IRTemp] = []
 		param_types: list[IRType] = []
+		struct_param_fixups: list[tuple[str, IRTemp, str]] = []  # (param_name, param_temp, agg_name)
 		for param in node.params:
 			p_temp = self._new_temp()
 			params.append(p_temp)
@@ -385,6 +386,28 @@ class IRGenerator(ASTVisitor):
 				self._temp_unsigned[p_temp.name] = True
 			if p_ir_type == IRType.POINTER and param.type_spec.pointer_count > 0:
 				self._temp_pointee_size[p_temp.name] = self._pointee_size_from_type(param.type_spec)
+			# Check if param is a by-value struct/union (needs stack copy for member access)
+			if param.type_spec.pointer_count == 0:
+				base = param.type_spec.base_type
+				agg_name = None
+				if base.startswith("struct ") and base[len("struct "):] in self._structs:
+					agg_name = base[len("struct "):]
+				elif base.startswith("union ") and base[len("union "):] in self._unions:
+					agg_name = base[len("union "):]
+				if agg_name is not None:
+					struct_param_fixups.append((param.name, p_temp, agg_name))
+
+		# For struct/union params passed by value: allocate stack space and copy the register value
+		for param_name, p_temp, agg_name in struct_param_fixups:
+			if agg_name in self._unions:
+				size = self._compute_union_size(agg_name)
+			else:
+				size = self._compute_struct_size(agg_name)
+			stack_addr = self._new_temp()
+			self._set_temp_type(stack_addr, IRType.POINTER)
+			self._emit(IRAlloc(dest=stack_addr, size=size))
+			self._emit(IRStore(address=stack_addr, value=p_temp))
+			self._locals[param_name] = stack_addr
 
 		self.visit(node.body)
 
@@ -468,6 +491,7 @@ class IRGenerator(ASTVisitor):
 			float_init: float | None = None
 			string_label: str | None = None
 			symbol_init: str | None = None
+			symbol_offset: int = 0
 			if node.initializer is not None:
 				if isinstance(node.initializer, FloatLiteral):
 					float_init = node.initializer.value
@@ -478,6 +502,26 @@ class IRGenerator(ASTVisitor):
 					string_label = label
 				elif isinstance(node.initializer, UnaryOp) and node.initializer.op == "&" and isinstance(node.initializer.operand, Identifier):
 					symbol_init = node.initializer.operand.name
+				elif isinstance(node.initializer, UnaryOp) and node.initializer.op == "&" and isinstance(node.initializer.operand, MemberAccess):
+					ma = node.initializer.operand
+					if isinstance(ma.object, Identifier):
+						symbol_init = ma.object.name
+						type_name = self._resolve_aggregate_name(ma.object)
+						if type_name and type_name not in self._unions:
+							symbol_offset = self._compute_field_offset(type_name, ma.member)
+				elif isinstance(node.initializer, UnaryOp) and node.initializer.op == "&" and isinstance(node.initializer.operand, ArraySubscript):
+					subscript = node.initializer.operand
+					if isinstance(subscript.array, Identifier):
+						symbol_init = subscript.array.name
+						idx = self._eval_const_expr(subscript.index)
+						if idx is not None:
+							# Element size from the array's base type, not the pointer type
+							arr_ts = self._global_types.get(subscript.array.name)
+							if arr_ts is not None:
+								elem_size = _resolve_size(arr_ts)
+							else:
+								elem_size = 4
+							symbol_offset = idx * elem_size
 				elif isinstance(node.initializer, UnaryOp) and node.initializer.op == "-" and isinstance(node.initializer.operand, FloatLiteral):
 					float_init = -node.initializer.operand.value
 				else:
@@ -499,6 +543,7 @@ class IRGenerator(ASTVisitor):
 				storage_class=sc, float_initializer=float_init,
 				string_label=string_label,
 				symbol_initializer=symbol_init,
+				symbol_initializer_offset=symbol_offset,
 			))
 		self._global_names.add(name)
 
@@ -648,6 +693,14 @@ class IRGenerator(ASTVisitor):
 		if node.name in self._global_names:
 			dest = self._new_temp()
 			global_ts = self._global_types.get(node.name)
+			# For global aggregates (struct/union), return address, not loaded value
+			if global_ts is not None and global_ts.pointer_count == 0:
+				base = global_ts.base_type
+				if (base.startswith("struct ") and base[len("struct "):] in self._structs) or \
+				   (base.startswith("union ") and base[len("union "):] in self._unions):
+					self._set_temp_type(dest, IRType.POINTER)
+					self._emit(IRCopy(dest=dest, source=IRGlobalRef(node.name), ir_type=IRType.POINTER))
+					return dest
 			if global_ts is not None:
 				ir_type = _resolve_ir_type(global_ts)
 				self._set_temp_type(dest, ir_type)
@@ -872,6 +925,13 @@ class IRGenerator(ASTVisitor):
 					if ts is not None:
 						self._temp_pointee_size[dest.name] = self._resolve_member_size(ts)
 				return dest
+			# Address-of member access: return computed member address without loading
+			if isinstance(node.operand, MemberAccess):
+				addr = self._compute_member_addr(node.operand)
+				dest = self._new_temp()
+				self._set_temp_type(dest, IRType.POINTER)
+				self._emit(IRCopy(dest=dest, source=addr, ir_type=IRType.POINTER))
+				return dest
 			operand = self.visit(node.operand)
 			return operand
 		if node.op in ("++", "--"):
@@ -1048,6 +1108,13 @@ class IRGenerator(ASTVisitor):
 				self._emit(IRCopy(dest=target_temp, source=val, ir_type=target_type))
 				return target_temp
 			if node.target.name in self._global_names:
+				agg_name = self._is_global_aggregate(node.target.name)
+				if agg_name is not None:
+					dest_addr = self._new_temp()
+					self._set_temp_type(dest_addr, IRType.POINTER)
+					self._emit(IRCopy(dest=dest_addr, source=IRGlobalRef(node.target.name), ir_type=IRType.POINTER))
+					self._emit_aggregate_copy(dest_addr, val, agg_name)
+					return dest_addr
 				global_ts = self._global_types.get(node.target.name)
 				if global_ts is not None and global_ts.base_type == "_Bool" and global_ts.pointer_count == 0:
 					val = self._emit_bool_normalize(val)
@@ -1993,42 +2060,109 @@ class IRGenerator(ASTVisitor):
 							self._emit(IRStore(address=a, value=val))
 						positional_idx += 1
 			else:
-				field_offset = 0
-				for i, elem in enumerate(init_list.elements):
-					if i >= len(members):
-						break
-					align = self._resolve_type_alignment(members[i].type_spec)
-					field_offset = _align_to(field_offset, align)
-					if isinstance(elem, InitializerList):
-						member_addr = self._new_temp()
-						self._emit(IRBinOp(dest=member_addr, left=dest, op="+", right=IRConst(field_offset)))
-						member_type = members[i].type_spec
-						member_size = self._resolve_member_size(member_type)
-						for j, sub_elem in enumerate(elem.elements):
-							sub_val = self.visit(sub_elem)
-							sub_offset = self._new_temp()
-							self._emit(IRBinOp(dest=sub_offset, left=IRConst(j), op="*", right=IRConst(member_size)))
-							sub_addr = self._new_temp()
-							self._emit(IRBinOp(dest=sub_addr, left=member_addr, op="+", right=sub_offset))
-							self._emit(IRStore(address=sub_addr, value=sub_val))
-					else:
-						val = self.visit(elem)
+				bf_layout = self._bitfield_layouts.get(struct_name, {})
+				has_bitfields = any(m.bit_width is not None for m in members)
+				if has_bitfields and bf_layout:
+					# Pack bitfield values into storage units
+					# First, zero-fill entire struct
+					struct_size = self._compute_struct_size(struct_name)
+					for off in range(0, struct_size, 4):
+						a = self._new_temp()
+						self._emit(IRBinOp(dest=a, left=dest, op="+", right=IRConst(off)))
+						sz = min(4, struct_size - off)
+						self._emit(IRStore(address=a, value=IRConst(0), ir_type=IRType.INT if sz >= 4 else IRType.CHAR))
+					# Group bitfield init values by storage unit byte_offset
+					storage_units: dict[int, int] = {}  # byte_offset -> packed value
+					for i, elem in enumerate(init_list.elements):
+						if i >= len(members):
+							break
+						m = members[i]
+						if m.bit_width is not None and m.name and m.name in bf_layout:
+							byte_off, bit_off, bit_width, storage_sz = bf_layout[m.name]
+							const_val = self._eval_const_expr(elem) if hasattr(elem, 'accept') else None
+							if const_val is None and isinstance(elem, IntLiteral):
+								const_val = elem.value
+							if const_val is not None:
+								mask = (1 << bit_width) - 1
+								packed = (const_val & mask) << bit_off
+								storage_units[byte_off] = storage_units.get(byte_off, 0) | packed
+						else:
+							# Non-bitfield member
+							field_offset = self._compute_field_offset_by_index(struct_name, i)
+							if isinstance(elem, InitializerList):
+								member_addr = self._new_temp()
+								self._emit(IRBinOp(dest=member_addr, left=dest, op="+", right=IRConst(field_offset)))
+								member_size = self._resolve_member_size(m.type_spec)
+								for j, sub_elem in enumerate(elem.elements):
+									sub_val = self.visit(sub_elem)
+									sub_off = self._new_temp()
+									self._emit(IRBinOp(dest=sub_off, left=IRConst(j), op="*", right=IRConst(member_size)))
+									sub_addr = self._new_temp()
+									self._emit(IRBinOp(dest=sub_addr, left=member_addr, op="+", right=sub_off))
+									self._emit(IRStore(address=sub_addr, value=sub_val))
+							else:
+								val = self.visit(elem)
+								a = self._new_temp()
+								self._emit(IRBinOp(dest=a, left=dest, op="+", right=IRConst(field_offset)))
+								self._emit(IRStore(address=a, value=val))
+					# Write packed bitfield storage units
+					for byte_off, packed_val in storage_units.items():
+						a = self._new_temp()
+						self._emit(IRBinOp(dest=a, left=dest, op="+", right=IRConst(byte_off)))
+						self._emit(IRStore(address=a, value=IRConst(packed_val), ir_type=IRType.INT))
+				else:
+					field_offset = 0
+					for i, elem in enumerate(init_list.elements):
+						if i >= len(members):
+							break
+						align = self._resolve_type_alignment(members[i].type_spec)
+						field_offset = _align_to(field_offset, align)
+						if isinstance(elem, InitializerList):
+							member_addr = self._new_temp()
+							self._emit(IRBinOp(dest=member_addr, left=dest, op="+", right=IRConst(field_offset)))
+							member_type = members[i].type_spec
+							member_size = self._resolve_member_size(member_type)
+							for j, sub_elem in enumerate(elem.elements):
+								sub_val = self.visit(sub_elem)
+								sub_offset = self._new_temp()
+								self._emit(IRBinOp(dest=sub_offset, left=IRConst(j), op="*", right=IRConst(member_size)))
+								sub_addr = self._new_temp()
+								self._emit(IRBinOp(dest=sub_addr, left=member_addr, op="+", right=sub_offset))
+								self._emit(IRStore(address=sub_addr, value=sub_val))
+						else:
+							val = self.visit(elem)
+							addr = self._new_temp()
+							self._emit(IRBinOp(dest=addr, left=dest, op="+", right=IRConst(field_offset)))
+							self._emit(IRStore(address=addr, value=val))
+						field_offset += self._resolve_member_size(members[i].type_spec)
+					# Zero-fill remaining members
+					for i in range(len(init_list.elements), len(members)):
+						align = self._resolve_type_alignment(members[i].type_spec)
+						field_offset = _align_to(field_offset, align)
 						addr = self._new_temp()
 						self._emit(IRBinOp(dest=addr, left=dest, op="+", right=IRConst(field_offset)))
-						self._emit(IRStore(address=addr, value=val))
-					field_offset += self._resolve_member_size(members[i].type_spec)
-				# Zero-fill remaining members
-				for i in range(len(init_list.elements), len(members)):
-					align = self._resolve_type_alignment(members[i].type_spec)
-					field_offset = _align_to(field_offset, align)
-					addr = self._new_temp()
-					self._emit(IRBinOp(dest=addr, left=dest, op="+", right=IRConst(field_offset)))
-					self._emit(IRStore(address=addr, value=IRConst(0)))
-					field_offset += self._resolve_member_size(members[i].type_spec)
+						self._emit(IRStore(address=addr, value=IRConst(0)))
+						field_offset += self._resolve_member_size(members[i].type_spec)
 
 	def _is_local_aggregate(self, name: str) -> str | None:
 		"""Return the struct/union name if a local variable is an aggregate type, else None."""
 		ts = self._local_types.get(name)
+		if ts is None or ts.pointer_count > 0:
+			return None
+		base = ts.base_type
+		if base.startswith("struct "):
+			sname = base[len("struct "):]
+			if sname in self._structs:
+				return sname
+		if base.startswith("union "):
+			uname = base[len("union "):]
+			if uname in self._unions:
+				return uname
+		return None
+
+	def _is_global_aggregate(self, name: str) -> str | None:
+		"""Return the struct/union name if a global variable is an aggregate type, else None."""
+		ts = self._global_types.get(name)
 		if ts is None or ts.pointer_count > 0:
 			return None
 		base = ts.base_type
@@ -2317,7 +2451,7 @@ class IRGenerator(ASTVisitor):
 		return None
 
 	def _bitfield_read(self, node: MemberAccess, bf_info: tuple[int, int, int, int]) -> IRTemp:
-		"""Generate IR for reading a bitfield: load storage unit, shift right, mask."""
+		"""Generate IR for reading a bitfield: load storage unit, shift right, mask, sign-extend."""
 		byte_offset, bit_offset, bit_width, storage_size = bf_info
 		storage_ir_type = {1: IRType.CHAR, 2: IRType.SHORT, 4: IRType.INT, 8: IRType.LONG}.get(
 			storage_size, IRType.INT
@@ -2333,6 +2467,19 @@ class IRGenerator(ASTVisitor):
 		mask_val = (1 << bit_width) - 1
 		result = self._new_temp()
 		self._emit(IRBinOp(dest=result, left=shifted, op="&", right=IRConst(mask_val)))
+		# Sign-extend for signed bitfields
+		is_unsigned = False
+		member_ts = self._resolve_member_type_spec(node)
+		if member_ts is not None and member_ts.signedness == "unsigned":
+			is_unsigned = True
+		if not is_unsigned and bit_width < 32:
+			# Sign-extend: shift left then arithmetic shift right
+			shift_amt = 64 - bit_width
+			shl = self._new_temp()
+			self._emit(IRBinOp(dest=shl, left=result, op="<<", right=IRConst(shift_amt)))
+			sar = self._new_temp()
+			self._emit(IRBinOp(dest=sar, left=shl, op=">>", right=IRConst(shift_amt)))
+			return sar
 		return result
 
 	def _bitfield_write(self, node: MemberAccess, bf_info: tuple[int, int, int, int], value: IRValue) -> None:
@@ -2536,7 +2683,7 @@ class IRGenerator(ASTVisitor):
 	def _resolve_aggregate_name(self, node: object) -> str:
 		"""Try to determine the struct/union type name from an AST node."""
 		if isinstance(node, Identifier):
-			ts = self._local_types.get(node.name)
+			ts = self._local_types.get(node.name) or self._global_types.get(node.name)
 			if ts is not None:
 				name = ts.base_type
 				if name.startswith("struct "):
