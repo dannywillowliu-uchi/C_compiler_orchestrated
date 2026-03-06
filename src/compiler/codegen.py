@@ -930,6 +930,9 @@ class CodeGenerator:
 					self._emit_instr("xorps %xmm0, %xmm0")
 				else:
 					self._emit_instr("movq $0, %rax")
+			elif func.name == "main":
+				# C99+: main() implicitly returns 0 even if declared void
+				self._emit_instr("xorl %eax, %eax")
 			self._emit_epilogue()
 
 		# ELF .size directive
