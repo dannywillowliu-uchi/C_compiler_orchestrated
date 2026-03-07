@@ -1,4 +1,5 @@
 /* Adapted from gcc.dg/torture/pr78510.c */
+/* { dg-do compile } */
 /* PR middle-end/78510 */
 int a, b, c, e, f;
 char d;

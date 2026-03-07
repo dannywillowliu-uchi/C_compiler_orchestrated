@@ -1,4 +1,5 @@
 /* Adapted from gcc.dg/torture/pr105786.c */
+/* { dg-do compile } */
 
 void sink(const char*);
 static const char *a;

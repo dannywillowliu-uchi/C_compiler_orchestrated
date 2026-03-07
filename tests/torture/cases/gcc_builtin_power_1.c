@@ -1,4 +1,5 @@
 /* Adapted from gcc.dg/torture/builtin-power-1.c */
+/* { dg-do link } */
 /* Copyright (C) 2004  Free Software Foundation.
 
    Verify that built-in folding of various math "power" functions is

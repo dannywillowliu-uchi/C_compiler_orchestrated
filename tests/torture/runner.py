@@ -13,6 +13,7 @@ Options:
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -83,6 +84,21 @@ def _truncate(s: str, maxlen: int = 300) -> str:
 	return s[:maxlen] + "..."
 
 
+def detect_test_mode(source: str) -> str:
+	"""Detect GCC dg-do test mode from source comments.
+
+	Returns "run", "compile", or "link". Defaults to "run" if no directive found.
+	GCC's dg-do directive determines what constitutes a PASS:
+	  - compile: compilation succeeds (no crash/error)
+	  - link: compilation + linking succeeds
+	  - run: compilation + linking + execution exits 0
+	"""
+	m = re.search(r"dg-do\s+(run|compile|link)", source)
+	if m:
+		return m.group(1)
+	return "run"
+
+
 def run_single_test(c_file: Path) -> dict:
 	"""Run a single torture test case and return its result."""
 	from compiler.__main__ import compile_source
@@ -91,20 +107,32 @@ def run_single_test(c_file: Path) -> dict:
 	test_name = c_file.stem
 	source = c_file.read_text()
 	category = categorize(test_name, source)
+	test_mode = detect_test_mode(source)
 
 	# Step 1: Try to compile source to assembly
 	try:
 		asm = compile_source(source)
 	except Exception as e:
 		error_str = str(e)
-		# Extract the first line as a short label for grouping
 		first_line = error_str.split("\n")[0].strip()
 		return {
-			"status": "SKIP",
+			"status": "FAIL" if test_mode == "compile" else "SKIP",
 			"category": category,
 			"error_msg": f"compile_source failed: {first_line}",
 			"diagnostic": _truncate(error_str),
 			"exit_code": None,
+			"test_mode": test_mode,
+		}
+
+	# compile-only tests pass if compilation succeeds
+	if test_mode == "compile":
+		return {
+			"status": "PASS",
+			"category": category,
+			"error_msg": None,
+			"diagnostic": None,
+			"exit_code": 0,
+			"test_mode": test_mode,
 		}
 
 	# Step 2: Try to link assembly into an executable
@@ -118,14 +146,26 @@ def run_single_test(c_file: Path) -> dict:
 			error_str = str(e)
 			first_line = error_str.split("\n")[0].strip()
 			return {
-				"status": "SKIP",
+				"status": "FAIL" if test_mode == "link" else "SKIP",
 				"category": category,
 				"error_msg": f"compile_and_link failed: {first_line}",
 				"diagnostic": _truncate(error_str),
 				"exit_code": None,
+				"test_mode": test_mode,
 			}
 
-		# Step 3: Execute the compiled binary
+		# link-only tests pass if linking succeeds
+		if test_mode == "link":
+			return {
+				"status": "PASS",
+				"category": category,
+				"error_msg": None,
+				"diagnostic": None,
+				"exit_code": 0,
+				"test_mode": test_mode,
+			}
+
+		# Step 3: Execute the compiled binary (run mode only)
 		try:
 			result = subprocess.run(
 				[exe_path],
@@ -139,6 +179,7 @@ def run_single_test(c_file: Path) -> dict:
 				"error_msg": "timeout",
 				"diagnostic": "Binary did not exit within 5 seconds (possible infinite loop)",
 				"exit_code": None,
+				"test_mode": test_mode,
 			}
 
 		stderr_text = _truncate(result.stderr.decode(errors="replace"), 200) if result.stderr else ""
@@ -150,6 +191,7 @@ def run_single_test(c_file: Path) -> dict:
 				"error_msg": f"crash (signal {-result.returncode})",
 				"diagnostic": f"Process killed by signal {-result.returncode}" + (f": {stderr_text}" if stderr_text else ""),
 				"exit_code": result.returncode,
+				"test_mode": test_mode,
 			}
 		elif result.returncode == 0:
 			return {
@@ -158,6 +200,7 @@ def run_single_test(c_file: Path) -> dict:
 				"error_msg": None,
 				"diagnostic": None,
 				"exit_code": 0,
+				"test_mode": test_mode,
 			}
 		else:
 			return {
@@ -166,6 +209,7 @@ def run_single_test(c_file: Path) -> dict:
 				"error_msg": f"wrong_output (exit code {result.returncode})",
 				"diagnostic": f"Test assertion failed with exit code {result.returncode}" + (f": {stderr_text}" if stderr_text else ""),
 				"exit_code": result.returncode,
+				"test_mode": test_mode,
 			}
 	finally:
 		if exe_path and os.path.exists(exe_path):

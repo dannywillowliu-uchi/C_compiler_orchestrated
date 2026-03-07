@@ -1,4 +1,5 @@
 /* Adapted from gcc.dg/torture/pr70115.c */
+/* { dg-do compile } */
 
 typedef int size_t;
 char a;

@@ -1,4 +1,5 @@
 /* Adapted from gcc.dg/torture/pr71908.c */
+/* { dg-do compile } */
 
 struct S3
 {

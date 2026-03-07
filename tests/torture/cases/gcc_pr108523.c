@@ -1,4 +1,5 @@
 /* Adapted from gcc.dg/torture/pr108523.c */
+/* { dg-do compile } */
 
 int g_149, g_167, g_481;
 int main() {

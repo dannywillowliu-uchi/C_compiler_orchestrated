@@ -1,4 +1,5 @@
 /* Adapted from gcc.dg/torture/pr23821.c */
+/* { dg-do compile } */
 /* At -O1 DOM threads a jump in a non-optimal way which leads to
    the bogus propagation.  */
 

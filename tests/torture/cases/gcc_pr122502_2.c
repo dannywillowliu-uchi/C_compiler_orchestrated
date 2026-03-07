@@ -1,4 +1,5 @@
 /* Adapted from gcc.dg/torture/pr122502-2.c */
+/* { dg-do compile } */
 
 typedef struct {
   int mant;

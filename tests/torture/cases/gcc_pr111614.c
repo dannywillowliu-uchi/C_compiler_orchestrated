@@ -1,4 +1,5 @@
 /* Adapted from gcc.dg/torture/pr111614.c */
+/* { dg-do compile } */
 
 int a, b, c, d, e;
 static void f() {

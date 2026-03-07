@@ -1,4 +1,5 @@
 /* Adapted from gcc.dg/torture/pr66793.c */
+/* { dg-do link } */
 
 int a, b, c; 
 
