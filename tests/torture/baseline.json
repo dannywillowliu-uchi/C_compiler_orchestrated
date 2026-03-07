@@ -1,10 +1,10 @@
 {
-  "timestamp": "2026-03-07T03:58:55.360720+00:00",
+  "timestamp": "2026-03-07T04:27:57.624093+00:00",
   "summary": {
-    "total": 223,
+    "total": 221,
     "passed": 216,
-    "failed": 0,
-    "skipped": 7
+    "failed": 5,
+    "skipped": 0
   },
   "tests": {
     "gcc_20110719_1": {
@@ -40,10 +40,10 @@
       "test_mode": "run"
     },
     "gcc_arm_fp16_int_convert_ieee": {
-      "status": "SKIP",
+      "status": "FAIL",
       "category": "arithmetic",
-      "error_msg": "compile_source failed: <stdin>:4: Cannot find include file: 'fp-int-convert.h'",
-      "diagnostic": "<stdin>:4: Cannot find include file: 'fp-int-convert.h'",
+      "error_msg": "compile_and_link failed: Assembly failed:",
+      "diagnostic": "Assembly failed:\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_arm_fp16_int_convert_ieee_3lxraezc.s:12:1: error: symbol 'main.ivin' is already defined\nmain.ivin:\n^\n/var/folders/0d/90x9lx65121gq52zjklw0zfm0000gn/T/torture_gcc_arm_fp16_int_convert_ieee_3lxraezc.s:14:1: error: symbol 'ma...",
       "exit_code": null,
       "test_mode": "run"
     },
@@ -55,28 +55,12 @@
       "exit_code": 0,
       "test_mode": "run"
     },
-    "gcc_bitint_28": {
-      "status": "SKIP",
-      "category": "misc",
-      "error_msg": "compile_source failed: <stdin>:4: Cannot find include file: '../../c-c++-common/torture/builtin-arith-overflow-1.h'",
-      "diagnostic": "<stdin>:4: Cannot find include file: '../../c-c++-common/torture/builtin-arith-overflow-1.h'",
-      "exit_code": null,
-      "test_mode": "run"
-    },
     "gcc_bitint_29": {
       "status": "PASS",
       "category": "misc",
       "error_msg": null,
       "diagnostic": null,
       "exit_code": 0,
-      "test_mode": "run"
-    },
-    "gcc_bitint_30": {
-      "status": "SKIP",
-      "category": "misc",
-      "error_msg": "compile_source failed: <stdin>:4: Cannot find include file: '../../c-c++-common/torture/builtin-arith-overflow-12.h'",
-      "diagnostic": "<stdin>:4: Cannot find include file: '../../c-c++-common/torture/builtin-arith-overflow-12.h'",
-      "exit_code": null,
       "test_mode": "run"
     },
     "gcc_bitint_31": {
@@ -136,10 +120,10 @@
       "test_mode": "run"
     },
     "gcc_bitint_83": {
-      "status": "SKIP",
+      "status": "FAIL",
       "category": "arithmetic",
-      "error_msg": "compile_source failed: <stdin>:4: Cannot find include file: '../bitintext.h'",
-      "diagnostic": "<stdin>:4: Cannot find include file: '../bitintext.h'",
+      "error_msg": "compile_source failed: Expected ')' after parameter list at 43:38",
+      "diagnostic": "Expected ')' after parameter list at 43:38",
       "exit_code": null,
       "test_mode": "run"
     },
@@ -176,10 +160,10 @@
       "test_mode": "run"
     },
     "gcc_builtin_power_1": {
-      "status": "SKIP",
+      "status": "FAIL",
       "category": "pointers_arrays",
-      "error_msg": "compile_source failed: <stdin>:11: Cannot find include file: '../builtins-config.h'",
-      "diagnostic": "<stdin>:11: Cannot find include file: '../builtins-config.h'",
+      "error_msg": "compile_source failed: 71:15: redefinition of 'link_failure_root_x_root' in the same scope",
+      "diagnostic": "71:15: redefinition of 'link_failure_root_x_root' in the same scope",
       "exit_code": null,
       "test_mode": "link"
     },
@@ -232,18 +216,18 @@
       "test_mode": "run"
     },
     "gcc_fp_int_convert_float80": {
-      "status": "SKIP",
+      "status": "FAIL",
       "category": "arithmetic",
-      "error_msg": "compile_source failed: <stdin>:5: Cannot find include file: 'fp-int-convert.h'",
-      "diagnostic": "<stdin>:5: Cannot find include file: 'fp-int-convert.h'",
+      "error_msg": "compile_source failed: Expected type specifier, got IDENTIFIER ('__float80') at 71:91",
+      "diagnostic": "Expected type specifier, got IDENTIFIER ('__float80') at 71:91",
       "exit_code": null,
       "test_mode": "run"
     },
     "gcc_fp_int_convert_float80_timode": {
-      "status": "SKIP",
+      "status": "FAIL",
       "category": "misc",
-      "error_msg": "compile_source failed: <stdin>:5: Cannot find include file: 'fp-int-convert.h'",
-      "diagnostic": "<stdin>:5: Cannot find include file: 'fp-int-convert.h'",
+      "error_msg": "compile_source failed: Expected type specifier, got IDENTIFIER ('__float80') at 71:86",
+      "diagnostic": "Expected type specifier, got IDENTIFIER ('__float80') at 71:86",
       "exit_code": null,
       "test_mode": "run"
     },
@@ -1793,46 +1777,15 @@
     }
   },
   "deltas": {
-    "newly_passing": [
-      "gcc_pr105786",
-      "gcc_pr108523",
-      "gcc_pr111614",
-      "gcc_pr122502_2",
-      "gcc_pr23821",
-      "gcc_pr53790",
-      "gcc_pr55890_1",
-      "gcc_pr55890_2",
-      "gcc_pr65077",
-      "gcc_pr66793",
-      "gcc_pr70115",
-      "gcc_pr71908",
-      "gcc_pr78510"
-    ],
+    "newly_passing": [],
     "newly_failing": [],
-    "newly_compiling": []
+    "newly_compiling": [
+      "gcc_arm_fp16_int_convert_ieee",
+      "gcc_bitint_83",
+      "gcc_builtin_power_1",
+      "gcc_fp_int_convert_float80",
+      "gcc_fp_int_convert_float80_timode"
+    ]
   },
-  "skip_analysis": {
-    "<stdin>:4: Cannot find include file": {
-      "count": 4,
-      "examples": [
-        "gcc_arm_fp16_int_convert_ieee",
-        "gcc_bitint_28",
-        "gcc_bitint_30",
-        "gcc_bitint_83"
-      ]
-    },
-    "<stdin>:5: Cannot find include file": {
-      "count": 2,
-      "examples": [
-        "gcc_fp_int_convert_float80",
-        "gcc_fp_int_convert_float80_timode"
-      ]
-    },
-    "<stdin>:11: Cannot find include file": {
-      "count": 1,
-      "examples": [
-        "gcc_builtin_power_1"
-      ]
-    }
-  }
+  "skip_analysis": {}
 }

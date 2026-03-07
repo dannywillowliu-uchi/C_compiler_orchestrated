@@ -1,7 +1,7 @@
 /* Adapted from gcc.dg/torture/bitint-83.c */
 /* Derived from a test in gcc.dg/torture/bitint-16.c */
 
-#include "../bitintext.h"
+#include "bitintext.h"
 
 #define BASIC_TESTS \
   TEST(8)	    \

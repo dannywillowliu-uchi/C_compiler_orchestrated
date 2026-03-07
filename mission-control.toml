@@ -4,11 +4,11 @@ path = "/Users/dannyliu/personal_projects/C_compiler_orchestrated"
 branch = "main"
 objective = """Continue building the C compiler. The compiler should be able to pass the GCC torture tests, with results from the core test runner (tests/torture/runner.py). Focus on the most impactful changes.
 
-Currently 216/223 GCC torture tests pass (0 FAIL, 7 SKIP). Read TORTURE_RESULTS.md for full failure diagnostics and skip analysis showing which missing features block the most tests.
+Currently 216/221 GCC torture tests pass (5 FAIL, 0 SKIP). All failures are actionable compiler bugs. Read TORTURE_RESULTS.md for full failure diagnostics.
 
 Strategy:
-1. Fix FAIL tests first -- these are bugs in existing code (crashes, wrong output)
-2. Fix the highest-count skip patterns to unlock the most new tests at once
+1. Fix FAIL tests -- these are compiler bugs (missing features, crashes, wrong output)
+2. Read TORTURE_RESULTS.md for the specific error and diagnostic for each failing test
 3. Do NOT add unit tests, optimizer passes, or features unrelated to improving the torture test pass rate
 
 CRITICAL RULES:

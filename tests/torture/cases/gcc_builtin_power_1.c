@@ -8,7 +8,7 @@
    Written by Kaveh Ghazi, 2004-03-11.  */
 
 
-#include "../builtins-config.h"
+#include "builtins-config.h"
 
 #ifdef HAVE_C99_RUNTIME
 #define C99CODE(CODE) CODE

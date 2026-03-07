@@ -111,12 +111,12 @@ def run_single_test(c_file: Path) -> dict:
 
 	# Step 1: Try to compile source to assembly
 	try:
-		asm = compile_source(source)
+		asm = compile_source(source, include_paths=[str(c_file.parent)])
 	except Exception as e:
 		error_str = str(e)
 		first_line = error_str.split("\n")[0].strip()
 		return {
-			"status": "FAIL" if test_mode == "compile" else "SKIP",
+			"status": "FAIL",
 			"category": category,
 			"error_msg": f"compile_source failed: {first_line}",
 			"diagnostic": _truncate(error_str),
@@ -146,7 +146,7 @@ def run_single_test(c_file: Path) -> dict:
 			error_str = str(e)
 			first_line = error_str.split("\n")[0].strip()
 			return {
-				"status": "FAIL" if test_mode == "link" else "SKIP",
+				"status": "FAIL",
 				"category": category,
 				"error_msg": f"compile_and_link failed: {first_line}",
 				"diagnostic": _truncate(error_str),
