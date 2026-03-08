@@ -4,9 +4,9 @@ __pycache__/
 .DS_Store
 .mc-dashboard-url
 events.jsonl
-mission-control.db
-mission-control.db-shm
-mission-control.db-wal
+autodev.db
+autodev.db-shm
+autodev.db-wal
 mission_report.json
 MISSION_STATE.md
 
