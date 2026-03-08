@@ -1334,23 +1334,45 @@ class CodeGenerator:
 		from_type = instr.from_type
 		to_type = instr.to_type
 
-		if from_type == IRType.INT and to_type == IRType.FLOAT:
+		_INT_TYPES = {IRType.BOOL, IRType.CHAR, IRType.SHORT, IRType.INT, IRType.LONG}
+		_FP_TYPES = {IRType.FLOAT, IRType.DOUBLE}
+
+		if from_type in _INT_TYPES and to_type in _FP_TYPES:
+			# Integer -> floating-point conversion
 			self._load_value(instr.source, "%rax")
-			self._emit_instr("cvtsi2ss %eax, %xmm0")
-			self._store_float_to_temp("%xmm0", instr.dest, IRType.FLOAT)
-		elif from_type == IRType.INT and to_type == IRType.DOUBLE:
-			self._load_value(instr.source, "%rax")
-			self._emit_instr("cvtsi2sd %eax, %xmm0")
-			self._store_float_to_temp("%xmm0", instr.dest, IRType.DOUBLE)
-		elif from_type == IRType.FLOAT and to_type == IRType.INT:
-			self._load_float_value(instr.source, "%xmm0", IRType.FLOAT)
-			self._emit_instr("cvttss2si %xmm0, %eax")
-			self._emit_instr("movslq %eax, %rax")
-			self._store_to_temp("%rax", instr.dest)
-		elif from_type == IRType.DOUBLE and to_type == IRType.INT:
-			self._load_float_value(instr.source, "%xmm0", IRType.DOUBLE)
-			self._emit_instr("cvttsd2si %xmm0, %eax")
-			self._emit_instr("movslq %eax, %rax")
+			# Sign/zero-extend narrow types into a full register
+			if from_type in (IRType.BOOL, IRType.CHAR, IRType.SHORT):
+				self._truncate_narrow(from_type, is_unsigned=instr.is_unsigned)
+			if from_type == IRType.LONG or (from_type in (IRType.BOOL, IRType.CHAR, IRType.SHORT, IRType.INT) and instr.is_unsigned and from_type == IRType.INT):
+				# Use 64-bit source register for long or unsigned int (to avoid sign issues)
+				src_reg = "%rax"
+			else:
+				src_reg = "%eax"
+			if to_type == IRType.FLOAT:
+				self._emit_instr(f"cvtsi2ss {src_reg}, %xmm0")
+				self._store_float_to_temp("%xmm0", instr.dest, IRType.FLOAT)
+			else:
+				self._emit_instr(f"cvtsi2sd {src_reg}, %xmm0")
+				self._store_float_to_temp("%xmm0", instr.dest, IRType.DOUBLE)
+		elif from_type in _FP_TYPES and to_type in _INT_TYPES:
+			# Floating-point -> integer conversion
+			if from_type == IRType.FLOAT:
+				self._load_float_value(instr.source, "%xmm0", IRType.FLOAT)
+				if to_type == IRType.LONG:
+					self._emit_instr("cvttss2si %xmm0, %rax")
+				else:
+					self._emit_instr("cvttss2si %xmm0, %eax")
+					self._emit_instr("movslq %eax, %rax")
+			else:
+				self._load_float_value(instr.source, "%xmm0", IRType.DOUBLE)
+				if to_type == IRType.LONG:
+					self._emit_instr("cvttsd2si %xmm0, %rax")
+				else:
+					self._emit_instr("cvttsd2si %xmm0, %eax")
+					self._emit_instr("movslq %eax, %rax")
+			# Truncate to narrow target if needed
+			if to_type in (IRType.BOOL, IRType.CHAR, IRType.SHORT):
+				self._truncate_narrow(to_type, is_unsigned=instr.is_unsigned)
 			self._store_to_temp("%rax", instr.dest)
 		elif from_type == IRType.FLOAT and to_type == IRType.DOUBLE:
 			self._load_float_value(instr.source, "%xmm0", IRType.FLOAT)
@@ -1371,10 +1393,26 @@ class CodeGenerator:
 			self._truncate_narrow(from_type, is_unsigned=instr.is_unsigned)
 			self._store_to_temp("%rax", instr.dest)
 		elif from_type == IRType.INT and to_type == IRType.INT:
-			# Same-size int conversion: zero-extend if unsigned (clear upper 32 bits)
+			# Same-size int conversion: normalize upper 32 bits for 64-bit register
 			self._load_value(instr.source, "%rax")
 			if instr.is_unsigned:
 				self._emit_instr("movl %eax, %eax")  # zero-extends to 64-bit
+			else:
+				self._emit_instr("movslq %eax, %rax")  # sign-extends to 64-bit
+			self._store_to_temp("%rax", instr.dest)
+		elif from_type == IRType.INT and to_type == IRType.LONG:
+			self._load_value(instr.source, "%rax")
+			if instr.is_unsigned:
+				self._emit_instr("movl %eax, %eax")
+			else:
+				self._emit_instr("movslq %eax, %rax")
+			self._store_to_temp("%rax", instr.dest)
+		elif from_type == IRType.LONG and to_type == IRType.INT:
+			self._load_value(instr.source, "%rax")
+			if instr.is_unsigned:
+				self._emit_instr("movl %eax, %eax")
+			else:
+				self._emit_instr("movslq %eax, %rax")
 			self._store_to_temp("%rax", instr.dest)
 		else:
 			# Fallback: just copy

@@ -247,7 +247,7 @@ class TestBinOp:
 			IRReturn(IRTemp("t0")),
 		]
 		asm = _gen(IRFunction("f", [], body, IRType.INT))
-		assert "salq %cl, %rax" in asm
+		assert "sall %cl, %eax" in asm
 
 	def test_shift_right(self) -> None:
 		body: list[IRInstruction] = [
@@ -255,7 +255,7 @@ class TestBinOp:
 			IRReturn(IRTemp("t0")),
 		]
 		asm = _gen(IRFunction("f", [], body, IRType.INT))
-		assert "sarq %cl, %rax" in asm
+		assert "sarl %cl, %eax" in asm
 
 	def test_binop_with_temps(self) -> None:
 		body: list[IRInstruction] = [

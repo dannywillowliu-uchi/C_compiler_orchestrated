@@ -131,6 +131,7 @@ _TYPE_KEYWORDS: set[TokenType] = {
 	TokenType.INT, TokenType.CHAR, TokenType.VOID, TokenType.STRUCT, TokenType.ENUM,
 	TokenType.FLOAT, TokenType.DOUBLE, TokenType.UNION, TokenType.BOOL,
 	TokenType.LONG, TokenType.SHORT, TokenType.SIGNED, TokenType.UNSIGNED,
+	TokenType.BITINT,
 }
 
 _QUALIFIER_KEYWORDS: set[TokenType] = {TokenType.CONST, TokenType.VOLATILE}
@@ -399,7 +400,11 @@ class Parser:
 			pass
 		elif tok.type in {TokenType.INT, TokenType.CHAR, TokenType.VOID, TokenType.FLOAT, TokenType.DOUBLE, TokenType.BOOL}:
 			self._advance()
-			base_type = tok.value
+			if tok.value == "__float80":
+				base_type = "double"
+				width_modifier = "long"
+			else:
+				base_type = tok.value
 		elif tok.type == TokenType.STRUCT:
 			self._advance()
 			if self._check(TokenType.LBRACE):
@@ -432,6 +437,25 @@ class Parser:
 			self._advance()
 			name_tok = self._expect(TokenType.IDENTIFIER, "Expected enum name")
 			base_type = f"enum {name_tok.value}"
+		elif tok.type == TokenType.BITINT:
+			self._advance()
+			self._expect(TokenType.LPAREN, "Expected '(' after _BitInt")
+			width = self._eval_bitint_width()
+			self._expect(TokenType.RPAREN, "Expected ')' after _BitInt width")
+			if width <= 8:
+				base_type = "char"
+				if signedness is None:
+					signedness = "signed"
+			elif width <= 16:
+				base_type = "short"
+			elif width <= 32:
+				base_type = "int"
+			elif width <= 64:
+				base_type = "int"
+				width_modifier = "long long"
+			else:
+				base_type = "int"
+				width_modifier = "long long"
 
 		# Collect any trailing qualifiers (e.g. "int const *")
 		while self._check(*_QUALIFIER_KEYWORDS):
@@ -460,6 +484,33 @@ class Parser:
 			width_modifier=width_modifier,
 			loc=self._loc(start_tok),
 		)
+
+	def _eval_bitint_width(self) -> int:
+		"""Evaluate the constant expression inside _BitInt(...)."""
+		return self._eval_bitint_additive()
+
+	def _eval_bitint_additive(self) -> int:
+		result = self._eval_bitint_primary()
+		while self._check(TokenType.PLUS) or self._check(TokenType.MINUS):
+			if self._match(TokenType.PLUS):
+				result += self._eval_bitint_primary()
+			else:
+				self._advance()
+				result -= self._eval_bitint_primary()
+		return result
+
+	def _eval_bitint_primary(self) -> int:
+		if self._match(TokenType.LPAREN):
+			val = self._eval_bitint_additive()
+			self._expect(TokenType.RPAREN, "Expected ')' in _BitInt width expression")
+			return val
+		tok = self._current()
+		if tok.type == TokenType.INTEGER_LITERAL:
+			self._advance()
+			if tok.value.startswith("0x") or tok.value.startswith("0X"):
+				return int(tok.value, 16)
+			return int(tok.value)
+		raise self._error(f"Expected integer in _BitInt width, got {tok.type.name}")
 
 	# -- Anonymous struct/union helpers --------------------------------------
 

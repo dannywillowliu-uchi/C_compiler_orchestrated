@@ -144,6 +144,7 @@ _NUMERIC_TYPES = {
 	"int8_t", "int16_t", "int32_t", "int64_t",
 	"uint8_t", "uint16_t", "uint32_t", "uint64_t",
 	"intptr_t", "uintptr_t", "intmax_t", "uintmax_t",
+	"__float80",
 }
 _ARITHMETIC_OPS = {"+", "-", "*", "/", "%"}
 _COMPARISON_OPS = {"<", ">", "<=", ">=", "==", "!="}
@@ -477,6 +478,8 @@ class SemanticAnalyzer(ASTVisitor):
 				is_variadic=node.is_variadic,
 			)
 			if existing is not None:
+				if existing.is_function and existing.is_prototype:
+					return node.return_type
 				self._error(f"redefinition of '{node.name}' in the same scope", node)
 				return node.return_type
 			self.symbols.define(sym)
@@ -605,8 +608,32 @@ class SemanticAnalyzer(ASTVisitor):
 		)
 		existing = self.symbols.lookup_current_scope(node.name)
 		if existing is not None:
-			self._error(f"redefinition of '{node.name}' in the same scope", node)
+			# C allows compatible redeclarations at file scope:
+			# - duplicate extern declarations
+			# - extern decl followed by definition (or vice versa)
+			# - multiple tentative definitions (no initializer)
+			# Only reject true redefinitions (both have initializers, neither extern).
+			both_have_init = (
+				existing.storage_class != "extern"
+				and node.storage_class != "extern"
+				and getattr(existing, '_has_initializer', False)
+				and node.initializer is not None
+			)
+			if both_have_init:
+				self._error(f"redefinition of '{node.name}' in the same scope", node)
+				return node.type_spec
+			# Update symbol table entry if this is a real definition replacing a declaration
+			if existing.storage_class == "extern" and node.storage_class != "extern":
+				existing.storage_class = node.storage_class
+				existing.type_spec = node.type_spec
+				existing.is_array = is_array
+				existing.array_sizes = array_size_vals
+				existing._has_initializer = node.initializer is not None
+			elif node.initializer is not None:
+				existing._has_initializer = True
 			return node.type_spec
+		if node.initializer is not None:
+			sym._has_initializer = True
 		self.symbols.define(sym)
 		return node.type_spec
 

@@ -967,6 +967,13 @@ class Preprocessor:
 
 		while i < length:
 			# Look for the macro name followed by (
+			# Guard: the character before position i must not be a word char,
+			# otherwise \b at the start of the slice gives a false positive
+			# (e.g. matching T inside ST).
+			if i > 0 and (text[i - 1].isalnum() or text[i - 1] == "_"):
+				result.append(text[i])
+				i += 1
+				continue
 			match = re.match(r"\b" + re.escape(name) + r"\b", text[i:])
 			if not match:
 				result.append(text[i])

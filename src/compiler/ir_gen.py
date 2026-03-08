@@ -243,6 +243,7 @@ class IRGenerator(ASTVisitor):
 		self._func_return_types: dict[str, IRType] = {}
 		self._user_labels: dict[str, str] = {}  # C label name -> IR label name
 		self._static_local_map: dict[str, str] = {}  # local name -> mangled global name
+		self._static_local_counter: int = 0
 		self._temp_pointee_size: dict[str, int] = {}  # pointer temp -> element size
 		self._current_function_is_variadic: bool = False
 		self._current_function_params: list[str] = []
@@ -312,6 +313,8 @@ class IRGenerator(ASTVisitor):
 		"""Check if a value originates from an unsigned type."""
 		if isinstance(val, IRTemp):
 			return self._temp_unsigned.get(val.name, False)
+		if isinstance(val, IRConst):
+			return val.is_unsigned
 		return False
 
 	def _resolve_local_ir_type(self, name: str) -> IRType:
@@ -707,7 +710,8 @@ class IRGenerator(ASTVisitor):
 
 		# Static local: emit as global with mangled name, reference via IRGlobalRef
 		if node.storage_class == "static":
-			mangled = f"{self._current_function_name}.{node.name}"
+			mangled = f"{self._current_function_name}.{node.name}.{self._static_local_counter}"
+			self._static_local_counter += 1
 			self._emit_global_var(mangled, node, storage_class="static")
 			self._static_local_map[node.name] = mangled
 			self._local_types[node.name] = node.type_spec
@@ -774,12 +778,14 @@ class IRGenerator(ASTVisitor):
 					if self._is_float_type(var_ir_type) and not self._is_float_type(val_type):
 						converted = self._new_temp()
 						self._set_temp_type(converted, var_ir_type)
-						self._emit(IRConvert(dest=converted, source=val, from_type=val_type, to_type=var_ir_type))
+						self._emit(IRConvert(dest=converted, source=val, from_type=val_type, to_type=var_ir_type, is_unsigned=self._is_unsigned_value(val)))
 						val = converted
 					elif not self._is_float_type(var_ir_type) and self._is_float_type(val_type):
 						converted = self._new_temp()
 						self._set_temp_type(converted, var_ir_type)
-						self._emit(IRConvert(dest=converted, source=val, from_type=val_type, to_type=var_ir_type))
+						ts = self._local_types.get(node.name)
+						assign_unsigned = ts is not None and _is_type_unsigned(ts)
+						self._emit(IRConvert(dest=converted, source=val, from_type=val_type, to_type=var_ir_type, is_unsigned=assign_unsigned))
 						val = converted
 					if var_ir_type == IRType.BOOL:
 						val = self._emit_bool_normalize(val)
@@ -828,6 +834,8 @@ class IRGenerator(ASTVisitor):
 			self._set_temp_type(dest, ir_type)
 			ts = self._local_types.get(node.name)
 			load_unsigned = ts is not None and ts.signedness == "unsigned"
+			if load_unsigned:
+				self._temp_unsigned[dest.name] = True
 			self._emit(IRLoad(dest=dest, address=IRGlobalRef(mangled), ir_type=ir_type, is_unsigned=load_unsigned))
 			return dest
 		src = self._locals.get(node.name)
@@ -890,7 +898,7 @@ class IRGenerator(ASTVisitor):
 			if not self._is_float_type(left_type):
 				conv = self._new_temp()
 				self._set_temp_type(conv, result_type)
-				self._emit(IRConvert(dest=conv, source=left, from_type=left_type, to_type=result_type))
+				self._emit(IRConvert(dest=conv, source=left, from_type=left_type, to_type=result_type, is_unsigned=self._is_unsigned_value(left)))
 				left = conv
 			elif left_type != result_type and self._is_float_type(left_type):
 				conv = self._new_temp()
@@ -900,7 +908,7 @@ class IRGenerator(ASTVisitor):
 			if not self._is_float_type(right_type):
 				conv = self._new_temp()
 				self._set_temp_type(conv, result_type)
-				self._emit(IRConvert(dest=conv, source=right, from_type=right_type, to_type=result_type))
+				self._emit(IRConvert(dest=conv, source=right, from_type=right_type, to_type=result_type, is_unsigned=self._is_unsigned_value(right)))
 				right = conv
 			elif right_type != result_type and self._is_float_type(right_type):
 				conv = self._new_temp()
@@ -1210,11 +1218,10 @@ class IRGenerator(ASTVisitor):
 			return IRConst(int(operand.value == 0), ir_type=IRType.INT)
 		op_type = self._value_ir_type(operand)
 		dest = self._new_temp()
-		if self._is_float_type(op_type):
-			self._set_temp_type(dest, op_type)
-			self._emit(IRUnaryOp(dest=dest, op=node.op, operand=operand, ir_type=op_type))
-		else:
-			self._emit(IRUnaryOp(dest=dest, op=node.op, operand=operand))
+		self._set_temp_type(dest, op_type)
+		if self._is_unsigned_value(operand):
+			self._temp_unsigned[dest.name] = True
+		self._emit(IRUnaryOp(dest=dest, op=node.op, operand=operand, ir_type=op_type))
 		return dest
 
 	def visit_assignment(self, node: Assignment) -> IRTemp:
@@ -1234,12 +1241,14 @@ class IRGenerator(ASTVisitor):
 			if self._is_float_type(target_type) and not self._is_float_type(val_type):
 				conv = self._new_temp()
 				self._set_temp_type(conv, target_type)
-				self._emit(IRConvert(dest=conv, source=val, from_type=val_type, to_type=target_type))
+				self._emit(IRConvert(dest=conv, source=val, from_type=val_type, to_type=target_type, is_unsigned=self._is_unsigned_value(val)))
 				val = conv
 			elif not self._is_float_type(target_type) and self._is_float_type(val_type):
 				conv = self._new_temp()
 				self._set_temp_type(conv, target_type)
-				self._emit(IRConvert(dest=conv, source=val, from_type=val_type, to_type=target_type))
+				ts = self._local_types.get(node.target.name)
+				assign_unsigned = ts is not None and _is_type_unsigned(ts)
+				self._emit(IRConvert(dest=conv, source=val, from_type=val_type, to_type=target_type, is_unsigned=assign_unsigned))
 				val = conv
 			if target_type == IRType.BOOL:
 				val = self._emit_bool_normalize(val)
@@ -1252,7 +1261,7 @@ class IRGenerator(ASTVisitor):
 			if self._is_float_type(elem_type) and not self._is_float_type(val_type):
 				conv = self._new_temp()
 				self._set_temp_type(conv, elem_type)
-				self._emit(IRConvert(dest=conv, source=val, from_type=val_type, to_type=elem_type))
+				self._emit(IRConvert(dest=conv, source=val, from_type=val_type, to_type=elem_type, is_unsigned=self._is_unsigned_value(val)))
 				val = conv
 			elif not self._is_float_type(elem_type) and self._is_float_type(val_type):
 				conv = self._new_temp()
@@ -1291,7 +1300,7 @@ class IRGenerator(ASTVisitor):
 			if self._is_float_type(member_type) and not self._is_float_type(val_type):
 				conv = self._new_temp()
 				self._set_temp_type(conv, member_type)
-				self._emit(IRConvert(dest=conv, source=val, from_type=val_type, to_type=member_type))
+				self._emit(IRConvert(dest=conv, source=val, from_type=val_type, to_type=member_type, is_unsigned=self._is_unsigned_value(val)))
 				val = conv
 			elif not self._is_float_type(member_type) and self._is_float_type(val_type):
 				conv = self._new_temp()
@@ -1312,12 +1321,14 @@ class IRGenerator(ASTVisitor):
 				if self._is_float_type(target_type) and not self._is_float_type(val_type):
 					conv = self._new_temp()
 					self._set_temp_type(conv, target_type)
-					self._emit(IRConvert(dest=conv, source=val, from_type=val_type, to_type=target_type))
+					self._emit(IRConvert(dest=conv, source=val, from_type=val_type, to_type=target_type, is_unsigned=self._is_unsigned_value(val)))
 					val = conv
 				elif not self._is_float_type(target_type) and self._is_float_type(val_type):
 					conv = self._new_temp()
 					self._set_temp_type(conv, target_type)
-					self._emit(IRConvert(dest=conv, source=val, from_type=val_type, to_type=target_type))
+					ts = self._local_types.get(node.target.name)
+					assign_unsigned = ts is not None and _is_type_unsigned(ts)
+					self._emit(IRConvert(dest=conv, source=val, from_type=val_type, to_type=target_type, is_unsigned=assign_unsigned))
 					val = conv
 				if target_type == IRType.BOOL:
 					val = self._emit_bool_normalize(val)
@@ -2899,12 +2910,24 @@ class IRGenerator(ASTVisitor):
 		cast_unsigned = _is_type_unsigned(node.target_type)
 		if cast_unsigned:
 			self._temp_unsigned[dest.name] = True
-		if self._is_float_type(target_ir_type) != self._is_float_type(val_type):
+		if self._is_float_type(target_ir_type) and not self._is_float_type(val_type):
+			# int -> float: use source's unsigned flag
+			self._emit(IRConvert(dest=dest, source=val, from_type=val_type, to_type=target_ir_type, is_unsigned=self._is_unsigned_value(val)))
+		elif not self._is_float_type(target_ir_type) and self._is_float_type(val_type):
+			# float -> int: use target's unsigned flag
 			self._emit(IRConvert(dest=dest, source=val, from_type=val_type, to_type=target_ir_type, is_unsigned=cast_unsigned))
 		elif self._is_float_type(target_ir_type) and self._is_float_type(val_type) and target_ir_type != val_type:
 			self._emit(IRConvert(dest=dest, source=val, from_type=val_type, to_type=target_ir_type))
 		elif val_type != target_ir_type:
-			self._emit(IRConvert(dest=dest, source=val, from_type=val_type, to_type=target_ir_type, is_unsigned=cast_unsigned))
+			# For integer widening, source signedness determines extension
+			# mode: zero-extend for unsigned source, sign-extend for signed.
+			from_w = self._INT_WIDTH_ORDER.get(val_type, -1)
+			to_w = self._INT_WIDTH_ORDER.get(target_ir_type, -1)
+			if from_w >= 0 and to_w > from_w:
+				convert_unsigned = self._is_unsigned_value(val)
+			else:
+				convert_unsigned = cast_unsigned
+			self._emit(IRConvert(dest=dest, source=val, from_type=val_type, to_type=target_ir_type, is_unsigned=convert_unsigned))
 		elif target_ir_type in (IRType.CHAR, IRType.SHORT, IRType.INT):
 			# Same type but may need sign/zero extension or truncation
 			self._emit(IRConvert(dest=dest, source=val, from_type=val_type, to_type=target_ir_type, is_unsigned=cast_unsigned))
